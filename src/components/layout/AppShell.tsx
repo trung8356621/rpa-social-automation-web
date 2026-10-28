@@ -40,9 +40,9 @@ export function AppShell() {
   }, [mobileNavOpen])
 
   return (
-    <div className="flex h-full min-h-full bg-background text-foreground">
-      {/* Desktop sidebar — unchanged for md+ */}
-      <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-border bg-surface md:flex">
+    <div className="flex h-full min-h-full w-full max-w-[100vw] bg-background text-foreground">
+      {/* Desktop sidebar — md+ only; never occupies width below md */}
+      <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-border bg-surface md:flex max-md:hidden">
         <BrandBlock />
         <Separator />
         <SidebarNav />
@@ -52,7 +52,7 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
+        {/* Mobile top bar — shared by all routes including Accounts */}
         <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2 md:hidden">
           <Button
             variant="outline"
@@ -73,11 +73,12 @@ export function AppShell() {
 
         <div
           role="status"
-          className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-foreground"
+          className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs break-words text-foreground"
         >
           {MOCK_BANNER}
         </div>
-        <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-4 md:px-6">
+        {/* min-w-0 + allow nested overflow-x-auto (tables) without page-wide squeeze */}
+        <main className="min-w-0 flex-1 overflow-x-auto px-3 py-4 sm:px-4 md:px-6">
           <Outlet />
         </main>
       </div>
