@@ -1,0 +1,15 @@
+---
+description: Enforce Design Language when editing UI source or styles
+globs: **/*.{tsx,ts,css,scss}
+alwaysApply: false
+---
+
+# UI Spec Lock
+
+When editing UI files:
+
+1. Re-read the **route section** in `docs/RPA_WEB_UI_ROUTES_AND_DESIGN_LANGUAGE_V1.md` for the screen you touch.
+2. Match tokens from `docs/RPA_UI_THEME_MANIFEST.md`.
+3. Do not change layout patterns already specified (e.g. Script Registry must stay video card grid; Clients must stay Browser-first).
+4. Do not add routes/menus outside the approved five.
+5. Apply `rpa-ui-design` + `rpa-visual-qa` before declaring the screen ready for API wiring.

@@ -1,0 +1,37 @@
+---
+description: Mandatory RPA Web bootstrap — UI Design Language, skills, and safety gates
+alwaysApply: true
+---
+
+# RPA Social Automation Web — Core Rules
+
+You are building **API-first React admin UI** for SEO-OPS Social Automation. Spec fidelity beats invention.
+
+## Before coding / UI / API work, apply
+
+1. `.cursor/skills/rpa-execution-guard/SKILL.md`
+2. `.cursor/skills/rpa-token-discipline/SKILL.md`
+3. Domain skill matching the task:
+   - UI/layout/visual → `rpa-ui-design`
+   - structure/stack/routes → `rpa-react-architecture`
+   - API/OpenAPI/auth/mock→live → `rpa-api-contract`
+   - acceptance/screenshots → `rpa-visual-qa`
+
+## UI Design Language is mandatory
+
+- Canonical: `docs/RPA_WEB_UI_ROUTES_AND_DESIGN_LANGUAGE_V1.md` + `docs/RPA_UI_THEME_MANIFEST.md`
+- Exactly **5 menus**: Action Tags, Script Registry, Accounts, Clients, Client API Keys
+- Do **not** invent menus, layouts, KPIs, or actions outside the specification
+- Compact Desktop Control Center: no gradients/glass/heavy shadows/nested ornamental cards
+- Browser-first Clients; Account ID identity; never put Client API Key secrets in the web app
+
+## Hard stops / general
+
+- Stay inside the **currently approved checkpoint**; do not scaffold, deploy, or expand scope without owner approval
+- No production mutations while building UI
+- No commit/push without explicit owner request
+- Build success ≠ UI done
+
+## Checkpoint replies
+
+Keep short: DONE / FILES / VERIFIED / UI status / BLOCKED / NEXT

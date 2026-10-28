@@ -1,0 +1,74 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+/*
+  RPA UI Theme Manifest v0.1 — light tokens as default.
+  Dark tokens available via .dark for later; no theme editor in this checkpoint.
+*/
+@theme {
+  --font-sans: "Inter Variable", Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9;
+  --color-foreground: #0f172a;
+  --color-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+
+  --radius-control: 6px;
+  --radius-card: 10px;
+}
+
+.dark {
+  --color-background: #0b1220;
+  --color-surface: #111b2e;
+  --color-surface-muted: #172338;
+  --color-foreground: #e8eef8;
+  --color-muted: #94a3b8;
+  --color-border: #29364b;
+  --color-primary: #3b82f6;
+  --color-primary-foreground: #0b1220;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  #root {
+    min-height: 100%;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
