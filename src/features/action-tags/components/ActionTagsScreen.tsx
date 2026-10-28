@@ -24,6 +24,8 @@ type ActionTagsScreenProps = {
   actions: ActionItem[]
   tags: ActionTagItem[]
   authScripts: AuthScriptOption[]
+  /** False in live CP9A — mutation controls disabled */
+  mutationsEnabled?: boolean
   onOpenSitesPaths: () => void
   onCreateTag: (data: {
     site_id: number
@@ -44,6 +46,7 @@ export function ActionTagsScreen({
   actions,
   tags,
   authScripts,
+  mutationsEnabled = true,
   onOpenSitesPaths,
   onCreateTag,
   onUpdateTagAuthScript,
@@ -146,7 +149,16 @@ export function ActionTagsScreen({
               <FolderTree className="size-3.5" />
               Manage Sites & Paths
             </Button>
-            <Button type="button" onClick={() => setDrawerOpen(true, 'add')}>
+            <Button
+              type="button"
+              onClick={() => setDrawerOpen(true, 'add')}
+              disabled={!mutationsEnabled}
+              title={
+                mutationsEnabled
+                  ? undefined
+                  : 'Live editing not enabled yet'
+              }
+            >
               <Plus className="size-3.5" />
               Add Tag
             </Button>
@@ -262,10 +274,21 @@ export function ActionTagsScreen({
                       className="mt-4"
                       type="button"
                       onClick={() => setDrawerOpen(true, 'add')}
+                      disabled={!mutationsEnabled}
+                      title={
+                        mutationsEnabled
+                          ? undefined
+                          : 'Live editing not enabled yet'
+                      }
                     >
                       <Plus className="size-3.5" />
                       Add First Tag
                     </Button>
+                    {!mutationsEnabled ? (
+                      <p className="mt-2 text-xs text-muted">
+                        Live editing not enabled yet
+                      </p>
+                    ) : null}
                   </td>
                 </tr>
               ) : filteredTags.length === 0 ? (
@@ -335,8 +358,13 @@ export function ActionTagsScreen({
                             onClick={() =>
                               setDrawerOpen(true, 'edit-auth', tag.id)
                             }
+                            disabled={!mutationsEnabled}
                             aria-label={`Edit Auth Script for ${tag.tag_key}`}
-                            title="Edit Auth Script (MOCK)"
+                            title={
+                              mutationsEnabled
+                                ? 'Edit Auth Script (MOCK)'
+                                : 'Live editing not enabled yet'
+                            }
                           >
                             <Pencil className="size-3.5" />
                           </Button>
@@ -345,7 +373,13 @@ export function ActionTagsScreen({
                             size="sm"
                             className="border-danger/30 text-danger hover:bg-danger/5"
                             onClick={() => void onDeleteTag(tag.id, tag.tag_key)}
+                            disabled={!mutationsEnabled}
                             aria-label={`Delete ${tag.tag_key}`}
+                            title={
+                              mutationsEnabled
+                                ? undefined
+                                : 'Live editing not enabled yet'
+                            }
                           >
                             <Trash2 className="size-3.5" />
                           </Button>
@@ -360,19 +394,21 @@ export function ActionTagsScreen({
         </div>
       </div>
 
-      <AddTagDrawer
-        open={isDrawerOpen}
-        mode={isEditAuthDrawer ? 'edit-auth' : 'create'}
-        editingTag={editingTag}
-        sites={sites}
-        paths={paths}
-        actions={displayActions}
-        authScripts={authScripts}
-        onClose={() => setDrawerOpen(false)}
-        onOpenSitesPaths={onOpenSitesPaths}
-        onCreate={onCreateTag}
-        onUpdateAuthScript={onUpdateTagAuthScript}
-      />
+      {mutationsEnabled ? (
+        <AddTagDrawer
+          open={isDrawerOpen}
+          mode={isEditAuthDrawer ? 'edit-auth' : 'create'}
+          editingTag={editingTag}
+          sites={sites}
+          paths={paths}
+          actions={displayActions}
+          authScripts={authScripts}
+          onClose={() => setDrawerOpen(false)}
+          onOpenSitesPaths={onOpenSitesPaths}
+          onCreate={onCreateTag}
+          onUpdateAuthScript={onUpdateTagAuthScript}
+        />
+      ) : null}
     </div>
   )
 }

@@ -5,7 +5,8 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { MOCK_BANNER } from '@/mocks/labels'
+import { getRpaApiMode } from '@/lib/api/config'
+import { LIVE_BANNER, MOCK_BANNER } from '@/mocks/labels'
 
 import { SidebarNav } from './SidebarNav'
 
@@ -25,6 +26,9 @@ function BrandBlock() {
 export function AppShell() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const isLive = getRpaApiMode() === 'live'
+  const modeBadge = isLive ? 'DEV / LIVE' : 'DEV / MOCK'
+  const modeBanner = isLive ? LIVE_BANNER : MOCK_BANNER
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -47,7 +51,7 @@ export function AppShell() {
         <Separator />
         <SidebarNav />
         <div className="mt-auto border-t border-border px-3 py-3">
-          <Badge variant="warning">DEV / MOCK</Badge>
+          <Badge variant="warning">{modeBadge}</Badge>
         </div>
       </aside>
 
@@ -68,14 +72,14 @@ export function AppShell() {
               Social Automation
             </div>
           </div>
-          <Badge variant="warning">DEV / MOCK</Badge>
+          <Badge variant="warning">{modeBadge}</Badge>
         </div>
 
         <div
           role="status"
           className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs break-words text-foreground"
         >
-          {MOCK_BANNER}
+          {modeBanner}
         </div>
         {/* min-w-0 + allow nested overflow-x-auto (tables) without page-wide squeeze */}
         <main className="min-w-0 flex-1 overflow-x-auto px-3 py-4 sm:px-4 md:px-6">
@@ -113,7 +117,7 @@ export function AppShell() {
             <Separator />
             <SidebarNav />
             <div className="mt-auto border-t border-border px-3 py-3">
-              <Badge variant="warning">DEV / MOCK</Badge>
+              <Badge variant="warning">{modeBadge}</Badge>
             </div>
           </aside>
         </div>

@@ -1,146 +1,118 @@
 # CP8 — React Integration Handoff (Auth Script / Action Tags)
 
 **Date:** 2026-10-28  
+**Update:** Checkpoint **7.2** — aligned with Laravel security contract  
 **Repo:** `rpa-social-automation-web`  
-**Status:** Wire-up brief for **after** Laravel CP8 APIs exist. **No React code in CP7.1.**  
-**Authority:** `AUTH_SCRIPT_WORDPRESS_CONTRACT_CP7.md`, `CP7_OWNER_DECISIONS.md`  
-**UI lock:** Action Tags route only for Auth attach; do not expand menus.
+**Status:** Wire-up brief **after** Laravel CP8 staff APIs exist. **No React code in CP7.2.**  
+**Authority:** `AUTH_SCRIPT_WORDPRESS_CONTRACT_CP7.md`, `CP8_LARAVEL_IMPLEMENTATION_HANDOFF.md`  
+**UI lock:** Action Tags route only; five menus unchanged.
 
 ---
 
-## 1. Scope for React (post-CP8 API)
+## 1. Scope
 
-| In scope | Out of scope / later |
+| In scope (when live) | Out of scope |
 | --- | --- |
-| Action Tags: load `auth_script` + `auth_scripts` from live `GET .../data` | Script Registry live `is_authentication` badge (needs staff scripts REST) |
-| Action Tags: Update Tag Auth pin via **PROPOSED** `PUT .../tags/{id}` | Clients Browser inventory live |
-| Loading / empty / error for Auth catalog | Electron resolve UI |
-| Keep demo query / mock fallback until live proven | Client API Key usage in browser |
+| Create Tag **with** Auth pin (atomic POST if Laravel ships it) | Client `auth-script/resolve` (Electron) |
+| Edit Tag Auth pin (`PUT`) | Client API Key in Web |
+| Clear Auth pin (`PUT` null pair) | Clients inventory live |
+| Explicit **published release** select (D3) | Script Registry staff REST |
+| Show unavailable pinned release | Claiming mutation success before server OK |
+| Handle 401/403/409/422/5xx | Platform-based Auth “smart” filter as backend truth |
 
 ---
 
-## 2. Existing mock fields (SOURCE in this repo)
+## 2. Existing mock fields (this repo)
 
-| File | Field | Classification |
+| Location | Field | Note |
 | --- | --- | --- |
-| `src/features/action-tags/types.ts` | `AuthScriptOption.script_id`, `name`, `version`, `status`, `is_authentication` | MOCK / anticipates PROPOSED |
-| | `compatible_site_keys` | MOCK-only filter; **deferred** on backend |
-| | `ActionTagItem.auth_script` `{ script_id, name, version }` | MOCK — extend with `release_id` |
-| | `ActionRegistryData.auth_scripts` | MOCK catalog |
-| `use-action-registry-mock.ts` | Local create/update Auth; notes missing backend update | MOCK |
-| `AddTagDrawer.tsx` | `auth_script_id` in submit payload | MOCK — must send **`auth_release_id`** when live (D3) |
-| `script-registry/types.ts` | `is_authentication?` | MOCK; staff scripts API still MISSING |
+| `action-tags/types.ts` | `auth_script`, `auth_scripts`, `is_authentication` | MOCK anticipates PROPOSED |
+| | `compatible_site_keys` | MOCK only — **remain MOCK** |
+| `AddTagDrawer.tsx` | submits `auth_script_id` | Live must also send **`auth_release_id`** |
+| `use-action-registry-mock.ts` | local create/update Auth | Replace with staff APIs when gated live |
+| `script-registry` `is_authentication?` | MOCK | No staff scripts list API yet |
 
 ---
 
-## 3. Proposed backend field mapping
+## 3. Backend mapping (CP7.2)
 
-### 3.1 Tag row
+### 3.1 Create Tag + pin
 
-| React (target) | Backend PROPOSED | Notes |
-| --- | --- | --- |
-| `tag.auth_script` | `tags[].auth_script` | null if unset |
-| `auth_script.script_id` | `auth_script.script_id` | maps from `auth_script_id` |
-| `auth_script.release_id` | `auth_script.release_id` | **required for pin UX** (add to types when wiring) |
-| `auth_script.version` | `auth_script.version` | display |
-| `auth_script.name` | `auth_script.name` | display |
-| `auth_script.status` | `auth_script.status` | `published` \| `unavailable` \| … |
-
-### 3.2 Catalog
-
-| React | Backend PROPOSED |
+| UI | API |
 | --- | --- |
-| `auth_scripts[].script_id` | same |
-| `auth_scripts[].name` | same |
-| `auth_scripts[].is_authentication` | always true in catalog |
-| `auth_scripts[].version` (mock single) | Prefer `releases[]` with `release_id`+`version`; UI must pick a **release** to pin |
-| `compatible_site_keys` | **Remain MOCK / omit** until backend ships field |
+| Add Tag drawer with Auth + release | `POST /social-automation/api/action-registry/tags` (**SOURCE** path) + **PROPOSED** body fields `auth_script_id`, `auth_release_id` |
+| No Auth selected | Omit fields or null pair — **backward compatible** |
 
-### 3.3 Update mutation
+### 3.2 Edit / clear pin
 
-| Mock today | Live PROPOSED |
+| UI | API |
 | --- | --- |
-| `{ auth_script_id }` only | `{ auth_script_id, auth_release_id }` both set or both null |
-| Local state merge | `PUT /social-automation/api/action-registry/tags/{id}` staff session |
+| Edit Tag Auth | `PUT .../tags/{id}` **PROPOSED** both set |
+| Clear Auth | `PUT` both `null` |
 
-**UI change when wiring:** Auth select = script **and** published release (two-step or grouped select). Mock single-version shortcut is insufficient under D3.
+### 3.3 Read
 
----
-
-## 4. API client boundaries
-
-| Concern | Rule |
+| UI | API |
 | --- | --- |
-| Auth | SEO-OPS **staff session** (+ CSRF on mutate) — same as future Accounts/Keys live |
-| Base path | `/social-automation/api/action-registry/...` |
-| Forbidden | Client API Key in React; calling `/api/v1/social-automation/client/*` |
-| Forbidden | RPA Admin Bearer for staff Action Tags page |
-| Transport | Shared fetch/api helper (create when first live route wires); keep feature hooks thin |
-| OpenAPI | Treat repo/live OpenAPI as contract after CP8 merge; do not invent paths |
+| Grid / drawer | `GET .../data` **SOURCE** + PROPOSED `tags[].auth_script` (`script_id`, `release_id`, `version`, `name`, `status`) |
+| Catalog | PROPOSED `auth_scripts[]` with **`releases[{release_id,version,status}]`** |
 
-**Existing SOURCE staff GETs (for later menus, not Auth-specific):** accounts, client-keys, action-registry data/sites/paths/tags create/delete.
+### 3.4 Display rules
+
+- Pin `status=unavailable` / missing release → warning badge; block save until new published release chosen or clear.  
+- Never invent “use latest” in UI.  
+- Never show success toast until HTTP 2xx from server.
 
 ---
 
-## 5. Loading / empty / error behavior
+## 4. HTTP handling (staff session)
 
-| State | Behavior |
+| Status | UI behavior |
 | --- | --- |
-| Loading | Keep existing Action Tags loading demo / skeleton; disable Auth select |
-| Empty Auth catalog | Select shows “Không có Auth Script published”; allow clear/null; do not fake options |
-| Empty Tags | Existing empty-tags scenario |
-| Error load `data` | Existing error demo / toast; no silent mock fallback once live mode on |
-| Update 422 pin errors | Show server message / code (`auth_release_not_published`, etc.) |
-| Update network fail | Toast; leave drawer open; do not claim saved |
-| Pin `status=unavailable` | Show warning on row; force re-select before save |
+| 401 | Session expired → re-auth guidance; no mock success |
+| 403 | Permission denied message |
+| 409 | Conflict message (if any) |
+| 422 | Show server `error` / validation (incomplete pin, not Auth package, unpublished release) |
+| 5xx | Generic failure; leave drawer open |
+| 2xx | Then update local cache / close drawer |
 
-Preserve query-driven demos (`?demo=`) for local UI without login until owner enables live mode.
-
----
-
-## 6. Mock-to-live transition
-
-1. **Gate:** Laravel CP8 verified (unit + staff session smoke) + owner approval for React live read (and mutate).  
-2. Add API module for action-registry; map DTOs including `release_id`.  
-3. Feature flag / env: `VITE_RPA_API_MODE=mock|live` (or project-equivalent) — default mock.  
-4. Live read `GET .../data` first; keep Auth update mock until PUT proven.  
-5. Enable live PUT Auth pin on non-prod installation only.  
-6. Remove or quarantine Auth-only mock seeds once live catalog trusted.  
-7. Do **not** auto-wire Script Registry / Clients in the same pass.
+**Auth:** Staff session + CSRF on mutate. **Never** Client API Key in browser.
 
 ---
 
-## 7. Features that must remain MOCK (until their contracts exist)
+## 5. Mock → live
 
-| Feature | Why |
+1. Wait Laravel staff create/PUT/`data` verified (+ OpenAPI).  
+2. Env/flag `mock|live` — default mock.  
+3. Live **read** first; then live create/PUT on non-prod.  
+4. Extend types with `release_id`; dual select script+release.  
+5. Keep `?demo=` for offline QA.  
+6. Do not wire Clients/Scripts in same pass.  
+7. Electron resolve/SB1/SB2 are **not** React work.
+
+---
+
+## 6. Must remain MOCK
+
+- Clients inventory, Keys lease badges, Script Registry CDN URLs, `compatible_site_keys` as real filter, Force Disconnect / Release Lease, passwords/raw keys, any Client-key calls.
+
+---
+
+## 7. Contract delta vs CP7.1 React brief
+
+| Delta | Action |
 | --- | --- |
-| Clients Browser inventory grid | Staff Browser-first REST MISSING |
-| Client API Keys lease/heartbeat badges | Not on keys index JSON |
-| Script Registry `video_url` / `thumbnail_url` presentation | Media-by-id; no CDN assumption |
-| Script Registry full staff list/remove | Staff scripts REST MISSING |
-| `compatible_site_keys` catalog filter | Backend field not approved/implemented |
-| Force Disconnect / Release Lease / Execute from Web | No contract |
-| Electron Auth resolve UX | Client app, not React Web |
-| Any Client password / raw key display | Forbidden in Web |
-
-Action Tags Auth select may go live **only** for fields backed by CP8 APIs; keep MOCK label on deferred pieces (compatibility keys).
+| Atomic **create + pin** | Preferred over create-then-PUT |
+| Explicit release on create **and** edit | Required (D3) |
+| Error taxonomy 401/403/422 | Do not treat as soft mock success |
+| Resolve endpoint | Out of React scope; security blockers are Laravel/Electron |
+| Unavailable pin display | Required for staff honesty |
 
 ---
 
-## 8. Acceptance for React Auth wire (later checkpoint)
+## 8. Stop / ask
 
-- Live `data` shows pinned Auth version on WordPress Tag.  
-- Staff can attach/clear pin; incomplete pair rejected.  
-- Catalog lists only Auth packages with published releases.  
-- Mock mode still works offline for UI QA.  
-- No Client API Key in bundle/network from Web.  
-- Visual QA per `rpa-visual-qa` after layout-touching changes.
-
----
-
-## 9. Stop / ask
-
-- Wiring React before Laravel PUT/data/catalog exist  
-- Sending only `auth_script_id` without `auth_release_id`  
-- Platform-based Auth filtering presented as backend truth  
-- Expanding to Clients/Scripts live in same PR without owner scope
+- Live wire before staff PUT/create-pin APIs exist  
+- Sending only `auth_script_id`  
+- Using Client resolve from Web  
+- Expanding menu scope without owner approval

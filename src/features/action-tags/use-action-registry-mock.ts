@@ -34,7 +34,8 @@ function nextId(items: { id: number }[]): number {
   return items.reduce((max, item) => Math.max(max, item.id), 0) + 1
 }
 
-export function useActionRegistryMock() {
+export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
 
@@ -55,6 +56,8 @@ export function useActionRegistryMock() {
   )
 
   useEffect(() => {
+    if (!enabled) return
+
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -83,7 +86,7 @@ export function useActionRegistryMock() {
     return () => {
       cancelled = true
     }
-  }, [demo])
+  }, [demo, enabled])
 
   const createTag = useCallback(
     async (payload: {

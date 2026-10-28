@@ -36,31 +36,41 @@ export type ActionItem = {
 }
 
 /**
- * MOCK presentation for Authentication Script options.
- * Backend evidence (Oct 2026): NO verified `is_authentication` flag on packages yet.
- * Existing `sa_action_tag_scripts` links tags→script_id/version but is not Auth-role specific.
+ * Authentication Script catalog option.
+ * Live CP8A: `package_id` + `package_key` + published `releases[]`.
+ * Mock: `script_id` string seed (e.g. wordpress.login); `compatible_site_keys` remains MOCK-only.
  */
 export type AuthScriptOption = {
-  /** Prefer package/script identity — mirrors sa_action_tag_scripts.script_id shape */
+  /** Display / mock identity — live maps from package_key */
   script_id: string
+  /** Live sa_packages.id — required for future auth-pin mutations */
+  package_id?: number
   name: string
-  /** Active release version when known */
+  /** Preferred published release version when known */
   version: string | null
-  /** published = selectable; draft/yanked/unavailable = shown disabled in mock */
+  /** published = selectable; draft/yanked/unavailable = shown disabled */
   status: 'published' | 'draft' | 'yanked' | 'unavailable'
   is_authentication: boolean
   /**
    * MOCK-only site keys this Auth Script is seeded for (e.g. `wordpress`).
-   * `null` / omitted = compatibility unknown — show with unverified note; do not invent backend filter.
-   * Not derived from script display name. Production contract still missing.
+   * Live catalog does not provide this — keep null and do not invent filters.
    */
   compatible_site_keys?: string[] | null
+  /** Live published releases for explicit pin (D3) */
+  releases?: Array<{
+    release_id: number
+    version: string
+    status: string
+  }>
 }
 
 export type ActionTagAuthScript = {
   script_id: string
+  package_id?: number
+  release_id?: number | null
   name: string
   version: string | null
+  status?: 'published' | 'unavailable'
 } | null
 
 export type ActionTagItem = {
@@ -81,7 +91,7 @@ export type ActionTagItem = {
   ready: boolean
   latest_request_status?: string | null
   latest_request_id?: string | null
-  /** MOCK local link only until backend Auth Script contract exists */
+  /** Resolved pin summary (mock local or live join of auth_* ids + catalog) */
   auth_script?: ActionTagAuthScript
 }
 

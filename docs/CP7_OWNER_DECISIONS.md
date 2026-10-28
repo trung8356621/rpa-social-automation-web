@@ -133,9 +133,22 @@
 
 ---
 
-## Related CP7.1 docs
+## CP7.2 — Security decisions still open (do not change D1–D4)
 
-- `AUTH_SCRIPT_WORDPRESS_CONTRACT_CP7.md` — finalized PROPOSED data + Browser Open behavior  
-- `WORDPRESS_FIRST_INTEGRATION_PLAN_CP7.md` — sequence updated to approved decisions  
-- `CP8_LARAVEL_IMPLEMENTATION_HANDOFF.md` — Laravel implementer brief  
-- `CP8_REACT_INTEGRATION_HANDOFF.md` — React wire-up brief (still mock until APIs exist)
+| ID | Question | Options |
+| --- | --- | --- |
+| **SB1** | How is Action Tag authorized for an Account on Client resolve? | **A** Account↔Tag binding table · **B** short-lived Browser Open intent · **C** written risk acceptance (installation-wide Tag if Browser↔Account proven) |
+| **SB2** | Approve Client pinned script pull (`package_key`+`version`) under Client API Key? | Required for Electron Auth download (Admin pull already pins by version) |
+| **SB3** | Require active connection lease on resolve/pull? | **Recommended: yes** |
+
+Until SB1/SB2 clear: **do not claim** Client resolve production-ready.
+
+---
+
+## Related docs
+
+- `AUTH_SCRIPT_WORDPRESS_CONTRACT_CP7.md` — PROPOSED data + security taxonomy (CP7.2)  
+- `WORDPRESS_FIRST_INTEGRATION_PLAN_CP7.md` — sequence + blockers  
+- `CP8_LARAVEL_IMPLEMENTATION_HANDOFF.md` — Laravel + security blockers  
+- `CP8_REACT_INTEGRATION_HANDOFF.md` — React wire-up (mock until APIs)  
+- `CP8_PRODUCTION_READINESS_CHECKLIST.md` — VPS BEFORE/VERIFY/ROLLBACK

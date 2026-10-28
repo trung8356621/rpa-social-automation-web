@@ -15,6 +15,8 @@ import { parseInputsFromPattern, resolveUrl } from '../utils'
 type SitesPathsScreenProps = {
   sites: Site[]
   paths: PathItem[]
+  /** False in live CP9A — create/edit Site & Path disabled */
+  mutationsEnabled?: boolean
   onBackToTags: () => void
   onSaveSite: (siteData: {
     id?: number
@@ -36,6 +38,7 @@ type SitesPathsScreenProps = {
 export function SitesPathsScreen({
   sites,
   paths,
+  mutationsEnabled = true,
   onBackToTags,
   onSaveSite,
   onSavePath,
@@ -272,17 +275,36 @@ export function SitesPathsScreen({
               <ArrowLeft className="size-3.5" />
               Action Tags
             </Button>
-            <Button variant="outline" onClick={openAddSiteModal}>
+            <Button
+              variant="outline"
+              onClick={openAddSiteModal}
+              disabled={!mutationsEnabled}
+              title={
+                mutationsEnabled ? undefined : 'Live editing not enabled yet'
+              }
+            >
               <Plus className="size-3.5" />
               Add Site
             </Button>
-            <Button onClick={startAddPath}>
+            <Button
+              onClick={startAddPath}
+              disabled={!mutationsEnabled}
+              title={
+                mutationsEnabled ? undefined : 'Live editing not enabled yet'
+              }
+            >
               <Plus className="size-3.5" />
               Add Path
             </Button>
           </>
         }
       />
+
+      {!mutationsEnabled ? (
+        <div className="mb-3 rounded-[var(--radius-control)] border border-border bg-surface-muted/60 px-3 py-2 text-xs text-muted">
+          Live editing not enabled yet — Sites/Paths are read-only in CP9A.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
         <section className="rounded-[var(--radius-card)] border border-border bg-surface p-3 xl:col-span-4">
@@ -301,7 +323,17 @@ export function SitesPathsScreen({
             {sites.length === 0 ? (
               <div className="px-2 py-6 text-center text-sm text-muted">
                 <p>Chưa có website nào.</p>
-                <Button className="mt-3" size="sm" onClick={openAddSiteModal}>
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  onClick={openAddSiteModal}
+                  disabled={!mutationsEnabled}
+                  title={
+                    mutationsEnabled
+                      ? undefined
+                      : 'Live editing not enabled yet'
+                  }
+                >
                   + Add Site
                 </Button>
               </div>
@@ -357,7 +389,13 @@ export function SitesPathsScreen({
                         e.stopPropagation()
                         openEditSiteModal(site)
                       }}
+                      disabled={!mutationsEnabled}
                       aria-label={`Edit ${site.name}`}
+                      title={
+                        mutationsEnabled
+                          ? undefined
+                          : 'Live editing not enabled yet'
+                      }
                     >
                       <Pencil className="size-3.5" />
                     </Button>
@@ -394,7 +432,17 @@ export function SitesPathsScreen({
                       <td colSpan={3} className="px-3 py-8 text-center text-sm text-muted">
                         Site này chưa có URL Path nào.
                         <div>
-                          <Button className="mt-3" size="sm" onClick={startAddPath}>
+                          <Button
+                            className="mt-3"
+                            size="sm"
+                            onClick={startAddPath}
+                            disabled={!mutationsEnabled}
+                            title={
+                              mutationsEnabled
+                                ? undefined
+                                : 'Live editing not enabled yet'
+                            }
+                          >
                             + Add Path
                           </Button>
                         </div>
@@ -570,7 +618,14 @@ export function SitesPathsScreen({
                 </Button>
                 <Button
                   onClick={() => void handleSavePath()}
-                  disabled={isSavingPath || !activeSite}
+                  disabled={
+                    isSavingPath || !activeSite || !mutationsEnabled
+                  }
+                  title={
+                    mutationsEnabled
+                      ? undefined
+                      : 'Live editing not enabled yet'
+                  }
                 >
                   {isSavingPath ? 'Saving...' : 'Save Path'}
                 </Button>
@@ -693,7 +748,12 @@ export function SitesPathsScreen({
               </Button>
               <Button
                 onClick={() => void handleSaveSite()}
-                disabled={isSavingSite}
+                disabled={isSavingSite || !mutationsEnabled}
+                title={
+                  mutationsEnabled
+                    ? undefined
+                    : 'Live editing not enabled yet'
+                }
               >
                 {isSavingSite ? 'Saving...' : 'Save Site'}
               </Button>

@@ -15,8 +15,9 @@
 | `CLIENTS_BROWSER_INVENTORY_CONTRACT_CP7.md` | CP7 Browser-first staff inventory (PROPOSED) |
 | `WORDPRESS_FIRST_INTEGRATION_PLAN_CP7.md` | CP7/7.1 WordPress-first sequence |
 | `CP7_OWNER_DECISIONS.md` | CP7 decisions (D1–D4 approved design) |
-| `CP8_LARAVEL_IMPLEMENTATION_HANDOFF.md` | CP8 Laravel Auth Script implementer brief |
+| `CP8_LARAVEL_IMPLEMENTATION_HANDOFF.md` | CP8 Laravel Auth Script + security blockers (CP7.2) |
 | `CP8_REACT_INTEGRATION_HANDOFF.md` | CP8 React Action Tags Auth wire-up brief |
+| `CP8_PRODUCTION_READINESS_CHECKLIST.md` | CP8 VPS BEFORE/VERIFY/ROLLBACK checklist |
 | `mockups/` | Visual concepts only — text docs win on conflict |
 
 ## Architecture (chốt 28/10/2026)
