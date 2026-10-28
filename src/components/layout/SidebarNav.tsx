@@ -14,7 +14,8 @@ export function SidebarNav() {
             to={item.to}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-2 rounded-[var(--radius-control)] px-2.5 py-2 text-sm transition-colors',
+                'flex items-center gap-2 rounded-[var(--radius-control)] border border-transparent px-2.5 py-2 text-sm transition-colors outline-none',
+                'focus-visible:border-primary/40 focus-visible:ring-0',
                 isActive
                   ? 'bg-primary/10 font-medium text-primary'
                   : 'text-muted hover:bg-surface-muted hover:text-foreground',

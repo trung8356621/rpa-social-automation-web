@@ -67,8 +67,18 @@
     min-height: 100%;
   }
 
+  /* Prefer ring utilities on controls; avoid heavy default outline on every focusable. */
+  :focus {
+    outline: none;
+  }
+
   :focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
+    outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+    outline-offset: 1px;
+  }
+
+  a:focus:not(:focus-visible),
+  button:focus:not(:focus-visible) {
+    outline: none;
   }
 }

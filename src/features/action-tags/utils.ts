@@ -1,0 +1,80 @@
+import type { PathInput } from './types'
+
+export function parseInputsFromPattern(pattern: string): PathInput[] {
+  if (!pattern) return []
+  const matches = pattern.matchAll(/\{([a-zA-Z0-9_]+)\}/g)
+  const keys = Array.from(new Set(Array.from(matches, (m) => m[1])))
+  return keys.map((key) => ({
+    key,
+    type: 'String',
+    required: true,
+  }))
+}
+
+export function resolveUrl(
+  baseUrl: string,
+  pattern: string,
+  inputValues: Record<string, string>,
+): {
+  url: string
+  missing: string[]
+  valid: boolean
+  error?: string | null
+} {
+  const normBase = (baseUrl || '').trim().replace(/\/+$/, '')
+  let normPattern = (pattern || '').trim()
+  if (!normPattern) normPattern = '/'
+  if (!normPattern.startsWith('/')) normPattern = `/${normPattern}`
+
+  const inputs = parseInputsFromPattern(normPattern)
+  const missing: string[] = []
+  let resolved = normPattern
+
+  if (!normBase) {
+    missing.push('base_url')
+  }
+
+  for (const input of inputs) {
+    const val = inputValues[input.key]?.trim() ?? ''
+    if (!val) {
+      missing.push(input.key)
+    } else {
+      resolved = resolved.replace(
+        new RegExp(`\\{${input.key}\\}`, 'g'),
+        encodeURIComponent(val),
+      )
+    }
+  }
+
+  const fullUrl = normBase ? normBase + (resolved === '/' ? '' : resolved) : ''
+  const isValid = missing.length === 0
+
+  let error: string | null = null
+  if (!isValid) {
+    if (missing.includes('base_url')) {
+      error = 'Base URL không được để trống.'
+    } else {
+      error = `Chưa điền đủ tham số: ${missing.join(', ')}`
+    }
+  }
+
+  return {
+    url: fullUrl,
+    missing,
+    valid: isValid,
+    error,
+  }
+}
+
+export function slugifyKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 48) || 'site'
+}
+
+export function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
