@@ -1,6 +1,6 @@
 /**
- * Shapes mirrored from seo-ops-addons-rpa ScriptRegistryUiService
- * (listScriptsForUi / scriptDetail). Mock-only until live API wiring.
+ * Shapes aligned with Staff Script Registry REST + ScriptRegistryUiService.
+ * LIVE maps `video_media_url` / `thumbnail_media_url` → presentation URLs.
  */
 
 export type VideoDemoStatus =
@@ -26,16 +26,13 @@ export type ScriptListItem = {
   has_thumbnail: boolean
   video_media_id: number | null
   thumbnail_media_id: number | null
-  /** MOCK presentation URL — not production media CDN */
+  /** Presentation URL for card/thumb — mock asset or Staff `thumbnail_media_url` */
   thumbnail_url: string | null
-  /** MOCK presentation URL for player — not production binary */
+  /** Presentation URL for player — mock or Staff `video_media_url` */
   video_url: string | null
   last_sync_label: string
   updated_by_label: string
-  /**
-   * MOCK-only Auth Script mark for Checkpoint 2.1 continuity.
-   * Backend has no verified `is_authentication` field.
-   */
+  /** From Staff `is_authentication` (LIVE) or mock seed */
   is_authentication?: boolean
 }
 

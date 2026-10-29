@@ -20,12 +20,20 @@ import {
 type ScriptsScreenProps = {
   scripts: ScriptListItem[]
   getDetail: (packageKey: string) => ScriptDetail | null
+  detailLoading?: boolean
+  detailError?: string | null
+  mutationsEnabled?: boolean
+  mode?: 'mock' | 'live'
   onRemoveScript: (packageKey: string) => Promise<void>
 }
 
 export function ScriptsScreen({
   scripts,
   getDetail,
+  detailLoading = false,
+  detailError = null,
+  mutationsEnabled = true,
+  mode = 'mock',
   onRemoveScript,
 }: ScriptsScreenProps) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -76,14 +84,23 @@ export function ScriptsScreen({
   }, [scripts, search, statusFilter])
 
   const openVideo = (script: ScriptListItem) => {
-    setVideoTarget(videoTargetFromScript(script))
+    setVideoTarget({
+      ...videoTargetFromScript(script),
+      playbackMode: mode === 'live' ? 'live' : 'mock',
+    })
   }
+
+  const isLive = mode === 'live'
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Script Registry"
-        description="Catalog Script dạng card 16:9 + video demo. MOCK local — không gọi API production."
+        description={
+          isLive
+            ? 'Catalog Script dạng card 16:9 + video demo (Staff Session LIVE).'
+            : 'Catalog Script dạng card 16:9 + video demo. MOCK local — không gọi API production.'
+        }
       />
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -111,7 +128,9 @@ export function ScriptsScreen({
           <option value="review">Review (assets)</option>
           <option value="disabled">Disabled</option>
           <option value="missing-video">Missing video</option>
-          <option value="auth">Authentication (MOCK)</option>
+          <option value="auth">
+            {isLive ? 'Authentication' : 'Authentication (MOCK)'}
+          </option>
         </Select>
       </div>
 
@@ -119,7 +138,9 @@ export function ScriptsScreen({
         <div className="rounded-[var(--radius-card)] border border-border bg-surface px-4 py-10 text-center">
           <p className="text-sm font-medium text-foreground">No scripts</p>
           <p className="mt-1 text-sm text-muted">
-            Script Registry trống (MOCK empty demo).
+            {isLive
+              ? 'Chưa có Script published trong Staff Registry.'
+              : 'Script Registry trống (MOCK empty demo).'}
           </p>
         </div>
       ) : filtered.length === 0 ? (
@@ -145,6 +166,7 @@ export function ScriptsScreen({
             <ScriptCard
               key={script.package_key}
               script={script}
+              removeEnabled={mutationsEnabled}
               onOpenDetails={setDetail}
               onPlayVideo={openVideo}
               onRemove={setConfirmKey}
@@ -153,11 +175,44 @@ export function ScriptsScreen({
         </div>
       )}
 
+      {selectedKey && detailLoading && !detail ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-end">
+          <div className="h-full w-full max-w-lg border-l border-border bg-surface p-4">
+            <p className="text-sm font-medium text-foreground">
+              Loading script detail…
+            </p>
+            <p className="mt-1 text-sm text-muted">{selectedKey}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedKey && detailError && !detail ? (
+        <div className="fixed inset-0 z-40 flex justify-end">
+          <button
+            type="button"
+            aria-label="Close detail error overlay"
+            className="absolute inset-0 bg-foreground/20"
+            onClick={() => setDetail(null)}
+          />
+          <div className="relative z-10 h-full w-full max-w-lg border-l border-border bg-surface p-4">
+            <p className="text-sm font-medium text-danger">
+              Không tải được chi tiết Script
+            </p>
+            <p className="mt-1 text-sm text-muted">{detailError}</p>
+            <Button className="mt-3" variant="outline" onClick={() => setDetail(null)}>
+              Close
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <ScriptDetailsDrawer
         open={Boolean(selectedKey && detail)}
         detail={detail}
         onClose={() => setDetail(null)}
-        onPlayRelease={setVideoTarget}
+        onPlayRelease={(target) =>
+          setVideoTarget({ ...target, playbackMode: isLive ? 'live' : 'mock' })
+        }
       />
 
       <VideoPlayerModal
@@ -166,22 +221,24 @@ export function ScriptsScreen({
         onClose={() => setVideoTarget(null)}
       />
 
-      <RemoveScriptDialog
-        open={Boolean(confirmKey)}
-        packageKey={confirmKey}
-        busy={removing}
-        onCancel={() => setConfirmKey(null)}
-        onConfirm={() => {
-          if (!confirmKey) return
-          setRemoving(true)
-          void onRemoveScript(confirmKey)
-            .then(() => {
-              if (selectedKey === confirmKey) setDetail(null)
-              setConfirmKey(null)
-            })
-            .finally(() => setRemoving(false))
-        }}
-      />
+      {mutationsEnabled ? (
+        <RemoveScriptDialog
+          open={Boolean(confirmKey)}
+          packageKey={confirmKey}
+          busy={removing}
+          onCancel={() => setConfirmKey(null)}
+          onConfirm={() => {
+            if (!confirmKey) return
+            setRemoving(true)
+            void onRemoveScript(confirmKey)
+              .then(() => {
+                if (selectedKey === confirmKey) setDetail(null)
+                setConfirmKey(null)
+              })
+              .finally(() => setRemoving(false))
+          }}
+        />
+      ) : null}
     </div>
   )
 }

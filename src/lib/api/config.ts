@@ -39,3 +39,12 @@ export const ACTION_REGISTRY_PATHS = {
   tagAuthPin: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/auth-pin`,
   tagRequests: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/requests`,
 } as const
+
+const SCRIPT_REGISTRY_BASE = '/social-automation/api/script-registry'
+
+/** Staff Session Script Registry (read-only). Path `{id}` = package_key. */
+export const SCRIPT_REGISTRY_PATHS = {
+  list: SCRIPT_REGISTRY_BASE,
+  detail: (packageKey: string) =>
+    `${SCRIPT_REGISTRY_BASE}/${encodeURIComponent(packageKey)}`,
+} as const

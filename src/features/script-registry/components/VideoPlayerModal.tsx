@@ -12,6 +12,8 @@ export type VideoPlayerTarget = {
   video_url: string | null
   thumbnail_url: string | null
   has_playable_video: boolean
+  /** LIVE uses Staff media URL only — no mock playback placeholder */
+  playbackMode?: 'mock' | 'live'
 }
 
 type VideoPlayerModalProps = {
@@ -72,6 +74,7 @@ export function VideoPlayerModal({
 
   if (!open || !target) return null
 
+  const isLive = target.playbackMode === 'live'
   const missing =
     target.video_demo_status === 'missing' ||
     target.video_demo_status === 'processing'
@@ -96,9 +99,11 @@ export function VideoPlayerModal({
             <h2 id="video-player-title" className="text-sm font-semibold">
               Play demo — {target.title}
             </h2>
-            <p className="mt-0.5 text-[11px] text-warning">
-              MOCK player — không phát binary production
-            </p>
+            {!isLive ? (
+              <p className="mt-0.5 text-[11px] text-warning">
+                MOCK player — không phát binary production
+              </p>
+            ) : null}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
             <X className="size-4" />
@@ -114,7 +119,9 @@ export function VideoPlayerModal({
             <div className="flex size-full flex-col items-center justify-center gap-1 px-4 text-center text-sm text-primary-foreground">
               <span>No video demo</span>
               <span className="text-xs opacity-80">
-                Release chưa có media demo (MOCK).
+                {isLive
+                  ? 'Release chưa có media demo trên Staff Registry.'
+                  : 'Release chưa có media demo (MOCK).'}
               </span>
             </div>
           ) : phase === 'error' ? (
@@ -123,7 +130,9 @@ export function VideoPlayerModal({
               <span className="text-xs opacity-80">
                 {thumbUnavailable
                   ? 'Thumbnail unavailable — không phát được preview ổn định.'
-                  : 'Không phát được demo (MOCK).'}
+                  : isLive
+                    ? 'Không phát được demo (Staff media URL).'
+                    : 'Không phát được demo (MOCK).'}
               </span>
             </div>
           ) : target.video_url ? (
@@ -136,6 +145,13 @@ export function VideoPlayerModal({
             >
               Trình duyệt không hỗ trợ video.
             </video>
+          ) : isLive ? (
+            <div className="flex size-full flex-col items-center justify-center gap-1 px-4 text-center text-sm text-primary-foreground">
+              <span>No video demo</span>
+              <span className="text-xs opacity-80">
+                Thiếu video_media_url từ Staff API.
+              </span>
+            </div>
           ) : (
             <div className="relative flex size-full flex-col items-center justify-center gap-2">
               {target.thumbnail_url ? (

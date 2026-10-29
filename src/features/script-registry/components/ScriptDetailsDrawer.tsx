@@ -139,7 +139,7 @@ export function ScriptDetailsDrawer({
                       Video demo: {videoLabel(release)}
                     </span>
                     {release.video_demo_status === 'ready' &&
-                    release.video_media_id ? (
+                    (release.video_url || release.video_media_id) ? (
                       <Button
                         size="sm"
                         variant="outline"
@@ -149,7 +149,9 @@ export function ScriptDetailsDrawer({
                             video_demo_status: release.video_demo_status,
                             video_url: release.video_url,
                             thumbnail_url: release.thumbnail_url,
-                            has_playable_video: true,
+                            has_playable_video: Boolean(
+                              release.video_url || release.video_media_id,
+                            ),
                           })
                         }
                       >

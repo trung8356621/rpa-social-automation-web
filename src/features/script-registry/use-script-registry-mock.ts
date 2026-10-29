@@ -27,11 +27,12 @@ function cloneSeed(scenario: DemoScenario): ScriptRegistryData {
   return structuredClone(MOCK_SCRIPT_REGISTRY)
 }
 
-export function useScriptRegistryMock() {
+export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
 
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ScriptRegistryData>(() => cloneSeed(demo))
   const [toast, setToast] = useState<{
@@ -61,6 +62,7 @@ export function useScriptRegistryMock() {
   }, [demo])
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -77,7 +79,7 @@ export function useScriptRegistryMock() {
     return () => {
       cancelled = true
     }
-  }, [demo])
+  }, [demo, enabled])
 
   const getDetail = useCallback(
     (packageKey: string) => data.details[packageKey] ?? null,

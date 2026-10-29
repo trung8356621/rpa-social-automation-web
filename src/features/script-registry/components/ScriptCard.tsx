@@ -9,6 +9,7 @@ import { displayScriptTitle, scriptStatusBadge } from '../types'
 
 type ScriptCardProps = {
   script: ScriptListItem
+  removeEnabled?: boolean
   onOpenDetails: (packageKey: string) => void
   onPlayVideo: (script: ScriptListItem) => void
   onRemove: (packageKey: string) => void
@@ -16,6 +17,7 @@ type ScriptCardProps = {
 
 export function ScriptCard({
   script,
+  removeEnabled = true,
   onOpenDetails,
   onPlayVideo,
   onRemove,
@@ -104,15 +106,17 @@ export function ScriptCard({
             >
               Details
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn('border-danger/30 text-danger hover:bg-danger/5')}
-              onClick={() => onRemove(script.package_key)}
-              aria-label={`Remove ${title}`}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+            {removeEnabled ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn('border-danger/30 text-danger hover:bg-danger/5')}
+                onClick={() => onRemove(script.package_key)}
+                aria-label={`Remove ${title}`}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
