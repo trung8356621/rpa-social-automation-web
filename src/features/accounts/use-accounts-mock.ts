@@ -13,10 +13,11 @@ function cloneSeed(demo: DemoScenario): AccountsData {
   return structuredClone(MOCK_ACCOUNTS_DATA)
 }
 
-export function useAccountsMock() {
+export function useAccountsMock(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AccountsData>(() => cloneSeed(demo))
   const [toast, setToast] = useState<{
@@ -43,6 +44,7 @@ export function useAccountsMock() {
   }, [demo])
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -59,7 +61,7 @@ export function useAccountsMock() {
     return () => {
       cancelled = true
     }
-  }, [demo])
+  }, [demo, enabled])
 
   const deleteAccount = useCallback(
     async (id: number, accountUuid: string) => {

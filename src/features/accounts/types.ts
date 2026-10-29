@@ -1,6 +1,7 @@
 /**
  * Mirrors SocialAutomationAccountManagementController::index payload.
  * Password never included — only has_password boolean from contract.
+ * LIVE: no browser binding field → UI shows "—". `verified` optional if API omits it.
  */
 
 export type AccountItem = {

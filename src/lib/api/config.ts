@@ -48,3 +48,11 @@ export const SCRIPT_REGISTRY_PATHS = {
   detail: (packageKey: string) =>
     `${SCRIPT_REGISTRY_BASE}/${encodeURIComponent(packageKey)}`,
 } as const
+
+const ACCOUNTS_BASE = '/social-automation/api/accounts'
+
+/** Staff Session Accounts inventory (CP13 LIVE is read-only). */
+export const ACCOUNTS_PATHS = {
+  list: ACCOUNTS_BASE,
+  account: (id: number) => `${ACCOUNTS_BASE}/${id}`,
+} as const

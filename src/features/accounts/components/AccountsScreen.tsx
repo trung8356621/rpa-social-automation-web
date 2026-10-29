@@ -11,6 +11,8 @@ import type { AccountItem } from '../types'
 
 type AccountsScreenProps = {
   accounts: AccountItem[]
+  mutationsEnabled?: boolean
+  mode?: 'mock' | 'live'
   onDelete: (id: number, accountUuid: string) => Promise<void>
 }
 
@@ -59,9 +61,15 @@ function DeleteAccountButton({
   )
 }
 
-export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
+export function AccountsScreen({
+  accounts,
+  mutationsEnabled = true,
+  mode = 'mock',
+  onDelete,
+}: AccountsScreenProps) {
   const [search, setSearch] = useState('')
   const [platform, setPlatform] = useState('all')
+  const isLive = mode === 'live'
 
   const platforms = useMemo(() => {
     return [...new Set(accounts.map((a) => a.platform))].sort()
@@ -90,7 +98,11 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
     <div className="mx-auto w-full min-w-0 max-w-full space-y-4">
       <PageHeader
         title="Accounts"
-        description="Inventory Account theo Account ID. Username phục vụ debug; không dùng Name/Username làm khóa. MOCK local."
+        description={
+          isLive
+            ? 'Inventory Account theo Account ID. Username phục vụ debug; không dùng Name/Username làm khóa (Staff LIVE).'
+            : 'Inventory Account theo Account ID. Username phục vụ debug; không dùng Name/Username làm khóa. MOCK local.'
+        }
       />
 
       <div className="rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs leading-relaxed text-muted">
@@ -131,7 +143,9 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
         <div className="rounded-[var(--radius-card)] border border-dashed border-border bg-surface px-4 py-10 text-center">
           <p className="text-sm font-medium">No accounts</p>
           <p className="mt-1 text-sm text-muted">
-            Installation chưa có Account (MOCK empty).
+            {isLive
+              ? 'Installation chưa có Account trên Staff API.'
+              : 'Installation chưa có Account (MOCK empty).'}
           </p>
         </div>
       ) : filtered.length === 0 ? (
@@ -189,9 +203,11 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
                     </dd>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <Badge variant={a.verified ? 'success' : 'warning'}>
-                      {a.verified ? 'Verified' : 'Unverified'}
-                    </Badge>
+                    {typeof a.verified === 'boolean' ? (
+                      <Badge variant={a.verified ? 'success' : 'warning'}>
+                        {a.verified ? 'Verified' : 'Unverified'}
+                      </Badge>
+                    ) : null}
                     <span className="text-[11px] text-muted">
                       {a.has_password
                         ? 'Has credential flag'
@@ -199,9 +215,11 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
                     </span>
                   </div>
                 </dl>
-                <div className="mt-3 flex justify-end border-t border-border pt-2">
-                  <DeleteAccountButton account={a} onDelete={onDelete} />
-                </div>
+                {mutationsEnabled ? (
+                  <div className="mt-3 flex justify-end border-t border-border pt-2">
+                    <DeleteAccountButton account={a} onDelete={onDelete} />
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -218,7 +236,9 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
                   <th className="px-3 py-2 font-medium">Browser</th>
                   <th className="px-3 py-2 font-medium">Last Interaction</th>
                   <th className="px-3 py-2 font-medium">Status</th>
-                  <th className="px-3 py-2 font-medium text-right">Actions</th>
+                  {mutationsEnabled ? (
+                    <th className="px-3 py-2 font-medium text-right">Actions</th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -251,9 +271,13 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex flex-col gap-1">
-                        <Badge variant={a.verified ? 'success' : 'warning'}>
-                          {a.verified ? 'Verified' : 'Unverified'}
-                        </Badge>
+                        {typeof a.verified === 'boolean' ? (
+                          <Badge variant={a.verified ? 'success' : 'warning'}>
+                            {a.verified ? 'Verified' : 'Unverified'}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted">—</span>
+                        )}
                         <span className="text-[11px] text-muted">
                           {a.has_password
                             ? 'Has credential flag'
@@ -261,9 +285,11 @@ export function AccountsScreen({ accounts, onDelete }: AccountsScreenProps) {
                         </span>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-right">
-                      <DeleteAccountButton account={a} onDelete={onDelete} />
-                    </td>
+                    {mutationsEnabled ? (
+                      <td className="px-3 py-2.5 text-right">
+                        <DeleteAccountButton account={a} onDelete={onDelete} />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
