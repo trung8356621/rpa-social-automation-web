@@ -1,0 +1,85 @@
+---
+description: Machine & repository ownership guard — stop wrong-machine/wrong-repo work before any edits
+alwaysApply: true
+---
+
+# MACHINE & REPOSITORY OWNERSHIP
+
+## Machine roles
+
+**DESKTOP (this repo — React Web):**
+- React Web UI
+- Frontend QA / browser QA
+- Staff Session LIVE wiring against existing contracts
+
+**Also Desktop-owned (separate repo):**
+- Electron Client (`rpa-sosial-automation-client` / `rpa-social-automation-client`)
+
+**LAPTOP ONLY:**
+- Laravel API addon: `D:\work-app\new\seo-ops-addons-rpa`
+- PHP backend controllers/routes/domain/OpenAPI
+- VPS watcher / deployment
+
+Do **not** infer machine identity from repository name alone. Verify the actual environment.
+
+## MANDATORY PRECHECK
+
+Before every task (coding, testing, installs, browser QA):
+
+1. Verify hostname.
+2. Verify current working directory.
+3. Verify Git repository root.
+4. Verify project manifest (`package.json` name).
+5. Verify the requested task matches Desktop ownership for this repo.
+
+### Expected identity for this repository
+
+- **EXPECTED_MACHINE:** DESKTOP
+- **EXPECTED_REPO:** `D:\workspace-2026\rpa-social-automation-web`
+- **EXPECTED_PACKAGE:** `rpa-social-automation-web`
+
+If machine, repo, cwd, or task scope does not match:
+
+```text
+STOP IMMEDIATELY
+WRONG_MACHINE_OR_REPO
+EXPECTED_MACHINE: DESKTOP
+EXPECTED_REPO: D:\workspace-2026\rpa-social-automation-web
+ACTUAL_MACHINE: <hostname / role>
+ACTUAL_REPO: <git root>
+```
+
+- Do not continue.
+- Do not switch repositories automatically.
+- Do not create files.
+- Do not execute mutations.
+
+## CROSS-REPO RESTRICTIONS (Desktop)
+
+On Desktop / in this React repo:
+
+- Never modify Laravel/PHP backend.
+- Never implement backend API controllers/routes/services.
+- Never create or edit `*.php` for SEO-OPS addon work.
+- Never deploy VPS.
+- Never modify watcher.
+- Never run PHP migrations.
+
+If React needs a missing Laravel API:
+
+```text
+CONTRACT GAP — report and STOP.
+Do not invent endpoints. Do not patch Laravel from Desktop.
+```
+
+## GIT SAFETY
+
+- Never auto commit/push.
+- Never work in Detached HEAD.
+- Never reset/clean/discard owner changes.
+- Verify branch and working tree before edits.
+- No `git reset`, `git clean`, or `git checkout --` to “fix” accidental files without explicit owner approval.
+
+## RULE PRIORITY
+
+Apply this guard **before** coding, testing, installing dependencies, or browser QA.
