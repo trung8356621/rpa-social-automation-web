@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
+import type { RpaApiMode } from '@/lib/api/config'
+
 import type { ClientApiKeyItem } from '../types'
 import { maskKeyPrefix } from '../types'
 
@@ -17,6 +19,8 @@ type ClientApiKeysScreenProps = {
   onDismissOneTime: () => void
   onCreate: (name: string) => Promise<void>
   onRevoke: (id: number) => Promise<void>
+  mutationsEnabled?: boolean
+  mode?: RpaApiMode
 }
 
 function formatWhen(iso: string | null): string {
@@ -35,6 +39,8 @@ export function ClientApiKeysScreen({
   onDismissOneTime,
   onCreate,
   onRevoke,
+  mutationsEnabled = true,
+  mode = 'mock',
 }: ClientApiKeysScreenProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -42,6 +48,7 @@ export function ClientApiKeysScreen({
   const [newName, setNewName] = useState('')
   const [revokeId, setRevokeId] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
+  const isLive = mode === 'live'
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -62,12 +69,22 @@ export function ClientApiKeysScreen({
     <div className="space-y-4">
       <PageHeader
         title="Client API Keys"
-        description="Logical Client = client_api_key_id. Device hostname chỉ metadata. MOCK local — không lưu raw secret."
+        description={
+          isLive
+            ? 'Logical Client = client_api_key_id. LIVE staff list — key_prefix only, no raw secret. Create/Revoke disabled.'
+            : 'Logical Client = client_api_key_id. Device hostname chỉ metadata. MOCK local — không lưu raw secret.'
+        }
         actions={
           <Button
             size="sm"
             onClick={() => setCreating((v) => !v)}
             aria-expanded={creating}
+            disabled={!mutationsEnabled}
+            title={
+              mutationsEnabled
+                ? undefined
+                : 'LIVE read-only — Create Key disabled'
+            }
           >
             <Plus className="size-3.5" />
             Create Key
@@ -102,7 +119,7 @@ export function ClientApiKeysScreen({
         </div>
       ) : null}
 
-      {creating ? (
+      {creating && mutationsEnabled ? (
         <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-3 sm:flex-row sm:items-end">
           <div className="min-w-0 flex-1">
             <label className="text-xs font-medium text-muted" htmlFor="new-key-name">
@@ -164,7 +181,11 @@ export function ClientApiKeysScreen({
       {keys.length === 0 ? (
         <div className="rounded-[var(--radius-card)] border border-dashed border-border bg-surface px-4 py-10 text-center">
           <p className="text-sm font-medium">No Client API Keys</p>
-          <p className="mt-1 text-sm text-muted">Tạo Key để Electron Client kết nối.</p>
+          <p className="mt-1 text-sm text-muted">
+            {isLive
+              ? 'Staff list trống — không có key trên server (không tạo dữ liệu giả).'
+              : 'Tạo Key để Electron Client kết nối.'}
+          </p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-[var(--radius-card)] border border-border bg-surface px-4 py-10 text-center">
@@ -248,15 +269,19 @@ export function ClientApiKeysScreen({
                       {formatWhen(lease?.heartbeat_at ?? k.last_used_at)}
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-danger/30 text-danger hover:bg-danger/5"
-                        disabled={!k.is_active || busy}
-                        onClick={() => setRevokeId(k.id)}
-                      >
-                        Revoke
-                      </Button>
+                      {mutationsEnabled ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-danger/30 text-danger hover:bg-danger/5"
+                          disabled={!k.is_active || busy}
+                          onClick={() => setRevokeId(k.id)}
+                        >
+                          Revoke
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-muted">Read-only</span>
+                      )}
                     </td>
                   </tr>
                 )
@@ -266,7 +291,7 @@ export function ClientApiKeysScreen({
         </div>
       )}
 
-      {revokeId !== null ? (
+      {revokeId !== null && mutationsEnabled ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"

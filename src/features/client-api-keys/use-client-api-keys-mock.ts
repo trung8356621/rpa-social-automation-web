@@ -16,10 +16,11 @@ function cloneSeed(demo: DemoScenario): ClientApiKeysData {
   return structuredClone(MOCK_CLIENT_API_KEYS_DATA)
 }
 
-export function useClientApiKeysMock() {
+export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ClientApiKeysData>(() => cloneSeed(demo))
   const [toast, setToast] = useState<{
@@ -36,6 +37,7 @@ export function useClientApiKeysMock() {
   }, [])
 
   const reload = useCallback(async () => {
+    if (!enabled) return
     setLoading(true)
     setError(null)
     setData(cloneSeed(demo))
@@ -46,9 +48,14 @@ export function useClientApiKeysMock() {
       return
     }
     setLoading(false)
-  }, [demo])
+  }, [demo, enabled])
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false)
+      setError(null)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -65,7 +72,7 @@ export function useClientApiKeysMock() {
     return () => {
       cancelled = true
     }
-  }, [demo])
+  }, [demo, enabled])
 
   const createKey = useCallback(
     async (name: string) => {
@@ -143,6 +150,7 @@ export function useClientApiKeysMock() {
     error,
     data,
     toast,
+    showToast,
     reload,
     createKey,
     revokeKey,

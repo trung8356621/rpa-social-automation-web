@@ -56,3 +56,11 @@ export const ACCOUNTS_PATHS = {
   list: ACCOUNTS_BASE,
   account: (id: number) => `${ACCOUNTS_BASE}/${id}`,
 } as const
+
+const CLIENT_API_KEYS_BASE = '/social-automation/api/client-keys'
+
+/** Staff Session Client API Keys (CP14 LIVE is read-only list). */
+export const CLIENT_API_KEYS_PATHS = {
+  list: CLIENT_API_KEYS_BASE,
+  revoke: (id: number) => `${CLIENT_API_KEYS_BASE}/${id}/revoke`,
+} as const
