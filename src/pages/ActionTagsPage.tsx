@@ -82,7 +82,8 @@ export function ActionTagsPage() {
     <>
       {isLive ? (
         <div className="mb-3 rounded-[var(--radius-control)] border border-border bg-surface-muted/60 px-3 py-2 text-xs text-muted">
-          LIVE read-only — mutations disabled. Editing not enabled yet (CP9A).
+          LIVE — Staff session + CSRF. Action Tags mutations call verified
+          registry endpoints. Other menus remain MOCK. No Client API Key.
         </div>
       ) : null}
       {view === 'tags' ? (

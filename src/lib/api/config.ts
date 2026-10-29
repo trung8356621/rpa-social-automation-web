@@ -25,8 +25,17 @@ export function getRpaApiBaseUrl(): string {
 
 export const RPA_API_TIMEOUT_MS = 20_000
 
+const ACTION_REGISTRY_BASE = '/social-automation/api/action-registry'
+
 export const ACTION_REGISTRY_PATHS = {
-  data: '/social-automation/api/action-registry/data',
-  authenticationScripts:
-    '/social-automation/api/action-registry/authentication-scripts',
+  data: `${ACTION_REGISTRY_BASE}/data`,
+  authenticationScripts: `${ACTION_REGISTRY_BASE}/authentication-scripts`,
+  sites: `${ACTION_REGISTRY_BASE}/sites`,
+  site: (id: number) => `${ACTION_REGISTRY_BASE}/sites/${id}`,
+  paths: `${ACTION_REGISTRY_BASE}/paths`,
+  path: (id: number) => `${ACTION_REGISTRY_BASE}/paths/${id}`,
+  tags: `${ACTION_REGISTRY_BASE}/tags`,
+  tag: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}`,
+  tagAuthPin: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/auth-pin`,
+  tagRequests: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/requests`,
 } as const

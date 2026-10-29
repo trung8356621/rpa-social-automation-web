@@ -177,10 +177,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
     [data.actions, data.auth_scripts, data.paths, data.sites, data.tags, showToast],
   )
 
-  /**
-   * MOCK-only Auth Script link update.
-   * Backend evidence: OpenAPI/action-registry has create+delete Tag only — no update endpoint verified.
-   */
+  /** MOCK Auth Script pin update (mirrors live PUT .../auth-pin). */
   const updateTagAuthScript = useCallback(
     async (tagId: number, authScriptId: string | null) => {
       await delay(220)
@@ -207,7 +204,9 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       }))
 
       showToast(
-        'Đã cập nhật Auth Script trên mock local. Backend update contract chưa có bằng chứng.',
+        authScript
+          ? 'Đã cập nhật Auth Script trên mock local.'
+          : 'Đã gỡ Auth Script trên mock local.',
         'success',
       )
     },

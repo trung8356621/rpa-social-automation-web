@@ -24,7 +24,7 @@ type ActionTagsScreenProps = {
   actions: ActionItem[]
   tags: ActionTagItem[]
   authScripts: AuthScriptOption[]
-  /** False in live CP9A — mutation controls disabled */
+  /** False when live mutations are intentionally gated */
   mutationsEnabled?: boolean
   onOpenSitesPaths: () => void
   onCreateTag: (data: {
@@ -362,7 +362,7 @@ export function ActionTagsScreen({
                             aria-label={`Edit Auth Script for ${tag.tag_key}`}
                             title={
                               mutationsEnabled
-                                ? 'Edit Auth Script (MOCK)'
+                                ? 'Edit Auth Script'
                                 : 'Live editing not enabled yet'
                             }
                           >

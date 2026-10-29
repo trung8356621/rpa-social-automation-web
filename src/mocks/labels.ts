@@ -4,4 +4,4 @@ export const MOCK_BANNER =
 
 /** Shown when VITE_RPA_API_MODE=live — Action Tags uses staff API; other routes stay mock. */
 export const LIVE_BANNER =
-  'LIVE MODE — Action Tags read-only staff API. Other routes remain MOCK. No production writes from this UI (CP9A).'
+  'LIVE MODE — Action Tags staff API (session + CSRF). Other routes remain MOCK. No Client API Key.'

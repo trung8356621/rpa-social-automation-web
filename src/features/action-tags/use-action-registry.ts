@@ -5,16 +5,19 @@ import { getRpaApiMode, type RpaApiMode } from '@/lib/api/config'
 import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 
 import { fetchLiveActionRegistry } from './api/fetch-action-registry'
+import {
+  liveDestroyTag,
+  liveStorePath,
+  liveStoreSite,
+  liveStoreTag,
+  liveUpdateAuthPin,
+  liveUpdatePath,
+  liveUpdateSite,
+} from './api/mutations'
+import { resolveAuthPinPayload } from './api/resolve-auth-pin'
 import { EMPTY_REGISTRY } from './mock-data'
 import type { ActionRegistryData, DemoScenario } from './types'
 import { useActionRegistryMock } from './use-action-registry-mock'
-
-const LIVE_MUTATION_BLOCKED =
-  'Live editing not enabled yet (CP9A read-only). Switch to mock mode for local edits.'
-
-function liveMutationBlocked(): never {
-  throw new Error(LIVE_MUTATION_BLOCKED)
-}
 
 function useActionRegistryLive(enabled: boolean) {
   const [searchParams] = useSearchParams()
@@ -57,12 +60,15 @@ function useActionRegistryLive(enabled: boolean) {
       setError('LIVE ERROR — Action Registry request failed (local QA scenario).')
       return
     }
-    if (demo === 'empty-tags' || demo === 'empty-sites' || demo === 'empty-auth-scripts') {
+    if (
+      demo === 'empty-tags' ||
+      demo === 'empty-sites' ||
+      demo === 'empty-auth-scripts'
+    ) {
       setLoading(false)
       setAuthRequired(false)
       setError(null)
-      const empty = structuredClone(EMPTY_REGISTRY)
-      setData(empty)
+      setData(structuredClone(EMPTY_REGISTRY))
       return
     }
 
@@ -107,51 +113,136 @@ function useActionRegistryLive(enabled: boolean) {
   }, [])
 
   const createTag = useCallback(
-    async (_payload: {
+    async (payload: {
       site_id: number
       path_id: number
       action_key: string
       auth_script_id?: string | null
-    }) => liveMutationBlocked(),
-    [],
-  )
-  const updateTagAuthScript = useCallback(
-    async (_tagId: number, _authScriptId: string | null) =>
-      liveMutationBlocked(),
-    [],
-  )
-  const deleteTag = useCallback(
-    async (_tagId: number, _tagKey: string) => {
-      showToast(LIVE_MUTATION_BLOCKED, 'error')
+    }) => {
+      const pin = resolveAuthPinPayload(
+        data.auth_scripts,
+        payload.auth_script_id,
+        { forUpdate: false },
+      )
+      const body = {
+        site_id: payload.site_id,
+        path_id: payload.path_id,
+        action_key: payload.action_key,
+        ...(pin && 'auth_script_id' in pin
+          ? {
+              auth_script_id: pin.auth_script_id,
+              auth_release_id: pin.auth_release_id,
+            }
+          : {}),
+      }
+
+      await liveStoreTag(body)
+      showToast(
+        pin && 'auth_script_id' in pin
+          ? 'Đã tạo Action Tag + Auth Script pin (live). Script Request đã được tạo.'
+          : 'Đã tạo Action Tag (live). Script Request đã được tạo.',
+      )
+      await reload()
     },
-    [showToast],
+    [data.auth_scripts, reload, showToast],
   )
+
+  const updateTagAuthScript = useCallback(
+    async (tagId: number, authScriptId: string | null) => {
+      const pin = resolveAuthPinPayload(data.auth_scripts, authScriptId, {
+        forUpdate: true,
+      })
+      if (!pin) {
+        throw new Error('Không xác định được Auth pin payload.')
+      }
+      await liveUpdateAuthPin(tagId, pin)
+      showToast(
+        'clear' in pin
+          ? 'Đã gỡ Auth Script pin (live).'
+          : 'Đã cập nhật Auth Script pin (live).',
+      )
+      await reload()
+    },
+    [data.auth_scripts, reload, showToast],
+  )
+
+  const deleteTag = useCallback(
+    async (tagId: number, tagKey: string) => {
+      if (!window.confirm(`Bạn có chắc muốn xóa Action Tag [${tagKey}] không?`)) {
+        return
+      }
+      await liveDestroyTag(tagId)
+      showToast(`Đã xóa Action Tag [${tagKey}] (live).`)
+      await reload()
+    },
+    [reload, showToast],
+  )
+
   const saveSite = useCallback(
-    async (_siteData: {
+    async (siteData: {
       id?: number
       name: string
       base_url?: string
       base_url_mode?: 'fixed' | 'dynamic'
       test_base_url?: string
       description?: string
-    }) => liveMutationBlocked(),
-    [],
+    }) => {
+      const mode = siteData.base_url_mode ?? 'fixed'
+      if (siteData.id) {
+        await liveUpdateSite(siteData.id, {
+          name: siteData.name,
+          base_url_mode: mode,
+          base_url: siteData.base_url ?? null,
+          test_base_url: siteData.test_base_url ?? null,
+          description: siteData.description ?? null,
+        })
+      } else {
+        await liveStoreSite({
+          name: siteData.name,
+          base_url_mode: mode,
+          base_url: siteData.base_url,
+          test_base_url: siteData.test_base_url ?? null,
+          description: siteData.description ?? null,
+        })
+      }
+      showToast(`Đã lưu Site [${siteData.name}] (live).`)
+      await reload()
+    },
+    [reload, showToast],
   )
+
   const savePath = useCallback(
-    async (_pathData: {
+    async (pathData: {
       id?: number
       site_id: number
       name: string
       url_pattern: string
       description?: string
-    }) => liveMutationBlocked(),
-    [],
+    }) => {
+      if (pathData.id) {
+        await liveUpdatePath(pathData.id, {
+          name: pathData.name,
+          url_pattern: pathData.url_pattern,
+          description: pathData.description ?? null,
+        })
+      } else {
+        await liveStorePath({
+          site_id: pathData.site_id,
+          name: pathData.name,
+          url_pattern: pathData.url_pattern,
+          description: pathData.description ?? null,
+        })
+      }
+      showToast(`Đã lưu Path [${pathData.name}] (live).`)
+      await reload()
+    },
+    [reload, showToast],
   )
 
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
-      mutationsEnabled: false,
+      mutationsEnabled: true,
       demo,
       loading,
       error,
@@ -185,7 +276,7 @@ function useActionRegistryLive(enabled: boolean) {
 }
 
 /**
- * Action Tags data hook — mock (default) or live staff GET (read-only).
+ * Action Tags data hook — mock (default) or live staff API (read + verified mutations).
  * Live never silently falls back to mock records.
  */
 export function useActionRegistry() {

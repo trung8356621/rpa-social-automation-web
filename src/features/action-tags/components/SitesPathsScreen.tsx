@@ -15,7 +15,7 @@ import { parseInputsFromPattern, resolveUrl } from '../utils'
 type SitesPathsScreenProps = {
   sites: Site[]
   paths: PathItem[]
-  /** False in live CP9A — create/edit Site & Path disabled */
+  /** False when live mutations are intentionally gated */
   mutationsEnabled?: boolean
   onBackToTags: () => void
   onSaveSite: (siteData: {

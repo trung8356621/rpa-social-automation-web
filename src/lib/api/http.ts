@@ -1,4 +1,5 @@
 import { getRpaApiBaseUrl, RPA_API_TIMEOUT_MS } from './config'
+import { ensureCsrfCookie } from './csrf'
 import { ApiError } from './errors'
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -124,6 +125,7 @@ export async function staffApiRequest<T>(
   }
 
   try {
+    const credentials = options.credentials ?? 'include'
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
@@ -133,10 +135,18 @@ export async function staffApiRequest<T>(
       headers['Content-Type'] = 'application/json'
     }
 
+    // Staff session mutations require Laravel CSRF (VerifyCsrfToken). Never disable CSRF.
+    if (method !== 'GET') {
+      const xsrf = await ensureCsrfCookie(credentials)
+      if (xsrf && !headers['X-XSRF-TOKEN']) {
+        headers['X-XSRF-TOKEN'] = xsrf
+      }
+    }
+
     const response = await fetch(url, {
       method,
       headers,
-      credentials: options.credentials ?? 'include',
+      credentials,
       signal: controller.signal,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     })
@@ -145,7 +155,15 @@ export async function staffApiRequest<T>(
 
     if (!response.ok) {
       const code = extractErrorCode(payload)
-      throw new ApiError(messageFromStatus(response.status, code), {
+      const laravelError =
+        payload && typeof payload.error === 'string'
+          ? payload.error.trim()
+          : ''
+      const message =
+        response.status === 422 && laravelError
+          ? laravelError
+          : messageFromStatus(response.status, code)
+      throw new ApiError(message, {
         kind: kindFromStatus(response.status),
         status: response.status,
         code,
