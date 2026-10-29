@@ -13,10 +13,11 @@ function cloneSeed(demo: DemoScenario): ClientsInventoryData {
   return structuredClone(MOCK_CLIENTS_DATA)
 }
 
-export function useClientsMock() {
+export function useClientsMock(options: { enabled?: boolean } = {}) {
+  const enabled = options.enabled !== false
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ClientsInventoryData>(() => cloneSeed(demo))
   const [toast, setToast] = useState<{
@@ -33,6 +34,7 @@ export function useClientsMock() {
   )
 
   const reload = useCallback(async () => {
+    if (!enabled) return
     setLoading(true)
     setError(null)
     setData(cloneSeed(demo))
@@ -43,9 +45,14 @@ export function useClientsMock() {
       return
     }
     setLoading(false)
-  }, [demo])
+  }, [demo, enabled])
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false)
+      setError(null)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -62,10 +69,14 @@ export function useClientsMock() {
     return () => {
       cancelled = true
     }
-  }, [demo])
+  }, [demo, enabled])
 
   const copyAccountId = useCallback(
     async (accountUuid: string) => {
+      if (!accountUuid.trim()) {
+        showToast('Account ID không có trên row này.', 'error')
+        return
+      }
       try {
         await navigator.clipboard.writeText(accountUuid)
         showToast(`Copied Account ID: ${accountUuid}`)

@@ -1,29 +1,34 @@
 /**
- * Clients (Browser-first) — Checkpoint 6 mock types.
+ * Clients (Browser-first) — mock + LIVE Staff inventory types.
  *
- * Contract classification (see docs/CLIENTS_READ_ONLY_AUDIT_2026-10-28.md):
- * - CONFIRMED: evidenced in Filament device-group / agents blades or docs
- * - MOCK ONLY: presentation for Control Center; no staff REST field yet
- * - MISSING CONTRACT: needed by Design Language; not verified on staff API
- * - DERIVED: computed from other mock fields with explicit rule
- *
- * Do not invent staff endpoints. Live wiring waits for owner-approved contract.
+ * LIVE source: GET /social-automation/api/browsers
+ * Online presence = backend `is_online` only (true|false|null).
  */
 
-/** CONFIRMED shape intent from device-group online flags + Agents online_state */
+/** MOCK Client connection; LIVE prefers `online_presence` from is_online. */
 export type ClientConnectionState = 'online' | 'offline'
 
+/** Backend is_online mapped for UI: true→online, false→offline, null→unknown */
+export type BrowserOnlinePresence = 'online' | 'offline' | 'unknown'
+
 /**
- * Runtime browser instance state for ops inventory.
- * CONFIRMED concept via device-group `$device['browsers'][]` presence;
- * exact enum values are MOCK ONLY until staff REST confirms.
+ * MOCK ops filter (running|stopped).
+ * LIVE cards also carry `runtime_status` from backend.
  */
 export type BrowserRuntimeState = 'running' | 'stopped'
+
+/** Staff OpenAPI runtime_status enum */
+export type BrowserRuntimeStatus =
+  | 'running'
+  | 'stopped'
+  | 'error'
+  | 'crashed'
+  | 'unknown_stale'
 
 /**
  * Session Signal taxonomy.
  * CONFIRMED blade values: verified / needs_login / candidate + signal_present.
- * `unknown` / `absent` are MOCK presentation for missing/clear signal.
+ * `unknown` / `absent` cover missing/clear signal.
  */
 export type SessionSignalState =
   | 'unknown'
@@ -34,8 +39,8 @@ export type SessionSignalState =
   | 'candidate'
 
 /**
- * Execution Confirmation — MISSING as first-class staff field.
- * `last_task_at` exists in blade (Partial); status enum is MOCK ONLY.
+ * Execution Confirmation — not first-class on staff browsers inventory.
+ * LIVE maps to `unknown`.
  */
 export type ExecutionState =
   | 'idle'
@@ -46,72 +51,87 @@ export type ExecutionState =
 
 export type LeaseStatus = 'none' | 'valid' | 'expired'
 
+export type BrowserInventorySummary = {
+  total_browsers: number
+  online_browsers: number
+  offline_browsers: number
+  total_clients: number
+}
+
+export type BrowserStatusPolicy = {
+  source: string
+  heartbeat_ttl_seconds: number
+  notes: string | null
+}
+
 /**
  * One Browser row in the operational inventory.
  * Primary UI title = username (Design Language); Account Name = secondary.
+ * Identity (LIVE) = browser_id.
  */
 export type BrowserInventoryItem = {
-  /** Stable mock row id — not a production PK */
+  /** Row key — LIVE uses browser_id */
   id: string
 
   // —— Identity ——
-  /**
-   * PRIMARY card title (Design Language).
-   * MISSING CONTRACT on staff browser payload (device-group titles use account_name).
-   * MOCK ONLY until Username field is confirmed on inventory API.
-   */
+  /** PRIMARY card title. Null → neutral fallback in browserTitle(). */
   username: string | null
-  /** CONFIRMED: `$browser['account_name']` */
+  /** Secondary label; may be empty string when API null */
   account_name: string
-  /** Partial: Account ID binding — mock uses account_uuid style */
+  /** Account UUID when joined; empty string when null */
   account_uuid: string
-  /** CONFIRMED: `$browser['platform']` */
+  /** Staff account_id (nullable) */
+  account_id: number | null
   platform: string
-  /** CONFIRMED: `$browser['site_url']` */
   site_url: string | null
 
   // —— Browser ——
-  /** CONFIRMED: `$browser['browser_id']` */
+  /** PRIMARY identity (session_uuid) */
   browser_id: string
   /** MOCK ONLY — partition/runtime reference for drawer */
   partition_ref: string | null
-  /** MOCK ONLY enum — runtime state for ops list */
+  /**
+   * MOCK ops grouping (running|stopped).
+   * LIVE: derived for filters — online→running, else stopped.
+   * Prefer `online_presence` / `runtime_status` for status display in LIVE.
+   */
   browser_state: BrowserRuntimeState
+  /** Staff runtime_status */
+  runtime_status: BrowserRuntimeStatus
+  /** Staff is_online — source of truth (null = Unknown) */
+  is_online: boolean | null
+  online_presence: BrowserOnlinePresence
 
   // —— Logical Client / device metadata ——
-  /** CONFIRMED identity: client_api_key_id / sa_client_api_keys.id */
-  client_api_key_id: number
-  /** MOCK ONLY display label from key name (not identity) */
+  /** Logical Client = client_api_key_id (nullable on LIVE) */
+  client_api_key_id: number | null
+  client_id: number | null
+  /** Display label (MOCK key name / LIVE fallback Client #id) */
   client_label: string
-  /** CONFIRMED as metadata: device hostname / display_name — not identity */
+  /** Staff machine_name — small secondary tag */
+  machine_name: string | null
+  /** MOCK hostname; LIVE mirrors machine_name */
   device_hostname: string | null
-  /** Partial / MOCK: connection presence for staff UI snapshot */
+  /** MOCK connection flag */
   connection: ClientConnectionState
-  /** MOCK ONLY — lease not on staff keys index JSON */
   lease_status: LeaseStatus
-  /** MOCK ONLY — heartbeat timestamp */
   heartbeat_at: string | null
-  /** DERIVED/MOCK: stale when heartbeat older than ops threshold */
   heartbeat_stale: boolean
+  last_seen_at: string | null
 
   // —— Session ——
-  /** CONFIRMED concept; values mapped from blade session_state + signal_present */
   session_signal: SessionSignalState
-  /** CONFIRMED: `$browser['signal_checked_at']` */
   signal_checked_at: string | null
 
   // —— Execution ——
-  /** MOCK ONLY / MISSING CONTRACT as first-class confirm */
   execution_state: ExecutionState
-  /** MOCK ONLY script package/ref when last run known */
   last_script_ref: string | null
-  /** Partial: `$browser['last_task_at']` */
   last_task_at: string | null
 }
 
 /**
- * Logical Client online with zero running browsers.
- * Connection ≠ Browser Running.
+ * Logical Client online with zero running browsers (MOCK).
+ * LIVE staff browsers response does not include this list → always [].
  */
 export type OnlineClientNoBrowser = {
   id: string
@@ -127,6 +147,8 @@ export type OnlineClientNoBrowser = {
 export type ClientsInventoryData = {
   browsers: BrowserInventoryItem[]
   online_clients_no_browser: OnlineClientNoBrowser[]
+  summary: BrowserInventorySummary | null
+  status_policy: BrowserStatusPolicy | null
 }
 
 export type DemoScenario = 'default' | 'loading' | 'empty' | 'error'

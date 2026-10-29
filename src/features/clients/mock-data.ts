@@ -14,8 +14,33 @@ import type {
  * 6. Browser Session Unknown
  */
 
+function withLiveCompat(
+  row: Omit<
+    BrowserInventoryItem,
+    | 'runtime_status'
+    | 'is_online'
+    | 'online_presence'
+    | 'client_id'
+    | 'machine_name'
+    | 'account_id'
+    | 'last_seen_at'
+  >,
+): BrowserInventoryItem {
+  const isOnline = row.browser_state === 'running'
+  return {
+    ...row,
+    account_id: null,
+    runtime_status: row.browser_state === 'running' ? 'running' : 'stopped',
+    is_online: isOnline,
+    online_presence: isOnline ? 'online' : 'offline',
+    client_id: row.client_api_key_id,
+    machine_name: row.device_hostname,
+    last_seen_at: row.heartbeat_at,
+  }
+}
+
 export const MOCK_BROWSERS: BrowserInventoryItem[] = [
-  {
+  withLiveCompat({
     id: 'brw-wp-running',
     username: 'wp_admin_seo',
     account_name: 'SEO Ops WordPress',
@@ -38,8 +63,8 @@ export const MOCK_BROWSERS: BrowserInventoryItem[] = [
     execution_state: 'idle',
     last_script_ref: 'wordpress.publish_post',
     last_task_at: '2026-10-28T10:15:00Z',
-  },
-  {
+  }),
+  withLiveCompat({
     id: 'brw-fb-running',
     username: 'fb.ops.main',
     account_name: 'Facebook Ops Main',
@@ -61,8 +86,8 @@ export const MOCK_BROWSERS: BrowserInventoryItem[] = [
     execution_state: 'failed',
     last_script_ref: 'facebook.post_status',
     last_task_at: '2026-10-28T11:20:00Z',
-  },
-  {
+  }),
+  withLiveCompat({
     id: 'brw-stopped',
     username: 'shop_editor',
     account_name: 'Shop CMS Editor',
@@ -84,8 +109,8 @@ export const MOCK_BROWSERS: BrowserInventoryItem[] = [
     execution_state: 'idle',
     last_script_ref: null,
     last_task_at: '2026-10-27T17:55:00Z',
-  },
-  {
+  }),
+  withLiveCompat({
     id: 'brw-stale-hb',
     username: 'stage.fb.bot',
     account_name: 'Staging Facebook',
@@ -107,8 +132,8 @@ export const MOCK_BROWSERS: BrowserInventoryItem[] = [
     execution_state: 'unknown',
     last_script_ref: 'facebook.auth_check',
     last_task_at: '2026-10-28T06:50:00Z',
-  },
-  {
+  }),
+  withLiveCompat({
     id: 'brw-session-unknown',
     username: null,
     account_name: 'Legacy LinkedIn',
@@ -130,7 +155,7 @@ export const MOCK_BROWSERS: BrowserInventoryItem[] = [
     execution_state: 'idle',
     last_script_ref: null,
     last_task_at: null,
-  },
+  }),
 ]
 
 export const MOCK_ONLINE_CLIENTS_NO_BROWSER: OnlineClientNoBrowser[] = [
@@ -146,12 +171,40 @@ export const MOCK_ONLINE_CLIENTS_NO_BROWSER: OnlineClientNoBrowser[] = [
   },
 ]
 
+function mockSummary(
+  browsers: BrowserInventoryItem[],
+): NonNullable<ClientsInventoryData['summary']> {
+  let online = 0
+  let offline = 0
+  const clients = new Set<number>()
+  for (const b of browsers) {
+    if (b.is_online === true) online += 1
+    else if (b.is_online === false) offline += 1
+    if (b.client_api_key_id != null) clients.add(b.client_api_key_id)
+  }
+  return {
+    total_browsers: browsers.length,
+    online_browsers: online,
+    offline_browsers: offline,
+    total_clients: clients.size,
+  }
+}
+
 export const MOCK_CLIENTS_DATA: ClientsInventoryData = {
   browsers: MOCK_BROWSERS,
   online_clients_no_browser: MOCK_ONLINE_CLIENTS_NO_BROWSER,
+  summary: mockSummary(MOCK_BROWSERS),
+  status_policy: null,
 }
 
 export const EMPTY_CLIENTS_DATA: ClientsInventoryData = {
   browsers: [],
   online_clients_no_browser: [],
+  summary: {
+    total_browsers: 0,
+    online_browsers: 0,
+    offline_browsers: 0,
+    total_clients: 0,
+  },
+  status_policy: null,
 }

@@ -64,3 +64,10 @@ export const CLIENT_API_KEYS_PATHS = {
   list: CLIENT_API_KEYS_BASE,
   revoke: (id: number) => `${CLIENT_API_KEYS_BASE}/${id}/revoke`,
 } as const
+
+const BROWSERS_BASE = '/social-automation/api/browsers'
+
+/** Staff Session Browser-first inventory (CP15B LIVE is read-only). */
+export const BROWSERS_PATHS = {
+  list: BROWSERS_BASE,
+} as const
