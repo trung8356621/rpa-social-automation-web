@@ -23,7 +23,6 @@ type SitesPathsScreenProps = {
     name: string
     base_url?: string
     base_url_mode?: 'fixed' | 'dynamic'
-    test_base_url?: string
     description?: string
   }) => Promise<void>
   onSavePath: (pathData: {
@@ -54,7 +53,6 @@ export function SitesPathsScreen({
   const [isSavingPath, setIsSavingPath] = useState(false)
   const [pathError, setPathError] = useState('')
   const [copiedUrl, setCopiedUrl] = useState(false)
-  const [currentTestBaseUrl, setCurrentTestBaseUrl] = useState('')
 
   const [siteModalOpen, setSiteModalOpen] = useState(false)
   const [editingSite, setEditingSite] = useState<Site | null>(null)
@@ -63,7 +61,6 @@ export function SitesPathsScreen({
   )
   const [siteNameInput, setSiteNameInput] = useState('')
   const [siteBaseUrlInput, setSiteBaseUrlInput] = useState('')
-  const [siteTestBaseUrlInput, setSiteTestBaseUrlInput] = useState('')
   const [siteDescInput, setSiteDescInput] = useState('')
   const [isSavingSite, setIsSavingSite] = useState(false)
   const [siteError, setSiteError] = useState('')
@@ -77,21 +74,6 @@ export function SitesPathsScreen({
     if (!activeSite) return []
     return paths.filter((p) => p.site_id === activeSite.id)
   }, [paths, activeSite])
-
-  useEffect(() => {
-    if (!activeSite) {
-      setCurrentTestBaseUrl('')
-      return
-    }
-    if (activeSite.base_url_mode === 'dynamic') {
-      const stored = localStorage.getItem(`sa_test_base_url_${activeSite.id}`)
-      setCurrentTestBaseUrl(
-        stored ?? (activeSite.test_base_url || 'https://example.test/blog/'),
-      )
-    } else {
-      setCurrentTestBaseUrl(activeSite.base_url || '')
-    }
-  }, [activeSite])
 
   const selectPath = (p: PathItem) => {
     setSelectedPathId(p.id)
@@ -160,11 +142,9 @@ export function SitesPathsScreen({
         error: 'Chưa chọn Site.',
       }
     }
-    const effectiveBase = isDynamicSite
-      ? currentTestBaseUrl
-      : activeSite.base_url
-    return resolveUrl(effectiveBase, pathPatternInput, testValues)
-  }, [activeSite, isDynamicSite, currentTestBaseUrl, pathPatternInput, testValues])
+    // Both Fixed and Dynamic preview from canonical Site.base_url
+    return resolveUrl(activeSite.base_url, pathPatternInput, testValues)
+  }, [activeSite, pathPatternInput, testValues])
 
   const filteredSites = useMemo(() => {
     if (!siteSearch) return sites
@@ -172,8 +152,7 @@ export function SitesPathsScreen({
     return sites.filter((s) => {
       return (
         s.name.toLowerCase().includes(q) ||
-        (s.base_url || '').toLowerCase().includes(q) ||
-        (s.test_base_url || '').toLowerCase().includes(q)
+        (s.base_url || '').toLowerCase().includes(q)
       )
     })
   }, [sites, siteSearch])
@@ -183,7 +162,6 @@ export function SitesPathsScreen({
     setSiteBaseUrlMode('fixed')
     setSiteNameInput('')
     setSiteBaseUrlInput('https://')
-    setSiteTestBaseUrlInput('')
     setSiteDescInput('')
     setSiteError('')
     setSiteModalOpen(true)
@@ -193,8 +171,8 @@ export function SitesPathsScreen({
     setEditingSite(site)
     setSiteBaseUrlMode(site.base_url_mode ?? 'fixed')
     setSiteNameInput(site.name)
-    setSiteBaseUrlInput(site.base_url || '')
-    setSiteTestBaseUrlInput(site.test_base_url || '')
+    // Prefer canonical base_url; fall back to legacy test_base_url for edit prefill only
+    setSiteBaseUrlInput(site.base_url || site.test_base_url || '')
     setSiteDescInput(site.description || '')
     setSiteError('')
     setSiteModalOpen(true)
@@ -227,8 +205,8 @@ export function SitesPathsScreen({
       setSiteError('Vui lòng nhập Tên Site.')
       return
     }
-    if (siteBaseUrlMode === 'fixed' && !siteBaseUrlInput.trim()) {
-      setSiteError('Vui lòng nhập Base URL hợp lệ cho Site cố định.')
+    if (!siteBaseUrlInput.trim()) {
+      setSiteError('Vui lòng nhập Base URL.')
       return
     }
     setSiteError('')
@@ -237,9 +215,8 @@ export function SitesPathsScreen({
       await onSaveSite({
         id: editingSite?.id,
         name: siteNameInput.trim(),
-        base_url: siteBaseUrlMode === 'fixed' ? siteBaseUrlInput.trim() : '',
+        base_url: siteBaseUrlInput.trim(),
         base_url_mode: siteBaseUrlMode,
-        test_base_url: siteTestBaseUrlInput.trim() || undefined,
         description: siteDescInput.trim() || undefined,
       })
       setSiteModalOpen(false)
@@ -247,13 +224,6 @@ export function SitesPathsScreen({
       setSiteError(err instanceof Error ? err.message : 'Lỗi khi lưu Site')
     } finally {
       setIsSavingSite(false)
-    }
-  }
-
-  const handleTestBaseUrlChange = (val: string) => {
-    setCurrentTestBaseUrl(val)
-    if (activeSite?.base_url_mode === 'dynamic') {
-      localStorage.setItem(`sa_test_base_url_${activeSite.id}`, val)
     }
   }
 
@@ -374,11 +344,7 @@ export function SitesPathsScreen({
                         ) : null}
                       </div>
                       <p className="mt-0.5 truncate font-mono text-[11px] text-muted">
-                        {isDynamic
-                          ? site.test_base_url
-                            ? `Test: ${site.test_base_url}`
-                            : 'Dynamic Base URL'
-                          : site.base_url}
+                        {site.base_url || '—'}
                       </p>
                     </div>
                     <Button
@@ -518,22 +484,6 @@ export function SitesPathsScreen({
                 />
               </div>
             </div>
-
-            {isDynamicSite ? (
-              <div className="mt-3 rounded-[var(--radius-control)] border border-border bg-surface-muted p-2.5">
-                <Label htmlFor="test-base">Test Base URL</Label>
-                <Input
-                  id="test-base"
-                  value={currentTestBaseUrl}
-                  onChange={(e) => handleTestBaseUrlChange(e.target.value)}
-                  className="font-mono text-xs"
-                  placeholder="https://example.test/blog/"
-                />
-                <p className="mt-1 text-[11px] text-muted">
-                  Chỉ dùng preview/test — không dùng làm URL production.
-                </p>
-              </div>
-            ) : null}
 
             <div className="mt-3">
               <Label>Detected Path Inputs</Label>
@@ -705,32 +655,20 @@ export function SitesPathsScreen({
               />
             </div>
 
-            {siteBaseUrlMode === 'fixed' ? (
-              <div className="mb-3">
-                <Label htmlFor="site-base">Base URL *</Label>
-                <Input
-                  id="site-base"
-                  value={siteBaseUrlInput}
-                  onChange={(e) => setSiteBaseUrlInput(e.target.value)}
-                  className="font-mono"
-                  placeholder="https://www.facebook.com"
-                />
-              </div>
-            ) : (
-              <div className="mb-3">
-                <Label htmlFor="site-test-base">Test Base URL</Label>
-                <Input
-                  id="site-test-base"
-                  value={siteTestBaseUrlInput}
-                  onChange={(e) => setSiteTestBaseUrlInput(e.target.value)}
-                  className="font-mono"
-                  placeholder="https://example.test/blog/"
-                />
-                <p className="mt-1 text-[11px] text-muted">
-                  Không bắt buộc Base URL cố định. Test URL chỉ cho preview.
-                </p>
-              </div>
-            )}
+            <div className="mb-3">
+              <Label htmlFor="site-base">Base URL *</Label>
+              <Input
+                id="site-base"
+                value={siteBaseUrlInput}
+                onChange={(e) => setSiteBaseUrlInput(e.target.value)}
+                className="font-mono"
+                placeholder={
+                  siteBaseUrlMode === 'dynamic'
+                    ? 'https://example.test/blog/'
+                    : 'https://www.facebook.com'
+                }
+              />
+            </div>
 
             <div className="mb-4">
               <Label htmlFor="site-desc">Description (Optional)</Label>

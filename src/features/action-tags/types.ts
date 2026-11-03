@@ -15,6 +15,11 @@ export type Site = {
   test_base_url?: string | null
   description?: string | null
   paths_count?: number
+  /**
+   * Content max length from Site Registry when present.
+   * null/undefined = not configured — UI must not invent a limit.
+   */
+  content_max_length?: number | null
 }
 
 export type PathItem = {

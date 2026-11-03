@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import {
+  buildCreateAccountBody,
+  buildUpdateAccountBody,
+  type CreateAccountInput,
+  type UpdateAccountInput,
+} from './api/create-account'
 import { EMPTY_ACCOUNTS_DATA, MOCK_ACCOUNTS_DATA } from './mock-data'
-import type { AccountsData, DemoScenario } from './types'
+import type { AccountItem, AccountsData, DemoScenario } from './types'
 
 function delay(ms: number) {
   return new Promise((r) => window.setTimeout(r, ms))
@@ -63,6 +69,72 @@ export function useAccountsMock(options: { enabled?: boolean } = {}) {
     }
   }, [demo, enabled])
 
+  const createAccount = useCallback(
+    async (input: CreateAccountInput) => {
+      await delay(180)
+      const built = buildCreateAccountBody(input)
+      if (!built.ok) {
+        showToast(built.message, 'error')
+        throw new Error(built.message)
+      }
+      // Password never retained in mock inventory — only has_password.
+      const now = new Date().toISOString()
+      const id = Date.now()
+      const row: AccountItem = {
+        id,
+        account_uuid: `mock-acct-${id}`,
+        installation_id: 'mock-installation',
+        platform: built.body.platform,
+        account_name: built.body.name,
+        username: built.body.username,
+        email: built.body.email ?? null,
+        has_password: true,
+        note: null,
+        last_interaction_at: null,
+        created_by: 1,
+        created_by_name: 'Mock Owner',
+        created_at: now,
+        updated_at: now,
+        verified: false,
+      }
+      setData((prev) => ({ accounts: [row, ...prev.accounts] }))
+      showToast('Đã tạo Account trên mock local.')
+    },
+    [showToast],
+  )
+
+  const updateAccount = useCallback(
+    async (input: UpdateAccountInput) => {
+      await delay(180)
+      const built = buildUpdateAccountBody(input)
+      if (!built.ok) {
+        showToast(built.message, 'error')
+        throw new Error(built.message)
+      }
+      const passwordReplaced = Boolean(built.body.password)
+      setData((prev) => ({
+        accounts: prev.accounts.map((a) => {
+          if (a.id !== input.id) return a
+          return {
+            ...a,
+            account_name: built.body.name,
+            username: built.body.username,
+            email: built.body.email ?? null,
+            platform: built.body.platform,
+            has_password: passwordReplaced ? true : a.has_password,
+            updated_at: new Date().toISOString(),
+          }
+        }),
+      }))
+      showToast(
+        passwordReplaced
+          ? 'Đã cập nhật Account (password replaced) trên mock.'
+          : 'Đã cập nhật Account (password preserved) trên mock.',
+      )
+    },
+    [showToast],
+  )
+
   const deleteAccount = useCallback(
     async (id: number, accountUuid: string) => {
       await delay(150)
@@ -74,5 +146,14 @@ export function useAccountsMock(options: { enabled?: boolean } = {}) {
     [showToast],
   )
 
-  return { loading, error, data, toast, reload, deleteAccount }
+  return {
+    loading,
+    error,
+    data,
+    toast,
+    reload,
+    createAccount,
+    updateAccount,
+    deleteAccount,
+  }
 }

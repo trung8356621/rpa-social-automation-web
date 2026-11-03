@@ -184,16 +184,16 @@ function useActionRegistryLive(enabled: boolean) {
       name: string
       base_url?: string
       base_url_mode?: 'fixed' | 'dynamic'
-      test_base_url?: string
       description?: string
     }) => {
       const mode = siteData.base_url_mode ?? 'fixed'
+      // Canonical field only — both Fixed and Dynamic use base_url.
+      // Do not send test_base_url from the web editor (CP18D.3B).
       if (siteData.id) {
         await liveUpdateSite(siteData.id, {
           name: siteData.name,
           base_url_mode: mode,
           base_url: siteData.base_url ?? null,
-          test_base_url: siteData.test_base_url ?? null,
           description: siteData.description ?? null,
         })
       } else {
@@ -201,7 +201,6 @@ function useActionRegistryLive(enabled: boolean) {
           name: siteData.name,
           base_url_mode: mode,
           base_url: siteData.base_url,
-          test_base_url: siteData.test_base_url ?? null,
           description: siteData.description ?? null,
         })
       }

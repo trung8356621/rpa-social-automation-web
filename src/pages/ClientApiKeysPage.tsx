@@ -2,9 +2,18 @@ import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
 import { ClientApiKeysScreen } from '@/features/client-api-keys/components/ClientApiKeysScreen'
 import { useClientApiKeys } from '@/features/client-api-keys/use-client-api-keys'
+import { useSessionIdentity } from '@/features/session-identity/use-session-identity'
+import { OwnerClientConnectionsSection } from '@/features/staff-client-connection/components/OwnerClientConnectionsSection'
+import { useOwnerClientConnections } from '@/features/staff-client-connection/use-owner-client-connections'
 
 export function ClientApiKeysPage() {
   const registry = useClientApiKeys()
+  const identity = useSessionIdentity()
+  const showOwnerInventory =
+    identity.roleResolved && identity.isOwnerOrAdmin
+  const ownerConnections = useOwnerClientConnections({
+    enabled: showOwnerInventory,
+  })
   const isLive = registry.mode === 'live'
 
   if (registry.loading) {
@@ -75,6 +84,9 @@ export function ClientApiKeysPage() {
         mutationsEnabled={registry.mutationsEnabled}
         mode={registry.mode}
       />
+      {showOwnerInventory ? (
+        <OwnerClientConnectionsSection controller={ownerConnections} />
+      ) : null}
       <Toast toast={registry.toast} />
     </>
   )

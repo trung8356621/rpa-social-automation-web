@@ -5,6 +5,8 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { SessionIdentityBadge } from '@/features/session-identity/components/SessionIdentityBadge'
+import { useSessionIdentity } from '@/features/session-identity/use-session-identity'
 import { getRpaApiMode } from '@/lib/api/config'
 import { LIVE_BANNER, MOCK_BANNER } from '@/mocks/labels'
 
@@ -30,6 +32,12 @@ export function AppShell() {
   const modeBadge = isLive ? 'DEV / LIVE' : 'DEV / MOCK'
   const modeBanner = isLive ? LIVE_BANNER : MOCK_BANNER
 
+  const identity = useSessionIdentity()
+  const isStaffShell = identity.roleResolved && identity.isStaff
+  const showAdminNav = identity.roleResolved
+    ? identity.isOwnerOrAdmin
+    : false
+
   useEffect(() => {
     setMobileNavOpen(false)
   }, [location.pathname, location.search])
@@ -43,36 +51,64 @@ export function AppShell() {
     return () => window.removeEventListener('keydown', onKey)
   }, [mobileNavOpen])
 
+  useEffect(() => {
+    if (!showAdminNav) setMobileNavOpen(false)
+  }, [showAdminNav])
+
   return (
     <div className="flex h-full min-h-full w-full max-w-[100vw] bg-background text-foreground">
-      {/* Desktop sidebar — md+ only; never occupies width below md */}
-      <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-border bg-surface md:flex max-md:hidden">
-        <BrandBlock />
-        <Separator />
-        <SidebarNav />
-        <div className="mt-auto border-t border-border px-3 py-3">
-          <Badge variant="warning">{modeBadge}</Badge>
-        </div>
-      </aside>
+      {/* Desktop sidebar — Owner/Admin only; Staff has no admin menus */}
+      {showAdminNav ? (
+        <aside className="hidden h-full w-56 shrink-0 flex-col border-r border-border bg-surface md:flex max-md:hidden">
+          <BrandBlock />
+          <Separator />
+          <SidebarNav />
+          <div className="mt-auto border-t border-border px-3 py-3">
+            <Badge variant="warning">{modeBadge}</Badge>
+          </div>
+        </aside>
+      ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar — shared by all routes including Accounts */}
-        <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2 md:hidden">
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="Open navigation"
-            aria-expanded={mobileNavOpen}
-            onClick={() => setMobileNavOpen(true)}
-          >
-            <Menu className="size-4" />
-          </Button>
-          <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 border-b border-border bg-surface px-3 py-2">
+          {showAdminNav ? (
+            <Button
+              variant="outline"
+              size="icon"
+              className="md:hidden"
+              aria-label="Open navigation"
+              aria-expanded={mobileNavOpen}
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <Menu className="size-4" />
+            </Button>
+          ) : null}
+          <div className="min-w-0 flex-1 md:hidden">
             <div className="truncate text-sm font-semibold text-foreground">
               Social Automation
+              {isStaffShell ? (
+                <span className="ml-2 text-xs font-normal text-muted">
+                  Client Connection
+                </span>
+              ) : null}
             </div>
           </div>
-          <Badge variant="warning">{modeBadge}</Badge>
+          <div className="hidden min-w-0 flex-1 md:block">
+            {isStaffShell ? (
+              <div className="truncate text-sm font-semibold text-foreground">
+                Social Automation
+                <span className="ml-2 text-xs font-normal text-muted">
+                  Client Connection
+                </span>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <SessionIdentityBadge identity={identity} />
+            <Badge variant="warning" className="hidden sm:inline-flex">
+              {modeBadge}
+            </Badge>
+          </div>
         </div>
 
         <div
@@ -81,14 +117,12 @@ export function AppShell() {
         >
           {modeBanner}
         </div>
-        {/* min-w-0 + allow nested overflow-x-auto (tables) without page-wide squeeze */}
         <main className="min-w-0 flex-1 overflow-x-auto px-3 py-4 sm:px-4 md:px-6">
           <Outlet />
         </main>
       </div>
 
-      {/* Mobile nav drawer */}
-      {mobileNavOpen ? (
+      {mobileNavOpen && showAdminNav ? (
         <div className="fixed inset-0 z-50 md:hidden">
           <button
             type="button"

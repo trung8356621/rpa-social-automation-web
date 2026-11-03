@@ -1,7 +1,10 @@
 import {
+  FileText,
   KeyRound,
+  Megaphone,
   MonitorSmartphone,
   ScrollText,
+  Sparkles,
   Tags,
   Users,
   type LucideIcon,
@@ -14,7 +17,7 @@ export type NavItem = {
   description: string
 }
 
-/** Approved menus only — Design Language §3 */
+/** Owner/Admin menus — Staff shell hides this nav entirely */
 export const NAV_ITEMS: NavItem[] = [
   {
     label: 'Action Tags',
@@ -45,5 +48,23 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/social-automation/client-api-keys',
     icon: KeyRound,
     description: 'Client key identity and lease status',
+  },
+  {
+    label: 'Campaigns',
+    to: '/social-automation/campaigns',
+    icon: Megaphone,
+    description: 'Campaign list and execution control',
+  },
+  {
+    label: 'Bài viết',
+    to: '/social-automation/articles',
+    icon: FileText,
+    description: 'Campaign Content / manual articles',
+  },
+  {
+    label: 'Prompt bài viết theo Tags',
+    to: '/social-automation/article-prompts',
+    icon: Sparkles,
+    description: 'Prompt configuration shell by Action Tags',
   },
 ]

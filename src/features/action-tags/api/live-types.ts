@@ -15,6 +15,8 @@ export type LiveSite = {
   test_base_url?: string | null
   description?: string | null
   paths_count?: number
+  /** Present only when backend Site Registry exposes it — do not invent. */
+  content_max_length?: number | null
 }
 
 export type LivePath = {

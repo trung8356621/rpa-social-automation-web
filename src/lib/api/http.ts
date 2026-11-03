@@ -155,13 +155,15 @@ export async function staffApiRequest<T>(
 
     if (!response.ok) {
       const code = extractErrorCode(payload)
-      const laravelError =
-        payload && typeof payload.error === 'string'
-          ? payload.error.trim()
-          : ''
+      const laravelMessage =
+        payload && typeof payload.message === 'string' && payload.message.trim()
+          ? payload.message.trim()
+          : payload && typeof payload.error === 'string' && payload.error.trim()
+            ? payload.error.trim()
+            : ''
       const message =
-        response.status === 422 && laravelError
-          ? laravelError
+        (response.status === 422 || response.status === 403) && laravelMessage
+          ? laravelMessage
           : messageFromStatus(response.status, code)
       throw new ApiError(message, {
         kind: kindFromStatus(response.status),

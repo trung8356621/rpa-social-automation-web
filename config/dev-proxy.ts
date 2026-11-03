@@ -200,6 +200,8 @@ export function createDevProxy(target = resolveDevProxyTarget()): Record<
     '/login': createLoginProxy(target),
     '/logout': passthrough,
     '/sanctum': passthrough,
+    /** Staff session bootstrap (identity: user id / name / role) — CP17B.4 */
+    '/api/social-automation': passthrough,
     '/social-automation/api': passthrough,
     '/social-automation/script-media': passthrough,
   }

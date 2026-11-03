@@ -33,7 +33,13 @@ function mapPathInputs(inputs: LivePathInput[] | undefined): PathInput[] {
   }))
 }
 
-function mapSite(site: LiveSite): Site {
+export function mapSite(site: LiveSite): Site {
+  const maxRaw = site.content_max_length
+  const content_max_length =
+    maxRaw == null || !Number.isFinite(Number(maxRaw)) || Number(maxRaw) <= 0
+      ? null
+      : Math.floor(Number(maxRaw))
+
   return {
     id: Number(site.id),
     key: String(site.key ?? ''),
@@ -43,7 +49,13 @@ function mapSite(site: LiveSite): Site {
     test_base_url: site.test_base_url ?? null,
     description: site.description ?? null,
     paths_count: site.paths_count ?? 0,
+    content_max_length,
   }
+}
+
+/** Sites-only map for consumers that do not need full Action Registry. */
+export function mapLiveSites(sites: LiveSite[] | undefined): Site[] {
+  return (sites ?? []).map(mapSite)
 }
 
 function mapPath(path: LivePath): PathItem {

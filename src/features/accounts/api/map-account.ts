@@ -10,7 +10,8 @@ function asNullableString(value: unknown): string | null {
 
 /**
  * Map Staff account row → UI inventory model.
- * Never maps password. Browser binding absent → UI shows "—".
+ * Never maps password / encrypted_password even if a buggy payload includes them.
+ * Browser binding absent → UI shows "—".
  */
 export function mapLiveAccountItem(item: LiveAccountItem): AccountItem {
   const accountName =
@@ -18,6 +19,7 @@ export function mapLiveAccountItem(item: LiveAccountItem): AccountItem {
     asNullableString(item.name) ??
     ''
 
+  // Explicit allow-list only — drop any secret-shaped keys from spread risk.
   return {
     id: Number(item.id),
     account_uuid: String(item.account_uuid ?? ''),

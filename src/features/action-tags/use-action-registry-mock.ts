@@ -234,12 +234,12 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       name: string
       base_url?: string
       base_url_mode?: 'fixed' | 'dynamic'
-      test_base_url?: string
       description?: string
     }) => {
       await delay(280)
       const mode = siteData.base_url_mode ?? 'fixed'
       const key = slugifyKey(siteData.name)
+      const baseUrl = siteData.base_url || ''
 
       setData((prev) => {
         if (siteData.id) {
@@ -249,9 +249,8 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
                   ...s,
                   name: siteData.name,
                   key: s.key,
-                  base_url: mode === 'fixed' ? siteData.base_url || '' : '',
+                  base_url: baseUrl,
                   base_url_mode: mode,
-                  test_base_url: siteData.test_base_url || null,
                   description: siteData.description || null,
                 }
               : s,
@@ -264,9 +263,8 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
           id,
           key,
           name: siteData.name,
-          base_url: mode === 'fixed' ? siteData.base_url || '' : '',
+          base_url: baseUrl,
           base_url_mode: mode,
-          test_base_url: siteData.test_base_url || null,
           description: siteData.description || null,
           paths_count: 0,
         }

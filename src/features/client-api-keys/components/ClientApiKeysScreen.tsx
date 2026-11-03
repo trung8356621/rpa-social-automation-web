@@ -208,6 +208,7 @@ export function ClientApiKeysScreen({
               <tr>
                 <th className="px-3 py-2 font-medium">Key ID</th>
                 <th className="px-3 py-2 font-medium">Client Label</th>
+                <th className="px-3 py-2 font-medium">Creator</th>
                 <th className="px-3 py-2 font-medium">Masked Key</th>
                 <th className="px-3 py-2 font-medium">Key</th>
                 <th className="px-3 py-2 font-medium">Lease (MOCK)</th>
@@ -229,6 +230,20 @@ export function ClientApiKeysScreen({
                           PC: {lease.device_hostname}
                         </div>
                       ) : null}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted">
+                      {k.created_by_name ? (
+                        <div>
+                          <div className="text-foreground">{k.created_by_name}</div>
+                          {k.created_by != null ? (
+                            <div className="font-mono">#{k.created_by}</div>
+                          ) : null}
+                        </div>
+                      ) : k.created_by != null ? (
+                        <span className="font-mono">#{k.created_by}</span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs text-muted">
                       {maskKeyPrefix(k.key_prefix)}

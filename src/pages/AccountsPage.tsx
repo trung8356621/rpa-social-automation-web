@@ -1,11 +1,22 @@
 import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
 import { AccountsScreen } from '@/features/accounts/components/AccountsScreen'
+import { useAccountSites } from '@/features/accounts/use-account-sites'
 import { useAccounts } from '@/features/accounts/use-accounts'
+import { useSessionIdentity } from '@/features/session-identity/use-session-identity'
 
 export function AccountsPage() {
   const registry = useAccounts()
+  const siteOptions = useAccountSites()
+  const identity = useSessionIdentity()
   const isLive = registry.mode === 'live'
+  const canManageAccounts =
+    identity.roleResolved && identity.isOwnerOrAdmin
+  const createEnabled = Boolean(registry.createEnabled && canManageAccounts)
+  const createSubmitEnabled = Boolean(
+    registry.createSubmitEnabled && canManageAccounts,
+  )
+  const updateEnabled = Boolean(registry.updateEnabled && canManageAccounts)
 
   if (registry.loading) {
     return (
@@ -63,14 +74,27 @@ export function AccountsPage() {
     <>
       {isLive ? (
         <p className="mb-3 rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
-          LIVE — Staff session Accounts inventory (read-only). No password.
-          Create/Edit/Delete disabled.
+          LIVE — Owner/Admin Create/Update via{' '}
+          <code className="font-mono">POST/PUT /social-automation/api/accounts</code>
+          . Password encrypted server-side; inventory chỉ có{' '}
+          <code className="font-mono">has_password</code>. Không tạo Account tự
+          động từ agent.
         </p>
       ) : null}
       <AccountsScreen
         accounts={registry.data.accounts}
-        mutationsEnabled={registry.mutationsEnabled}
+        createEnabled={createEnabled}
+        createSubmitEnabled={createSubmitEnabled}
+        createBlockedReason={registry.createBlockedReason}
+        updateEnabled={updateEnabled}
+        mutationsEnabled={registry.mutationsEnabled && canManageAccounts}
         mode={registry.mode}
+        sites={siteOptions.sites}
+        sitesLoading={siteOptions.loading}
+        sitesError={siteOptions.error}
+        onReloadSites={siteOptions.reload}
+        onCreate={registry.createAccount}
+        onUpdate={registry.updateAccount}
         onDelete={registry.deleteAccount}
       />
       <Toast toast={registry.toast} />

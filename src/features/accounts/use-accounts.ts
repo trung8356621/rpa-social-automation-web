@@ -4,6 +4,12 @@ import { useSearchParams } from 'react-router-dom'
 import { getRpaApiMode, type RpaApiMode } from '@/lib/api/config'
 import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 
+import {
+  createLiveAccount,
+  updateLiveAccount,
+  type CreateAccountInput,
+  type UpdateAccountInput,
+} from './api/create-account'
 import { fetchLiveAccounts } from './api/fetch-accounts'
 import type { AccountItem, DemoScenario } from './types'
 import { useAccountsMock } from './use-accounts-mock'
@@ -94,12 +100,48 @@ function useAccountsLive(enabled: boolean) {
     setReloadToken((n) => n + 1)
   }, [])
 
+  const createAccount = useCallback(
+    async (input: CreateAccountInput) => {
+      try {
+        const result = await createLiveAccount(input)
+        setAccounts((prev) => [result.account, ...prev])
+        showToast(result.message)
+        // Refresh inventory from server (authoritative has_password, etc.)
+        setReloadToken((n) => n + 1)
+      } catch (err: unknown) {
+        if (err instanceof ApiError && err.isAuthRequired) {
+          setAuthRequired(true)
+        }
+        showToast(toSafeApiMessage(err), 'error')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
+  const updateAccount = useCallback(
+    async (input: UpdateAccountInput) => {
+      try {
+        const result = await updateLiveAccount(input)
+        setAccounts((prev) =>
+          prev.map((a) => (a.id === result.account.id ? result.account : a)),
+        )
+        showToast(result.message)
+        setReloadToken((n) => n + 1)
+      } catch (err: unknown) {
+        if (err instanceof ApiError && err.isAuthRequired) {
+          setAuthRequired(true)
+        }
+        showToast(toSafeApiMessage(err), 'error')
+        throw err
+      }
+    },
+    [showToast],
+  )
+
   const deleteAccount = useCallback(
     async (_id: number, _accountUuid: string) => {
-      showToast(
-        'Delete Account bị tắt trong LIVE — Accounts inventory là read-only.',
-        'error',
-      )
+      showToast('Delete Account chưa bật trên LIVE SPA.', 'error')
     },
     [showToast],
   )
@@ -107,6 +149,11 @@ function useAccountsLive(enabled: boolean) {
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
+      createEnabled: true,
+      createSubmitEnabled: true,
+      createBlockedReason: null as string | null,
+      updateEnabled: true,
+      /** Delete stays off in SPA for CP18C.1 */
       mutationsEnabled: false,
       authRequired,
       loading,
@@ -115,24 +162,28 @@ function useAccountsLive(enabled: boolean) {
       toast,
       showToast,
       reload,
+      createAccount,
+      updateAccount,
       deleteAccount,
     }),
     [
       accounts,
       authRequired,
+      createAccount,
       deleteAccount,
       error,
       loading,
       reload,
       showToast,
       toast,
+      updateAccount,
     ],
   )
 }
 
 /**
- * Accounts inventory — mock (default) or live Staff Session read-only.
- * Live never falls back to mock rows.
+ * Accounts inventory — mock (default) or live Staff Session.
+ * LIVE create/update use CP18C password-capable Staff API.
  */
 export function useAccounts() {
   const mode = getRpaApiMode()
@@ -144,6 +195,10 @@ export function useAccounts() {
 
   return {
     mode: 'mock' as const satisfies RpaApiMode,
+    createEnabled: true,
+    createSubmitEnabled: true,
+    createBlockedReason: null as string | null,
+    updateEnabled: true,
     mutationsEnabled: true,
     authRequired: false,
     ...mock,

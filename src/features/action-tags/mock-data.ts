@@ -56,16 +56,18 @@ export const MOCK_ACTION_REGISTRY: ActionRegistryData = {
       base_url_mode: 'fixed',
       description: 'Facebook platform',
       paths_count: 2,
+      content_max_length: 500,
     },
     {
       id: 2,
       key: 'wordpress',
       name: 'WordPress',
-      base_url: '',
+      base_url: 'https://example.test/blog/',
       base_url_mode: 'dynamic',
-      test_base_url: 'https://example.test/blog/',
       description: 'Dynamic CMS sites',
       paths_count: 1,
+      /** No Site limit configured — UI must not invent one */
+      content_max_length: null,
     },
   ],
   paths: [
