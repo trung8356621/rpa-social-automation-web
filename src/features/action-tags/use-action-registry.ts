@@ -116,7 +116,7 @@ function useActionRegistryLive(enabled: boolean) {
     async (payload: {
       site_id: number
       path_id: number
-      action_key: string
+      action_key?: string | null
       auth_script_id?: string | null
     }) => {
       const pin = resolveAuthPinPayload(
@@ -127,7 +127,7 @@ function useActionRegistryLive(enabled: boolean) {
       const body = {
         site_id: payload.site_id,
         path_id: payload.path_id,
-        action_key: payload.action_key,
+        ...(payload.action_key ? { action_key: payload.action_key } : {}),
         ...(pin && 'auth_script_id' in pin
           ? {
               auth_script_id: pin.auth_script_id,

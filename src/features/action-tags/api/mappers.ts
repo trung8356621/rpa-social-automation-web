@@ -190,6 +190,11 @@ function mapTag(
   tag: LiveTag,
   packagesById: Map<number, LiveAuthPackage>,
 ): ActionTagItem {
+  const actionKey =
+    tag.action_key == null ? '' : String(tag.action_key).trim()
+  const actionName =
+    tag.action_name == null ? '' : String(tag.action_name).trim()
+
   return {
     id: Number(tag.id),
     tag_key: String(tag.tag_key ?? ''),
@@ -200,8 +205,8 @@ function mapTag(
     path_key: String(tag.path_key ?? ''),
     path_name: String(tag.path_name ?? ''),
     action_id: tag.action_id ?? null,
-    action_key: String(tag.action_key ?? ''),
-    action_name: String(tag.action_name ?? ''),
+    action_key: actionKey || null,
+    action_name: actionName || null,
     name: String(tag.name ?? tag.tag_key ?? ''),
     description: tag.description ?? null,
     scripts_count: Number(tag.scripts_count ?? 0),

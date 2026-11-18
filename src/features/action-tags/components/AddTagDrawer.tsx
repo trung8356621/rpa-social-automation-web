@@ -4,16 +4,15 @@ import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
-import { cn } from '@/lib/utils'
 
 import type {
-  ActionItem,
   ActionTagItem,
   AuthScriptOption,
   PathItem,
   Site,
 } from '../types'
 import { formatAuthScriptLabel } from '../types'
+import { buildTagKey, findExistingSitePathTag } from '../utils'
 
 type AddTagDrawerProps = {
   open: boolean
@@ -21,14 +20,15 @@ type AddTagDrawerProps = {
   editingTag?: ActionTagItem | null
   sites: Site[]
   paths: PathItem[]
-  actions: ActionItem[]
+  tags?: ActionTagItem[]
   authScripts: AuthScriptOption[]
   onClose: () => void
   onOpenSitesPaths: () => void
+  onEditExistingTag?: (tagId: number) => void
   onCreate: (data: {
     site_id: number
     path_id: number
-    action_key: string
+    action_key?: string | null
     auth_script_id?: string | null
   }) => Promise<void>
   onUpdateAuthScript?: (
@@ -43,29 +43,20 @@ export function AddTagDrawer({
   editingTag = null,
   sites,
   paths,
-  actions,
+  tags = [],
   authScripts,
   onClose,
   onOpenSitesPaths,
+  onEditExistingTag,
   onCreate,
   onUpdateAuthScript,
 }: AddTagDrawerProps) {
   const isEditAuth = mode === 'edit-auth' && editingTag
 
-  const displayActions =
-    actions.length > 0
-      ? actions
-      : [
-          { id: 1, key: 'post', name: 'Post' },
-          { id: 2, key: 'comment', name: 'Comment' },
-          { id: 3, key: 'collect', name: 'Collect' },
-        ]
-
   const [selectedSiteId, setSelectedSiteId] = useState<number | ''>(
     sites[0]?.id ?? '',
   )
   const [selectedPathId, setSelectedPathId] = useState<number | ''>('')
-  const [selectedActionKey, setSelectedActionKey] = useState('post')
   const [selectedAuthScriptId, setSelectedAuthScriptId] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [drawerError, setDrawerError] = useState('')
@@ -80,20 +71,23 @@ export function AddTagDrawer({
     return paths.filter((p) => p.site_id === Number(selectedSiteId))
   }, [paths, selectedSiteId])
 
+  const selectedPath = useMemo(
+    () => paths.find((p) => p.id === Number(selectedPathId)),
+    [paths, selectedPathId],
+  )
+
   useEffect(() => {
     if (!open) return
     setDrawerError('')
     if (isEditAuth && editingTag) {
       setSelectedSiteId(editingTag.site_id ?? '')
       setSelectedPathId(editingTag.path_id ?? '')
-      setSelectedActionKey(editingTag.action_key)
       setSelectedAuthScriptId(editingTag.auth_script?.script_id ?? '')
       return
     }
     setSelectedSiteId(sites[0]?.id ?? '')
-    setSelectedActionKey(actions[0]?.key ?? 'post')
     setSelectedAuthScriptId('')
-  }, [open, sites, actions, isEditAuth, editingTag])
+  }, [open, sites, isEditAuth, editingTag])
 
   useEffect(() => {
     if (isEditAuth) return
@@ -108,18 +102,14 @@ export function AddTagDrawer({
 
   const previewTagKey = useMemo(() => {
     if (isEditAuth && editingTag) return editingTag.tag_key
-    const s = selectedSite
-    const p = paths.find((x) => x.id === Number(selectedPathId))
-    if (!s || !p || !selectedActionKey) return ''
-    return `${s.key}.${p.key}.${selectedActionKey}`
-  }, [
-    isEditAuth,
-    editingTag,
-    selectedSite,
-    paths,
-    selectedPathId,
-    selectedActionKey,
-  ])
+    if (!selectedSite || !selectedPath) return ''
+    return buildTagKey(selectedSite.key, selectedPath.key)
+  }, [isEditAuth, editingTag, selectedSite, selectedPath])
+
+  const existingTagForSelection = useMemo(() => {
+    if (isEditAuth) return null
+    return findExistingSitePathTag(tags, selectedSite, selectedPath)
+  }, [isEditAuth, tags, selectedSite, selectedPath])
 
   /**
    * MOCK presentation filter only when seed has compatible_site_keys.
@@ -171,14 +161,19 @@ export function AddTagDrawer({
         return
       }
 
-      if (!selectedSiteId || !selectedPathId || !selectedActionKey) {
-        setDrawerError('Vui lòng chọn đầy đủ Site, Path và Action.')
+      if (!selectedSiteId || !selectedPathId) {
+        setDrawerError('Vui lòng chọn đầy đủ Site và Path.')
+        return
+      }
+      if (existingTagForSelection) {
+        setDrawerError(
+          `Action Tag [${existingTagForSelection.tag_key}] đã tồn tại cho Site và Path này.`,
+        )
         return
       }
       await onCreate({
         site_id: Number(selectedSiteId),
         path_id: Number(selectedPathId),
-        action_key: selectedActionKey,
         auth_script_id: selectedAuthScriptId || null,
       })
       onClose()
@@ -213,7 +208,7 @@ export function AddTagDrawer({
             <p className="mt-0.5 text-xs text-muted">
               {isEditAuth
                 ? 'MOCK — chỉnh liên kết Auth Script trên dữ liệu local'
-                : 'Liên kết Site, Path và Action (tự động tạo Script Request)'}
+                : 'Liên kết Site và Path (tự động tạo Script Request)'}
             </p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
@@ -295,48 +290,42 @@ export function AddTagDrawer({
           </div>
 
           <div>
-            <Label>Available Actions</Label>
-            <div className="space-y-2">
-              {displayActions.map((act) => {
-                const isSelected = selectedActionKey === act.key
-                return (
-                  <button
-                    key={act.key}
-                    type="button"
-                    disabled={Boolean(isEditAuth)}
-                    onClick={() => setSelectedActionKey(act.key)}
-                    className={cn(
-                      'flex w-full items-center gap-3 rounded-[var(--radius-control)] border px-3 py-2.5 text-left text-sm transition-colors',
-                      isSelected
-                        ? 'border-primary bg-primary/5 font-medium text-primary'
-                        : 'border-border bg-surface text-foreground hover:bg-surface-muted',
-                      isEditAuth && 'cursor-not-allowed opacity-70',
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'flex size-4 items-center justify-center rounded-full border',
-                        isSelected
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border',
-                      )}
-                      aria-hidden
-                    >
-                      {isSelected ? '•' : null}
-                    </span>
-                    {act.name}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div>
             <Label>Tag Key Preview</Label>
             <code className="block break-all rounded-[var(--radius-control)] border border-border bg-surface-muted px-2.5 py-2 font-mono text-xs text-foreground">
               {previewTagKey || '—'}
             </code>
           </div>
+
+          {!isEditAuth && existingTagForSelection ? (
+            <div className="space-y-1.5 rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+              <p className="font-medium text-warning">
+                Site + Path này đã có Action Tag
+              </p>
+              <p>
+                Tag hiện tại:{' '}
+                <code className="font-mono font-semibold">
+                  {existingTagForSelection.tag_key}
+                </code>{' '}
+                ({existingTagForSelection.site_name} ·{' '}
+                {existingTagForSelection.path_name}
+                {existingTagForSelection.action_name
+                  ? ` · ${existingTagForSelection.action_name}`
+                  : ''}
+                )
+              </p>
+              {onEditExistingTag ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-1"
+                  onClick={() => onEditExistingTag(existingTagForSelection.id)}
+                >
+                  Xem / Chỉnh sửa Tag hiện tại
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="min-w-0">
             <Label htmlFor="drawer-auth-script">Authentication Script (Optional)</Label>
@@ -401,7 +390,10 @@ export function AddTagDrawer({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSubmit()} disabled={isSubmitting}>
+          <Button
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting || Boolean(!isEditAuth && existingTagForSelection)}
+          >
             {isSubmitting
               ? 'Saving...'
               : isEditAuth

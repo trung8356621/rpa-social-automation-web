@@ -88,8 +88,8 @@ export type ActionTagItem = {
   path_key: string
   path_name: string
   action_id?: number | null
-  action_key: string
-  action_name: string
+  action_key?: string | null
+  action_name?: string | null
   name: string
   description?: string | null
   scripts_count: number

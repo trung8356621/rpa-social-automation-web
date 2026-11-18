@@ -69,6 +69,16 @@ export const MOCK_ACTION_REGISTRY: ActionRegistryData = {
       /** No Site limit configured — UI must not invent one */
       content_max_length: null,
     },
+    {
+      id: 3,
+      key: 'mayhopphat',
+      name: 'Mayhopphat',
+      base_url: 'https://mayhopphat.example.test',
+      base_url_mode: 'fixed',
+      description: 'Mayhopphat WordPress site',
+      paths_count: 2,
+      content_max_length: null,
+    },
   ],
   paths: [
     {
@@ -101,6 +111,26 @@ export const MOCK_ACTION_REGISTRY: ActionRegistryData = {
       key: 'new_post',
       name: 'New Post',
       url_pattern: '/wp-admin/post-new.php',
+      path_inputs: [],
+      description: null,
+    },
+    {
+      id: 4,
+      site_id: 3,
+      site_key: 'mayhopphat',
+      key: 'login',
+      name: 'login',
+      url_pattern: '/wp-login.php',
+      path_inputs: [],
+      description: null,
+    },
+    {
+      id: 5,
+      site_id: 3,
+      site_key: 'mayhopphat',
+      key: 'products',
+      name: 'products',
+      url_pattern: '/wp-admin/edit.php?post_type=product',
       path_inputs: [],
       description: null,
     },

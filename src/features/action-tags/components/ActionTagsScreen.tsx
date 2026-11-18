@@ -21,7 +21,7 @@ import { AddTagDrawer } from './AddTagDrawer'
 type ActionTagsScreenProps = {
   sites: Site[]
   paths: PathItem[]
-  actions: ActionItem[]
+  actions?: ActionItem[]
   tags: ActionTagItem[]
   authScripts: AuthScriptOption[]
   /** False when live mutations are intentionally gated */
@@ -30,7 +30,7 @@ type ActionTagsScreenProps = {
   onCreateTag: (data: {
     site_id: number
     path_id: number
-    action_key: string
+    action_key?: string | null
     auth_script_id?: string | null
   }) => Promise<void>
   onUpdateTagAuthScript: (
@@ -43,7 +43,6 @@ type ActionTagsScreenProps = {
 export function ActionTagsScreen({
   sites,
   paths,
-  actions,
   tags,
   authScripts,
   mutationsEnabled = true,
@@ -56,7 +55,6 @@ export function ActionTagsScreen({
   const [search, setSearch] = useState('')
   const [siteFilter, setSiteFilter] = useState('all')
   const [pathFilter, setPathFilter] = useState('all')
-  const [actionFilter, setActionFilter] = useState('all')
   const drawerParam = searchParams.get('drawer')
   const editTagId = Number(searchParams.get('tagId') || 0)
   const isCreateDrawer = drawerParam === 'add'
@@ -81,15 +79,6 @@ export function ActionTagsScreen({
     setSearchParams(next, { replace: true })
   }
 
-  const displayActions = useMemo(() => {
-    if (actions.length > 0) return actions
-    return [
-      { id: 1, key: 'post', name: 'Post' },
-      { id: 2, key: 'comment', name: 'Comment' },
-      { id: 3, key: 'collect', name: 'Collect' },
-    ]
-  }, [actions])
-
   const toolbarPaths = useMemo(() => {
     if (siteFilter === 'all') return paths
     const selectedSite = sites.find((s) => s.key === siteFilter)
@@ -100,14 +89,12 @@ export function ActionTagsScreen({
   const hasActiveFilters =
     search !== '' ||
     siteFilter !== 'all' ||
-    pathFilter !== 'all' ||
-    actionFilter !== 'all'
+    pathFilter !== 'all'
 
   const clearAllFilters = () => {
     setSearch('')
     setSiteFilter('all')
     setPathFilter('all')
-    setActionFilter('all')
   }
 
   const filteredTags = useMemo(() => {
@@ -118,15 +105,14 @@ export function ActionTagsScreen({
           t.tag_key.toLowerCase().includes(q) ||
           t.site_name.toLowerCase().includes(q) ||
           t.path_name.toLowerCase().includes(q) ||
-          t.action_name.toLowerCase().includes(q)
+          (t.action_name ?? '').toLowerCase().includes(q)
         if (!matches) return false
       }
       if (siteFilter !== 'all' && t.site_key !== siteFilter) return false
       if (pathFilter !== 'all' && t.path_key !== pathFilter) return false
-      if (actionFilter !== 'all' && t.action_key !== actionFilter) return false
       return true
     })
-  }, [tags, search, siteFilter, pathFilter, actionFilter])
+  }, [tags, search, siteFilter, pathFilter])
 
   const handleCopyTagKey = async (key: string) => {
     try {
@@ -142,7 +128,7 @@ export function ActionTagsScreen({
     <div>
       <PageHeader
         title="Action Tags"
-        description="Danh sách Action Tags (liên kết Site, Path và Action)"
+        description="Danh sách Action Tags (liên kết Site và Path)"
         actions={
           <>
             <Button variant="outline" onClick={onOpenSitesPaths}>
@@ -167,17 +153,17 @@ export function ActionTagsScreen({
       />
 
       <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-12">
-        <div className="relative md:col-span-4">
+        <div className="relative md:col-span-5">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tag key, site, path, action…"
+            placeholder="Search tag key, site, path…"
             className="pl-8"
             aria-label="Search action tags"
           />
         </div>
-        <div className="md:col-span-2">
+        <div className="md:col-span-3">
           <Select
             aria-label="Filter by site"
             value={siteFilter}
@@ -209,20 +195,6 @@ export function ActionTagsScreen({
           </Select>
         </div>
         <div className="md:col-span-2">
-          <Select
-            aria-label="Filter by action"
-            value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value)}
-          >
-            <option value="all">Action: All</option>
-            {displayActions.map((a) => (
-              <option key={a.id} value={a.key}>
-                {a.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="md:col-span-2">
           {hasActiveFilters ? (
             <Button variant="ghost" className="w-full" onClick={clearAllFilters}>
               Clear Filters
@@ -233,12 +205,11 @@ export function ActionTagsScreen({
 
       <div className="overflow-hidden rounded-[var(--radius-card)] border border-border bg-surface">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-left text-sm">
+          <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="border-b border-border bg-surface-muted/70 text-xs text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Site</th>
                 <th className="px-3 py-2 font-medium">Path</th>
-                <th className="px-3 py-2 font-medium">Action</th>
                 <th className="px-3 py-2 font-medium">Tag Key</th>
                 <th className="px-3 py-2 font-medium">Auth Script</th>
                 <th className="px-3 py-2 font-medium text-right">Actions</th>
@@ -247,13 +218,13 @@ export function ActionTagsScreen({
             <tbody>
               {sites.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center">
+                  <td colSpan={5} className="px-4 py-10 text-center">
                     <p className="font-medium text-foreground">
                       Chưa có Site / Path nào trong hệ thống
                     </p>
                     <p className="mx-auto mt-1 max-w-md text-sm text-muted">
-                      Action Tag là liên kết giữa Site, Path và Action. Vui lòng
-                      tạo Website và định nghĩa URL Pattern trước khi bắt đầu.
+                      Action Tag là liên kết giữa Site và Path. Vui lòng tạo
+                      Website và định nghĩa URL Pattern trước khi bắt đầu.
                     </p>
                     <Button className="mt-4" onClick={onOpenSitesPaths}>
                       Manage Sites & Paths
@@ -262,7 +233,7 @@ export function ActionTagsScreen({
                 </tr>
               ) : tags.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center">
+                  <td colSpan={5} className="px-4 py-10 text-center">
                     <p className="font-medium text-foreground">
                       Chưa có Action Tag nào
                     </p>
@@ -293,7 +264,7 @@ export function ActionTagsScreen({
                 </tr>
               ) : filteredTags.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center">
+                  <td colSpan={5} className="px-4 py-10 text-center">
                     <p className="font-medium text-foreground">
                       Không tìm thấy Action Tag nào phù hợp
                     </p>
@@ -321,10 +292,12 @@ export function ActionTagsScreen({
                         {tag.site_name}
                       </td>
                       <td className="px-3 py-2.5 text-foreground">
-                        {tag.path_name}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Badge variant="neutral">{tag.action_name}</Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{tag.path_name}</span>
+                          {tag.action_name ? (
+                            <Badge variant="neutral">{tag.action_name}</Badge>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5">
                         <code className="font-mono text-xs text-foreground">
@@ -401,10 +374,11 @@ export function ActionTagsScreen({
           editingTag={editingTag}
           sites={sites}
           paths={paths}
-          actions={displayActions}
+          tags={tags}
           authScripts={authScripts}
           onClose={() => setDrawerOpen(false)}
           onOpenSitesPaths={onOpenSitesPaths}
+          onEditExistingTag={(id) => setDrawerOpen(true, 'edit-auth', id)}
           onCreate={onCreateTag}
           onUpdateAuthScript={onUpdateTagAuthScript}
         />

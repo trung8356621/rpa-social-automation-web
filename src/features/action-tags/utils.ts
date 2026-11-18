@@ -1,4 +1,74 @@
-import type { PathInput } from './types'
+import type { ActionTagItem, PathInput } from './types'
+
+export const MAX_TAG_SEGMENT_LENGTH = 60
+export const MAX_TAG_KEY_LENGTH = 128
+
+export function normalizeTagSegment(raw: string): string {
+  return (raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, MAX_TAG_SEGMENT_LENGTH)
+}
+
+export function buildTagKey(
+  siteKey: string,
+  pathKey: string,
+  actionKey?: string | null,
+): string {
+  const s = normalizeTagSegment(siteKey)
+  const p = normalizeTagSegment(pathKey)
+  if (!s || !p) return ''
+
+  const a = actionKey ? normalizeTagSegment(actionKey) : ''
+  const combined = a ? `${s}.${p}.${a}` : `${s}.${p}`
+  return combined.slice(0, MAX_TAG_KEY_LENGTH).replace(/^[._-]+|[._-]+$/g, '')
+}
+
+export function isValidTagKeyFormat(tagKey: string): boolean {
+  const trimmed = (tagKey || '').trim()
+  if (!trimmed || trimmed.length > MAX_TAG_KEY_LENGTH) return false
+  return /^[a-z0-9][a-z0-9._-]{1,126}[a-z0-9]$/.test(trimmed)
+}
+
+export function findExistingSitePathTag(
+  tags: ActionTagItem[],
+  site: { id?: number | null; key?: string | null } | null | undefined,
+  path: { id?: number | null; key?: string | null } | null | undefined,
+): ActionTagItem | null {
+  if (!site || !path) return null
+  const targetKey =
+    site.key && path.key ? buildTagKey(site.key, path.key) : ''
+
+  // 1. Prefer canonical 2-part tag_key match ({site_key}.{path_key})
+  if (targetKey) {
+    const exact = tags.find((t) => t.tag_key === targetKey)
+    if (exact) return exact
+  }
+
+  // 2. Match by site_id + path_id when present
+  if (site.id != null && path.id != null) {
+    const byId = tags.find(
+      (t) => t.site_id === site.id && t.path_id === path.id,
+    )
+    if (byId) return byId
+  }
+
+  // 3. Fallback match by site_key + path_key
+  if (site.key && path.key) {
+    const normSite = normalizeTagSegment(site.key)
+    const normPath = normalizeTagSegment(path.key)
+    const byKeys = tags.find(
+      (t) =>
+        normalizeTagSegment(t.site_key) === normSite &&
+        normalizeTagSegment(t.path_key) === normPath,
+    )
+    if (byKeys) return byKeys
+  }
+
+  return null
+}
 
 export function parseInputsFromPattern(pattern: string): PathInput[] {
   if (!pattern) return []

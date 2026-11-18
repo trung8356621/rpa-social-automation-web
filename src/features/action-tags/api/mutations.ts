@@ -39,7 +39,7 @@ export type UpdatePathBody = {
 export type StoreTagBody = {
   site_id: number
   path_id: number
-  action_key: string
+  action_key?: string | null
   auth_script_id?: number
   auth_release_id?: number
 }

@@ -9,7 +9,13 @@ import type {
   PathItem,
   Site,
 } from './types'
-import { delay, parseInputsFromPattern, slugifyKey } from './utils'
+import {
+  buildTagKey,
+  delay,
+  findExistingSitePathTag,
+  parseInputsFromPattern,
+  slugifyKey,
+} from './utils'
 
 function cloneSeed(scenario: DemoScenario): ActionRegistryData {
   if (scenario === 'empty-sites' || scenario === 'error') {
@@ -92,23 +98,41 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
     async (payload: {
       site_id: number
       path_id: number
-      action_key: string
+      action_key?: string | null
       auth_script_id?: string | null
     }) => {
       await delay(280)
       const site = data.sites.find((s) => s.id === payload.site_id)
       const path = data.paths.find((p) => p.id === payload.path_id)
-      const action =
-        data.actions.find((a) => a.key === payload.action_key) ??
-        ({ id: 0, key: payload.action_key, name: payload.action_key } as const)
 
       if (!site || !path) {
         throw new Error('Site hoặc Path không hợp lệ.')
       }
 
-      const tagKey = `${site.key}.${path.key}.${payload.action_key}`
-      if (data.tags.some((t) => t.tag_key === tagKey)) {
-        throw new Error(`Action Tag [${tagKey}] đã tồn tại.`)
+      if (path.site_id !== site.id) {
+        throw new Error('Path không thuộc Site đã chọn.')
+      }
+
+      const actionKeyTrimmed = payload.action_key?.trim() || null
+      const action = actionKeyTrimmed
+        ? (data.actions.find((a) => a.key === actionKeyTrimmed) ?? {
+            id: 0,
+            key: actionKeyTrimmed,
+            name: actionKeyTrimmed,
+          })
+        : null
+
+      const tagKey = buildTagKey(site.key, path.key, action?.key)
+      if (!tagKey) {
+        throw new Error('Tag Key không hợp lệ.')
+      }
+
+      const existing =
+        data.tags.find((t) => t.tag_key === tagKey) ??
+        (!action ? findExistingSitePathTag(data.tags, site, path) : null)
+
+      if (existing) {
+        throw new Error(`Action Tag [${existing.tag_key}] đã tồn tại.`)
       }
 
       let authScript: ActionTagAuthScript = null
@@ -143,9 +167,9 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
             path_id: path.id,
             path_key: path.key,
             path_name: path.name,
-            action_id: action.id || null,
-            action_key: action.key,
-            action_name: action.name,
+            action_id: action?.id || null,
+            action_key: action?.key ?? null,
+            action_name: action?.name ?? null,
             name: tagKey,
             scripts_count: 0,
             ready: false,
