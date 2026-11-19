@@ -24,6 +24,7 @@ export type LiveCampaignSummary = {
   waiting?: number
 }
 
+/** CampaignSummary / CampaignDetail from OpenAPI CP19A/B. */
 export type LiveCampaignRow = {
   id?: string | number
   name?: string
@@ -32,30 +33,47 @@ export type LiveCampaignRow = {
   site_name?: string
   script_package_key?: string
   script_id?: string
+  script_version?: string
   script_name?: string
+  script_content_digest?: string | null
+  /** Hard Account UUID pin from detail (campaign.meta.pinned_account_id) */
+  account_id?: string | null
   execution_mode?: string
   run_mode?: string
   status?: string
   schedule?: LiveCampaignSchedule
   summary?: LiveCampaignSummary
+  /** Flat list counters (CampaignSummary schema) */
+  total_contents?: number
+  completed_contents?: number
+  failed_contents?: number
+  waiting_contents?: number
+  resource_recheck_seconds?: number
+  next_recheck_at?: string | null
+  contents?: LiveContentRow[]
   allowed_actions?: string[]
   created_at?: string
   updated_at?: string
 }
 
 export type LiveCampaignListResponse = {
+  ok?: boolean
   data?: LiveCampaignRow[]
   campaigns?: LiveCampaignRow[]
+  pending?: string
 }
 
 export type LiveCampaignDetailResponse = {
+  ok?: boolean
   data?: LiveCampaignRow
   campaign?: LiveCampaignRow
 }
 
 export type LiveCampaignMutationResponse = {
+  ok?: boolean
   data?: LiveCampaignRow
   campaign?: LiveCampaignRow
+  errors?: string[]
 }
 
 export type LiveContentRow = {
@@ -64,15 +82,18 @@ export type LiveContentRow = {
   external_ref?: string
   source?: string
   status?: string
-  input?: {
+  /** Flat Script input object from server (title/body/…); not nested UI shape */
+  input?: Record<string, unknown> | {
     title?: string | null
     body?: string | null
     variables?: Record<string, string | null>
   }
-  assigned_account_id?: string | null
+  assigned_account_id?: string | number | null
   assigned_account_label?: string | null
-  current_job_id?: string | null
+  current_job_id?: string | number | null
   last_result?: string | null
+  last_error_code?: string | null
+  last_error_message?: string | null
   created_at?: string
   updated_at?: string
 }

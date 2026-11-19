@@ -11,6 +11,13 @@ import {
   measureContentLength,
   siteContentPolicy,
 } from '../src/features/campaigns/content-limit.ts'
+import { buildLiveCampaignCreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
+import { mapLiveCampaign, mapLiveContent } from '../src/features/campaigns/api/mappers.ts'
+import {
+  resolveAccountDisplay,
+  resolveScriptDisplay,
+} from '../src/features/campaigns/display-resolve.ts'
+import { MOCK_ACCOUNTS } from '../src/features/accounts/mock-data.ts'
 import {
   CAMPAIGN_CONTENT_PATHS,
   CAMPAIGN_PATHS,
@@ -33,6 +40,7 @@ import {
 } from '../src/features/campaigns/script-compat.ts'
 import {
   canStartCampaign,
+  isPinnedAccountUnavailable,
   validateCampaignForm,
   validateManualContent,
   RETRY_WARNING,
@@ -105,6 +113,24 @@ const SCRIPT_LIST_SEED = [
   },
 ]
 
+function formBase(
+  overrides: Partial<Parameters<typeof validateCampaignForm>[0]> = {},
+): Parameters<typeof validateCampaignForm>[0] {
+  return {
+    name: 'Demo',
+    site_key: 'facebook',
+    script_package_key: 'script.facebook.group_composer.post',
+    script_version: '2.0.1',
+    execution_mode: 'one_account_one_job',
+    run_mode: 'live',
+    schedule: emptyScheduleForm(),
+    content_title: 'POC title',
+    content_external_ref: 'poc-001',
+    account_id: 'ff0035e0-a6d8-42af-8370-f5be9e453f2d',
+    ...overrides,
+  }
+}
+
 describe('CP19E Campaign Management', () => {
   it('1. Campaign list fixtures render-ready', () => {
     const store = createMockCampaignStore()
@@ -117,44 +143,31 @@ describe('CP19E Campaign Management', () => {
   })
 
   it('2. Campaign create validation', () => {
-    const bad = validateCampaignForm({
-      name: '  ',
-      site_key: '',
-      script_package_key: '',
-      execution_mode: 'one_account_one_job',
-      run_mode: 'live',
-      schedule: emptyScheduleForm(),
-    })
+    const bad = validateCampaignForm(
+      formBase({
+        name: '  ',
+        site_key: '',
+        script_package_key: '',
+        script_version: '',
+        content_title: '',
+      }),
+      { requireContents: true },
+    )
     assert.equal(bad.ok, false)
 
-    const ok = validateCampaignForm({
-      name: 'Demo',
-      site_key: 'facebook',
-      script_package_key: 'script.facebook.group_composer.post',
-      execution_mode: 'one_account_one_job',
-      run_mode: 'live',
-      schedule: emptyScheduleForm(),
-    })
+    const ok = validateCampaignForm(formBase(), { requireContents: true })
     assert.equal(ok.ok, true)
   })
 
   it('3. Execution mode selection values', () => {
-    const a = validateCampaignForm({
-      name: 'A',
-      site_key: 'facebook',
-      script_package_key: 'script.facebook.group_composer.post',
-      execution_mode: 'one_account_one_job',
-      run_mode: 'live',
-      schedule: emptyScheduleForm(),
-    })
-    const b = validateCampaignForm({
-      name: 'B',
-      site_key: 'facebook',
-      script_package_key: 'script.facebook.group_composer.post',
-      execution_mode: 'one_account_many_jobs',
-      run_mode: 'live',
-      schedule: emptyScheduleForm(),
-    })
+    const a = validateCampaignForm(
+      formBase({ name: 'A', execution_mode: 'one_account_one_job' }),
+      { requireContents: true },
+    )
+    const b = validateCampaignForm(
+      formBase({ name: 'B', execution_mode: 'one_account_many_jobs' }),
+      { requireContents: true },
+    )
     assert.equal(a.ok, true)
     assert.equal(b.ok, true)
     if (a.ok) assert.equal(a.value.execution_mode, 'one_account_one_job')
@@ -378,5 +391,179 @@ describe('CP19E Campaign Management', () => {
     assert.match(CAMPAIGN_CONTENT_PATHS.retry('c1'), /\/retry$/)
     assert.ok(CAMPAIGN_PATHS.list.startsWith('/social-automation/api/'))
     assert.equal(CAMPAIGN_PATHS.list.startsWith('http'), false)
+  })
+
+  it('21. LIVE create payload matches OpenAPI wordpress_draft_poc (90886a7)', () => {
+    const accountId = 'ff0035e0-a6d8-42af-8370-f5be9e453f2d'
+    const validated = validateCampaignForm(
+      formBase({
+        name: 'WP Draft POC',
+        site_key: 'mayhopphat',
+        script_package_key: 'mayhopphat.create_post',
+        script_version: '1',
+        execution_mode: 'one_account_one_job',
+        run_mode: 'live',
+        content_title: 'POC Draft Title',
+        content_external_ref: 'poc-draft-001',
+        account_id: accountId,
+      }),
+      { requireContents: true, requireAccountPin: true },
+    )
+    assert.equal(validated.ok, true)
+    if (!validated.ok) return
+    const body = buildLiveCampaignCreateBody(validated.value)
+    assert.equal(body.name, 'WP Draft POC')
+    assert.equal(body.platform, 'mayhopphat')
+    assert.equal(body.script_id, 'mayhopphat.create_post')
+    assert.equal(body.script_version, '1')
+    assert.equal(body.execution_mode, 'one_account_one_job')
+    assert.equal(body.run_mode, 'live')
+    assert.equal(body.account_id, accountId)
+    assert.equal(body.contents.length, 1)
+    assert.equal(body.contents[0].input.title, 'POC Draft Title')
+    assert.equal(body.contents[0].external_ref, 'poc-draft-001')
+    assert.equal('body' in body.contents[0].input, false)
+
+    const missingPin = validateCampaignForm(
+      formBase({ account_id: '' }),
+      { requireContents: true, requireAccountPin: true },
+    )
+    assert.equal(missingPin.ok, false)
+  })
+
+  it('22. Test Mode gate stays fail-closed (never force true)', () => {
+    assert.equal(canStartWithRunMode('test', null).ok, false)
+    assert.equal(canStartWithRunMode('test', false).ok, false)
+    assert.equal(canStartWithRunMode('live', null).ok, true)
+  })
+
+  it('23. LIVE detail mapper surfaces content errors and script_version', () => {
+    const campaign = mapLiveCampaign({
+      id: 'camp-1',
+      name: 'N',
+      platform: 'mayhopphat',
+      script_id: 'mayhopphat.create_post',
+      script_version: '1',
+      account_id: 'ff0035e0-a6d8-42af-8370-f5be9e453f2d',
+      execution_mode: 'one_account_one_job',
+      run_mode: 'live',
+      status: 'running',
+      total_contents: 1,
+      completed_contents: 0,
+      failed_contents: 0,
+      waiting_contents: 0,
+      summary: {
+        total: 1,
+        pending: 0,
+        waiting_resources: 0,
+        running: 1,
+        success: 0,
+        failed_locked: 0,
+        unknown: 0,
+        skipped: 0,
+        cancelled: 0,
+      },
+      contents: [
+        {
+          id: 'cnt-1',
+          status: 'failed_locked',
+          assigned_account_id: 'ff0035e0-a6d8-42af-8370-f5be9e453f2d',
+          last_error_code: 'orc_timeout',
+          last_error_message: 'step timeout',
+          input: { title: 'T' },
+        },
+      ],
+    })
+    assert.equal(campaign.script_version, '1')
+    assert.equal(campaign.site_key, 'mayhopphat')
+    assert.equal(campaign.account_id, 'ff0035e0-a6d8-42af-8370-f5be9e453f2d')
+    assert.equal(campaign.summary.running, 1)
+    assert.ok(campaign.contents)
+    assert.equal(campaign.contents?.[0]?.last_error_code, 'orc_timeout')
+    const content = mapLiveContent({
+      id: 'c2',
+      status: 'success',
+      input: { title: 'X', content: 'legacy body field' },
+    })
+    assert.equal(content.input.title, 'X')
+    assert.equal(content.input.body, 'legacy body field')
+  })
+
+  it('25. Account/Script display resolves names — never invents from UUID', () => {
+    const resolved = resolveAccountDisplay(
+      MOCK_ACCOUNTS,
+      'acc_wp_01_a1b2c3d4',
+    )
+    assert.equal(resolved.state, 'resolved')
+    assert.equal(resolved.label, 'Main Blog Editor')
+    assert.equal(resolved.accountId, 'acc_wp_01_a1b2c3d4')
+
+    const missing = resolveAccountDisplay(
+      MOCK_ACCOUNTS,
+      'ff0035e0-a6d8-42af-8370-f5be9e453f2d',
+    )
+    assert.equal(missing.state, 'missing')
+    assert.equal(missing.label, 'Account missing')
+    assert.equal(missing.accountId, 'ff0035e0-a6d8-42af-8370-f5be9e453f2d')
+    assert.equal(missing.label.includes('ff0035e0'), false)
+
+    const loading = resolveAccountDisplay(undefined, 'acc_wp_01_a1b2c3d4', {
+      loading: true,
+    })
+    assert.equal(loading.state, 'loading')
+    assert.equal(loading.label, 'Loading…')
+
+    const empty = resolveAccountDisplay(MOCK_ACCOUNTS, null)
+    assert.equal(empty.state, 'empty')
+
+    const script = resolveScriptDisplay(
+      SCRIPT_LIST_SEED,
+      'script.wordpress.new_post.post',
+      '1.2.0',
+    )
+    assert.equal(script.state, 'resolved')
+    assert.equal(script.label, 'wordpress.new_post.post · v1.2.0')
+    assert.equal(script.packageKey, 'script.wordpress.new_post.post')
+
+    const scriptMissing = resolveScriptDisplay(
+      SCRIPT_LIST_SEED,
+      'mayhopphat.create_post',
+      '1',
+    )
+    assert.equal(scriptMissing.state, 'missing')
+    assert.match(scriptMissing.label, /Script missing/)
+    assert.equal(scriptMissing.packageKey, 'mayhopphat.create_post')
+    // Do not treat package key as a pretty display name when lookup fails
+    assert.equal(scriptMissing.label.startsWith('mayhopphat.create_post'), false)
+  })
+
+  it('24. pinned_account_unavailable surfaces waiting_resources (no fallback)', () => {
+    assert.equal(
+      isPinnedAccountUnavailable({
+        status: 'waiting_resources',
+        last_error_code: 'pinned_account_unavailable',
+        last_error_message: 'Account offline',
+      }),
+      true,
+    )
+    assert.equal(
+      isPinnedAccountUnavailable({
+        status: 'waiting_resources',
+        last_error_code: null,
+        last_result: null,
+      }),
+      false,
+    )
+    const waiting = mapLiveContent({
+      id: 'cnt-wait',
+      status: 'waiting_resources',
+      assigned_account_id: 'ff0035e0-a6d8-42af-8370-f5be9e453f2d',
+      last_error_code: 'pinned_account_unavailable',
+      last_error_message: 'pinned account not eligible',
+      input: { title: 'POC Draft Title' },
+    })
+    assert.equal(waiting.status, 'waiting_resources')
+    assert.equal(waiting.last_error_code, 'pinned_account_unavailable')
+    assert.equal(isPinnedAccountUnavailable(waiting), true)
   })
 })

@@ -102,6 +102,8 @@ export const mockCampaignAdapter = {
       site_name: meta?.site_name ?? input.site_key,
       script_package_key: input.script_package_key,
       script_name: meta?.script_name ?? input.script_package_key,
+      script_version: input.script_version || '1.0.0',
+      account_id: input.account_id?.trim() || null,
       execution_mode: input.execution_mode,
       run_mode: input.run_mode,
       status: input.schedule.type === 'scheduled' ? 'scheduled' : 'draft',
@@ -114,6 +116,32 @@ export const mockCampaignAdapter = {
       ),
     }
     store.campaigns = [campaign, ...store.campaigns]
+    if (input.contents && input.contents.length > 0) {
+      const pinned = input.account_id?.trim() || null
+      const rows: CampaignContent[] = input.contents.map((row, i) => ({
+        id: `cnt_local_${Date.now()}_${i}`,
+        campaign_id: id,
+        external_ref: row.external_ref?.trim() || `manual-${i + 1}`,
+        source: 'manual' as const,
+        status: 'pending' as const,
+        input: {
+          title: row.title,
+          body: row.body ?? null,
+          variables: { ...(row.variables ?? {}) },
+        },
+        editor_doc: null,
+        assigned_account_id: pinned,
+        assigned_account_label: pinned,
+        current_job_id: null,
+        last_result: null,
+        last_error_code: null,
+        last_error_message: null,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }))
+      store.contents = [...rows, ...store.contents]
+      refreshSummaries(store)
+    }
     return structuredClone(campaign)
   },
 
@@ -131,6 +159,10 @@ export const mockCampaignAdapter = {
     c.site_name = meta?.site_name ?? input.site_key
     c.script_package_key = input.script_package_key
     c.script_name = meta?.script_name ?? input.script_package_key
+    c.script_version = input.script_version || c.script_version
+    if (input.account_id !== undefined) {
+      c.account_id = input.account_id?.trim() || null
+    }
     c.execution_mode = input.execution_mode
     c.run_mode = input.run_mode
     c.schedule = structuredClone(input.schedule)
@@ -220,6 +252,8 @@ export const mockCampaignAdapter = {
       assigned_account_label: null,
       current_job_id: null,
       last_result: null,
+      last_error_code: null,
+      last_error_message: null,
       created_at: nowIso(),
       updated_at: nowIso(),
     }

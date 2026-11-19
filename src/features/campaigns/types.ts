@@ -60,6 +60,13 @@ export type Campaign = {
   site_name: string
   script_package_key: string
   script_name: string
+  /** Published release version pinned at create (OpenAPI script_version) */
+  script_version: string
+  /**
+   * Hard Account UUID pin from create (`meta.pinned_account_id` / detail `account_id`).
+   * Null when create omitted account_id (auto platform selection).
+   */
+  account_id: string | null
   execution_mode: CampaignExecutionMode
   run_mode: CampaignRunMode
   status: CampaignStatus
@@ -69,6 +76,8 @@ export type Campaign = {
   updated_at: string
   /** Allowed transitions for current status (mock + live when known) */
   allowed_actions: CampaignAction[]
+  /** Nested on detail responses; empty on list rows */
+  contents?: CampaignContent[]
 }
 
 export type CampaignAction =
@@ -119,6 +128,8 @@ export type CampaignContent = {
   assigned_account_label: string | null
   current_job_id: string | null
   last_result: string | null
+  last_error_code: string | null
+  last_error_message: string | null
   created_at: string
   updated_at: string
 }
@@ -173,13 +184,30 @@ export type SiteContentPolicy = {
   field_source: 'site.content_max_length' | 'unavailable'
 }
 
+/** Content rows required at Staff create (OpenAPI contents minItems 1). */
+export type CreateCampaignContentDraft = {
+  external_ref?: string
+  title: string | null
+  body?: string | null
+  variables?: ScriptInputValueMap
+}
+
 export type CreateCampaignInput = {
   name: string
   site_key: string
   script_package_key: string
+  /** Exact published release version — required for LIVE pin */
+  script_version: string
   execution_mode: CampaignExecutionMode
   run_mode: CampaignRunMode
   schedule: CampaignSchedule
+  /** At least one for LIVE create; MOCK may create empty then add Articles */
+  contents?: CreateCampaignContentDraft[]
+  /**
+   * Hard Account UUID pin (OpenAPI account_id).
+   * Required for WordPress Draft POC / one_account_one_job — no silent fallback.
+   */
+  account_id?: string | null
 }
 
 export type UpdateCampaignInput = CreateCampaignInput & {

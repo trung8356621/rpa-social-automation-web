@@ -70,19 +70,18 @@ export function useCampaigns() {
         const list = await adapter.listCampaigns()
         if (cancelled) return
         setCampaigns(list)
-        try {
-          const rows = await adapter.listContents()
-          if (!cancelled) setContents(rows)
-        } catch (contentErr) {
-          // Live CP19C gap — keep campaigns, surface content gap softly
-          if (!cancelled) {
-            setContents([])
-            if (mode === 'live') {
-              // do not fake content
-            } else if (contentErr instanceof Error) {
+        if (mode === 'mock') {
+          try {
+            const rows = await adapter.listContents()
+            if (!cancelled) setContents(rows)
+          } catch (contentErr) {
+            if (!cancelled && contentErr instanceof Error) {
               setError(contentErr.message)
             }
           }
+        } else {
+          // LIVE: contents come from detail — keep list-level contents empty
+          if (!cancelled) setContents([])
         }
         setLoading(false)
       } catch (err) {
@@ -107,26 +106,23 @@ export function useCampaigns() {
     }
   }, [adapter, demo, mode, reloadToken])
 
-  const assertMockMutations = useCallback(() => {
-    if (mode === 'live') {
-      throw new Error(
-        'Production Campaign API is not activated. Switch to MOCK (unset VITE_RPA_API_MODE) for UI mutations. No fake live success.',
-      )
-    }
-  }, [mode])
-
   const createCampaign = useCallback(
     async (
       input: CreateCampaignInput,
       meta?: { site_name?: string; script_name?: string },
     ) => {
-      assertMockMutations()
       const created = await adapter.createCampaign(input, meta)
       setCampaigns((prev) => [created, ...prev.filter((c) => c.id !== created.id)])
+      if (created.contents?.length) {
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== created.id)
+          return [...created.contents!, ...without]
+        })
+      }
       showToast('Campaign created')
       return created
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const updateCampaign = useCallback(
@@ -134,7 +130,6 @@ export function useCampaigns() {
       input: UpdateCampaignInput,
       meta?: { site_name?: string; script_name?: string },
     ) => {
-      assertMockMutations()
       const updated = await adapter.updateCampaign(input, meta)
       setCampaigns((prev) =>
         prev.map((c) => (c.id === updated.id ? updated : c)),
@@ -142,98 +137,96 @@ export function useCampaigns() {
       showToast('Campaign updated')
       return updated
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const startCampaign = useCallback(
     async (id: string) => {
-      assertMockMutations()
       const updated = await adapter.startCampaign(id)
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? updated : c)),
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
       )
+      if (updated.contents) {
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== id)
+          return [...updated.contents!, ...without]
+        })
+      }
       showToast('Campaign started')
       return updated
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const pauseCampaign = useCallback(
     async (id: string) => {
-      assertMockMutations()
       const updated = await adapter.pauseCampaign(id)
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? updated : c)),
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
       )
       showToast('Campaign paused')
       return updated
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const resumeCampaign = useCallback(
     async (id: string) => {
-      assertMockMutations()
       const updated = await adapter.resumeCampaign(id)
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? updated : c)),
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
       )
       showToast('Campaign resumed')
       return updated
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const cancelCampaign = useCallback(
     async (id: string) => {
-      assertMockMutations()
       const updated = await adapter.cancelCampaign(id)
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? updated : c)),
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
       )
       showToast('Campaign cancelled')
       return updated
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const createManualContent = useCallback(
     async (draft: ManualContentDraft) => {
-      assertMockMutations()
       const row = await adapter.createManualContent(draft)
       setContents((prev) => [row, ...prev])
       showToast('Article added')
       reload()
       return row
     },
-    [adapter, assertMockMutations, reload, showToast],
+    [adapter, reload, showToast],
   )
 
   const updateManualContent = useCallback(
     async (id: string, draft: ManualContentDraft) => {
-      assertMockMutations()
       const row = await adapter.updateManualContent(id, draft)
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
       showToast('Article updated')
       return row
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const removeDraftContent = useCallback(
     async (id: string) => {
-      assertMockMutations()
       await adapter.removeDraftContent(id)
       setContents((prev) => prev.filter((c) => c.id !== id))
       showToast('Draft removed')
       reload()
     },
-    [adapter, assertMockMutations, reload, showToast],
+    [adapter, reload, showToast],
   )
 
   const retryContent = useCallback(
     async (id: string, status: string) => {
-      assertMockMutations()
       const key =
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
@@ -247,34 +240,51 @@ export function useCampaigns() {
       )
       return row
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const skipContent = useCallback(
     async (id: string) => {
-      assertMockMutations()
       const row = await adapter.skipContent(id)
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
       showToast('Content skipped')
       return row
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const cancelContent = useCallback(
     async (id: string) => {
-      assertMockMutations()
       const row = await adapter.cancelContent(id)
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
       showToast('Content cancelled')
       return row
     },
-    [adapter, assertMockMutations, showToast],
+    [adapter, showToast],
   )
 
   const listJobAttempts = useCallback(
     async (campaignId: string): Promise<CampaignJobAttempt[]> => {
       return adapter.listJobAttempts(campaignId)
+    },
+    [adapter],
+  )
+
+  const loadCampaignDetail = useCallback(
+    async (id: string): Promise<Campaign> => {
+      const detail = await adapter.getCampaign(id)
+      setCampaigns((prev) => {
+        const exists = prev.some((c) => c.id === detail.id)
+        if (!exists) return [detail, ...prev]
+        return prev.map((c) => (c.id === detail.id ? { ...c, ...detail } : c))
+      })
+      if (detail.contents) {
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== id)
+          return [...detail.contents!, ...without]
+        })
+      }
+      return detail
     },
     [adapter],
   )
@@ -306,11 +316,13 @@ export function useCampaigns() {
     skipContent,
     cancelContent,
     listJobAttempts,
+    loadCampaignDetail,
     getScriptInputSchema,
-    mutationsEnabled: mode === 'mock',
+    /** LIVE Staff mutations are wired; operator must click — no auto Start. */
+    mutationsEnabled: true,
     liveMutationsBlockedReason:
       mode === 'live'
-        ? 'Production Campaign API is not activated for UI mutations in this checkpoint. Prefer MOCK.'
+        ? 'LIVE Staff API wired. Client Runtime Claim remains OFF until approved. Do not auto-start Jobs.'
         : null,
   }
 }

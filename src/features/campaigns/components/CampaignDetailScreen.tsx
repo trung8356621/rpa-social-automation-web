@@ -5,6 +5,13 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
+import type { AccountItem } from '@/features/accounts/types'
+import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/types'
+
+import {
+  resolveAccountDisplay,
+  resolveScriptDisplay,
+} from '../display-resolve'
 import { formatScheduleLabel } from '../schedule'
 import {
   campaignStatusBadge,
@@ -16,6 +23,7 @@ import {
   RETRY_WARNING,
   UNKNOWN_RETRY_WARNING,
   canStartCampaign,
+  isPinnedAccountUnavailable,
 } from '../validation'
 import type {
   Campaign,
@@ -29,6 +37,11 @@ type Props = {
   testCompatible: boolean | null
   mode: 'mock' | 'live'
   liveBlockedReason: string | null
+  accounts: AccountItem[]
+  accountsLoading?: boolean
+  scripts: ScriptListItem[]
+  scriptsLoading?: boolean
+  scriptDetail?: ScriptDetail | null
   onStart: (id: string) => Promise<unknown>
   onPause: (id: string) => Promise<unknown>
   onResume: (id: string) => Promise<unknown>
@@ -45,6 +58,11 @@ export function CampaignDetailScreen({
   testCompatible,
   mode,
   liveBlockedReason,
+  accounts,
+  accountsLoading = false,
+  scripts,
+  scriptsLoading = false,
+  scriptDetail = null,
   onStart,
   onPause,
   onResume,
@@ -62,6 +80,31 @@ export function CampaignDetailScreen({
   const startGate = useMemo(
     () => canStartCampaign(campaign, contents, testCompatible),
     [campaign, contents, testCompatible],
+  )
+
+  const pinnedAccount = useMemo(
+    () =>
+      resolveAccountDisplay(accounts, campaign.account_id, {
+        loading: accountsLoading,
+      }),
+    [accounts, accountsLoading, campaign.account_id],
+  )
+
+  const scriptDisplay = useMemo(
+    () =>
+      resolveScriptDisplay(
+        scripts,
+        campaign.script_package_key,
+        campaign.script_version,
+        { loading: scriptsLoading, detail: scriptDetail },
+      ),
+    [
+      campaign.script_package_key,
+      campaign.script_version,
+      scriptDetail,
+      scripts,
+      scriptsLoading,
+    ],
   )
 
   const st = campaignStatusBadge(campaign.status)
@@ -181,8 +224,26 @@ export function CampaignDetailScreen({
           </div>
           <div>
             <dt className="text-xs text-muted">Script</dt>
-            <dd className="font-mono text-xs">
-              {campaign.script_name} · {campaign.script_package_key}
+            <dd
+              className={
+                scriptDisplay.state === 'missing'
+                  ? 'text-xs text-warning'
+                  : 'text-sm'
+              }
+            >
+              {scriptDisplay.label}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted">Pinned Account</dt>
+            <dd
+              className={
+                pinnedAccount.state === 'missing'
+                  ? 'text-xs text-warning'
+                  : 'text-sm'
+              }
+            >
+              {pinnedAccount.label}
             </dd>
           </div>
           <div>
@@ -203,8 +264,13 @@ export function CampaignDetailScreen({
       <section className="flex flex-wrap gap-2">
         <Button
           size="sm"
-          disabled={busy || !startGate.ok || (mode === 'live' && !!liveBlockedReason)}
+          disabled={busy || !startGate.ok}
           onClick={confirmStart}
+          title={
+            mode === 'live'
+              ? 'Sends POST …/start. Client Runtime Claim must be approved separately.'
+              : undefined
+          }
         >
           Start
         </Button>
@@ -291,6 +357,7 @@ export function CampaignDetailScreen({
               ) : (
                 contents.map((c) => {
                   const cs = contentStatusBadge(c.status)
+                  const pinUnavailable = isPinnedAccountUnavailable(c)
                   return (
                     <tr key={c.id} className="border-b border-border">
                       <td className="px-3 py-2">
@@ -301,15 +368,57 @@ export function CampaignDetailScreen({
                         </div>
                       </td>
                       <td className="px-3 py-2">
-                        <Badge variant={cs.variant}>{cs.label}</Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant={cs.variant}>{cs.label}</Badge>
+                          {pinUnavailable ||
+                          c.status === 'waiting_resources' ? (
+                            <span className="text-[11px] text-warning">
+                              {pinUnavailable
+                                ? 'pinned_account_unavailable — no fallback'
+                                : 'waiting_resources'}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-xs">
-                        {c.assigned_account_label ?? '—'}
+                        {(() => {
+                          const assigned = resolveAccountDisplay(
+                            accounts,
+                            c.assigned_account_id ?? campaign.account_id,
+                            { loading: accountsLoading },
+                          )
+                          if (assigned.state === 'empty') return '—'
+                          return (
+                            <span
+                              className={
+                                assigned.state === 'missing'
+                                  ? 'text-warning'
+                                  : undefined
+                              }
+                            >
+                              {assigned.label}
+                            </span>
+                          )
+                        })()}
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">
                         {c.current_job_id ?? '—'}
                       </td>
-                      <td className="px-3 py-2 text-xs">{c.last_result ?? '—'}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {c.last_error_code || c.last_error_message ? (
+                          <span
+                            className={
+                              pinUnavailable ? 'text-warning' : 'text-danger'
+                            }
+                          >
+                            {[c.last_error_code, c.last_error_message]
+                              .filter(Boolean)
+                              .join(': ')}
+                          </span>
+                        ) : (
+                          (c.last_result ?? '—')
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
                           {c.status === 'failed_locked' ||
@@ -426,6 +535,42 @@ export function CampaignDetailScreen({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-[var(--radius-card)] border border-border bg-surface p-3">
+        <h2 className="text-sm font-semibold">Technical Details</h2>
+        <dl className="mt-2 grid gap-2 font-mono text-[11px] text-muted sm:grid-cols-2">
+          <div>
+            <dt>Campaign ID</dt>
+            <dd className="text-foreground">{campaign.id || '—'}</dd>
+          </div>
+          <div>
+            <dt>Script package / id</dt>
+            <dd className="text-foreground">
+              {scriptDisplay.packageKey || campaign.script_package_key || '—'}
+            </dd>
+          </div>
+          <div>
+            <dt>Script version</dt>
+            <dd className="text-foreground">
+              {scriptDisplay.version || campaign.script_version || '—'}
+            </dd>
+          </div>
+          <div>
+            <dt>Pinned account_id</dt>
+            <dd className="text-foreground">
+              {pinnedAccount.accountId ?? campaign.account_id ?? '—'}
+            </dd>
+          </div>
+          {contents.map((c) => (
+            <div key={`tech-acc-${c.id}`} className="sm:col-span-2">
+              <dt>Content {c.external_ref || c.id} · assigned_account_id</dt>
+              <dd className="text-foreground">
+                {c.assigned_account_id ?? '—'}
+              </dd>
+            </div>
+          ))}
+        </dl>
       </section>
     </div>
   )

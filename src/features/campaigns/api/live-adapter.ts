@@ -9,6 +9,7 @@ import type {
   ScriptInputSchema,
   UpdateCampaignInput,
 } from '../types'
+import { buildLiveCampaignCreateBody } from './build-create-payload'
 import type {
   LiveCampaignDetailResponse,
   LiveCampaignListResponse,
@@ -18,10 +19,10 @@ import { CAMPAIGN_PATHS, CAMPAIGN_CONTENT_PATHS } from './paths'
 import { mapLiveCampaign, mapLiveContent } from './mappers'
 
 /**
- * Live Staff Session Campaign adapter (CP19A/B routes).
+ * Live Staff Session Campaign adapter (CP19A/B OpenAPI origin/main).
  * Uses relative paths + CSRF via staffApiRequest.
  * Never embeds Client API Key.
- * Manual Content routes (CP19C) are NOT wired until OpenAPI is available.
+ * Manual Content CRUD after create is not in OpenAPI — contents belong on create.
  */
 export const liveCampaignAdapter = {
   mode: 'live' as const,
@@ -53,9 +54,25 @@ export const liveCampaignAdapter = {
     input: CreateCampaignInput,
     _meta?: { site_name?: string; script_name?: string },
   ): Promise<Campaign> {
+    if (!input.contents || input.contents.length === 0) {
+      throw new Error(
+        'LIVE create requires contents[] (OpenAPI minItems: 1). Add at least one title-only Article.',
+      )
+    }
+    if (!String(input.script_version ?? '').trim()) {
+      throw new Error(
+        'LIVE create requires script_version (exact published release).',
+      )
+    }
+    if (!String(input.account_id ?? '').trim()) {
+      throw new Error(
+        'LIVE create requires account_id (hard Account UUID pin). No silent fallback.',
+      )
+    }
+    const body = buildLiveCampaignCreateBody(input)
     const res = await staffApiRequest<LiveCampaignMutationResponse>(
       CAMPAIGN_PATHS.list,
-      { method: 'POST', body: input },
+      { method: 'POST', body },
     )
     const row = res.data ?? res.campaign
     if (!row) throw new Error('Create Campaign response missing data.')
@@ -66,9 +83,16 @@ export const liveCampaignAdapter = {
     input: UpdateCampaignInput,
     _meta?: { site_name?: string; script_name?: string },
   ): Promise<Campaign> {
+    // OpenAPI update: limited fields — name / platform / execution_mode / recheck while draft
+    const body: Record<string, unknown> = {
+      name: input.name,
+      platform: input.site_key,
+      execution_mode: input.execution_mode,
+      resource_recheck_seconds: input.schedule.resource_recheck_seconds,
+    }
     const res = await staffApiRequest<LiveCampaignMutationResponse>(
       CAMPAIGN_PATHS.detail(input.id),
-      { method: 'PUT', body: input },
+      { method: 'PUT', body },
     )
     const row = res.data ?? res.campaign
     if (!row) throw new Error('Update Campaign response missing data.')
@@ -115,16 +139,22 @@ export const liveCampaignAdapter = {
     return mapLiveCampaign(row)
   },
 
-  async listContents(_campaignId?: string): Promise<CampaignContent[]> {
-    // CP19C Manual Content routes — contract gap until OpenAPI available
-    throw new Error(
-      'CONTRACT GAP: Manual Content list routes (CP19C) are not wired. Do not invent endpoints.',
-    )
+  async listContents(campaignId?: string): Promise<CampaignContent[]> {
+    if (!campaignId) {
+      throw new Error(
+        'CONTRACT GAP: Global Manual Content list is not in OpenAPI. Load contents via Campaign detail.',
+      )
+    }
+    const detail = await this.getCampaign(campaignId)
+    return (detail.contents ?? []).map((c) => ({
+      ...c,
+      campaign_id: c.campaign_id || campaignId,
+    }))
   },
 
   async createManualContent(_draft: ManualContentDraft): Promise<CampaignContent> {
     throw new Error(
-      'CONTRACT GAP: Manual Content create (CP19C) is not available. No fake success.',
+      'CONTRACT GAP: Manual Content create after Campaign is not in OpenAPI. Include contents[] on Campaign create.',
     )
   },
 
@@ -133,13 +163,13 @@ export const liveCampaignAdapter = {
     _draft: ManualContentDraft,
   ): Promise<CampaignContent> {
     throw new Error(
-      'CONTRACT GAP: Manual Content update (CP19C) is not available. No fake success.',
+      'CONTRACT GAP: Manual Content update is not in OpenAPI. No fake success.',
     )
   },
 
   async removeDraftContent(_id: string): Promise<void> {
     throw new Error(
-      'CONTRACT GAP: Manual Content delete (CP19C) is not available. No fake success.',
+      'CONTRACT GAP: Manual Content delete is not in OpenAPI. No fake success.',
     )
   },
 
@@ -184,11 +214,24 @@ export const liveCampaignAdapter = {
     return mapLiveContent(row)
   },
 
-  async listJobAttempts(_campaignId: string): Promise<CampaignJobAttempt[]> {
-    // History may arrive nested in detail — CP19C gap if separate route
-    throw new Error(
-      'CONTRACT GAP: Campaign Job Attempt history route not confirmed in OpenAPI.',
-    )
+  async listJobAttempts(campaignId: string): Promise<CampaignJobAttempt[]> {
+    // No dedicated Job Attempt history route in OpenAPI — surface content status only.
+    const contents = await this.listContents(campaignId)
+    return contents
+      .filter((c) => c.status !== 'pending' && c.status !== 'draft')
+      .map((c, i) => ({
+        id: `content-status-${c.id}`,
+        content_id: c.id,
+        campaign_id: campaignId,
+        attempt: i + 1,
+        status: c.status,
+        agent_label: null,
+        browser_label: null,
+        started_at: null,
+        ended_at: null,
+        error: c.last_error_message ?? c.last_result,
+        artifacts: [],
+      }))
   },
 
   getScriptInputSchema(_packageKey: string): ScriptInputSchema {

@@ -17,9 +17,15 @@ export type CampaignFormValues = {
   name: string
   site_key: string
   script_package_key: string
+  script_version: string
   execution_mode: CampaignExecutionMode
   run_mode: CampaignRunMode
   schedule: ScheduleFormValues
+  /** POC: title-only content included on create (OpenAPI contents[]) */
+  content_title: string
+  content_external_ref: string
+  /** Hard Account UUID pin — sent as OpenAPI account_id */
+  account_id: string
 }
 
 export type ValidationOk<T> = { ok: true; value: T }
@@ -27,7 +33,10 @@ export type ValidationErr = { ok: false; message: string }
 
 export function validateCampaignForm(
   form: CampaignFormValues,
+  options?: { requireContents?: boolean; requireAccountPin?: boolean },
 ): ValidationOk<CreateCampaignInput> | ValidationErr {
+  const requireContents = options?.requireContents === true
+  const requireAccountPin = options?.requireAccountPin === true
   const name = form.name.trim()
   if (!name) return { ok: false, message: 'Campaign Name is required.' }
   if (!form.site_key.trim()) {
@@ -35,6 +44,12 @@ export function validateCampaignForm(
   }
   if (!form.script_package_key.trim()) {
     return { ok: false, message: 'Script is required (Script Registry).' }
+  }
+  if (!form.script_version.trim()) {
+    return {
+      ok: false,
+      message: 'Script version is required (published release pin).',
+    }
   }
   if (
     form.execution_mode !== 'one_account_one_job' &&
@@ -49,17 +64,74 @@ export function validateCampaignForm(
   const sched = validateScheduleForm(form.schedule)
   if (!sched.ok) return sched
 
+  const title = form.content_title.trim()
+  if (requireContents && !title) {
+    return {
+      ok: false,
+      message: 'Content title is required (OpenAPI contents[] on create).',
+    }
+  }
+
+  const accountId = form.account_id.trim()
+  if (requireAccountPin && !accountId) {
+    return {
+      ok: false,
+      message:
+        'Account pin is required (OpenAPI account_id). Hard pin — no silent fallback.',
+    }
+  }
+  if (
+    requireAccountPin &&
+    form.execution_mode === 'one_account_one_job' &&
+    !accountId
+  ) {
+    return {
+      ok: false,
+      message: 'one_account_one_job requires a hard Account UUID pin.',
+    }
+  }
+
   return {
     ok: true,
     value: {
       name,
       site_key: form.site_key.trim(),
       script_package_key: form.script_package_key.trim(),
+      script_version: form.script_version.trim(),
       execution_mode: form.execution_mode,
       run_mode: form.run_mode,
       schedule: scheduleFormToApi(form.schedule),
+      account_id: accountId || null,
+      contents: title
+        ? [
+            {
+              external_ref: form.content_external_ref.trim() || undefined,
+              title,
+              body: null,
+              variables: {},
+            },
+          ]
+        : undefined,
     },
   }
+}
+
+/** True when content is waiting because the hard-pinned Account is unavailable. */
+export function isPinnedAccountUnavailable(content: {
+  status: string
+  last_error_code?: string | null
+  last_error_message?: string | null
+  last_result?: string | null
+}): boolean {
+  if (content.last_error_code === 'pinned_account_unavailable') return true
+  const hay = [
+    content.last_error_code,
+    content.last_error_message,
+    content.last_result,
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return /pinned_account_unavailable/i.test(hay)
 }
 
 export function validateManualContent(

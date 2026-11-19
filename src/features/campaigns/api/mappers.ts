@@ -1,8 +1,8 @@
 import {
   DEFAULT_RESOURCE_RECHECK_SECONDS,
   DEFAULT_TIMEZONE,
-} from '../schedule'
-import { emptySummary } from '../status-labels'
+} from '../schedule.ts'
+import { emptySummary } from '../status-labels.ts'
 import type {
   Campaign,
   CampaignAction,
@@ -15,12 +15,12 @@ import type {
   CampaignScheduleType,
   CampaignStatus,
   CampaignSummary,
-} from '../types'
+} from '../types.ts'
 import type {
   LiveCampaignRow,
   LiveContentRow,
   LiveJobAttemptRow,
-} from './live-types'
+} from './live-types.ts'
 
 const CAMPAIGN_STATUSES = new Set<CampaignStatus>([
   'draft',
@@ -46,7 +46,6 @@ const CONTENT_STATUSES = new Set<CampaignContentStatus>([
 function asCampaignStatus(raw: unknown): CampaignStatus {
   const s = String(raw ?? 'draft')
   if (CAMPAIGN_STATUSES.has(s as CampaignStatus)) return s as CampaignStatus
-  // Do not invent — fall back to draft display with raw preserved in name? Prefer draft + unknown label
   return 'draft'
 }
 
@@ -75,8 +74,15 @@ function asScheduleType(raw: unknown): CampaignScheduleType {
   return 'immediate'
 }
 
-function mapSchedule(raw: LiveCampaignRow['schedule']): CampaignSchedule {
+function mapSchedule(
+  raw: LiveCampaignRow['schedule'],
+  resourceRecheck?: number | null,
+): CampaignSchedule {
   const type = asScheduleType(raw?.type)
+  const fromRow =
+    raw?.resource_recheck_seconds != null
+      ? Number(raw.resource_recheck_seconds)
+      : null
   return {
     type,
     timezone: raw?.timezone?.trim() || DEFAULT_TIMEZONE,
@@ -92,9 +98,10 @@ function mapSchedule(raw: LiveCampaignRow['schedule']): CampaignSchedule {
         ? Number(raw.min_interval_seconds)
         : null,
     resource_recheck_seconds:
-      raw?.resource_recheck_seconds != null
-        ? Number(raw.resource_recheck_seconds)
-        : DEFAULT_RESOURCE_RECHECK_SECONDS,
+      fromRow ??
+      (resourceRecheck != null && resourceRecheck > 0
+        ? resourceRecheck
+        : DEFAULT_RESOURCE_RECHECK_SECONDS),
   }
 }
 
@@ -117,6 +124,43 @@ function mapSummary(raw: LiveCampaignRow['summary']): CampaignSummary {
   }
 }
 
+/** List rows expose flat counters; detail uses nested summary. */
+function mapSummaryFromRow(row: LiveCampaignRow): CampaignSummary {
+  if (row.summary) return mapSummary(row.summary)
+  const base = emptySummary()
+  if (
+    row.total_contents == null &&
+    row.completed_contents == null &&
+    row.failed_contents == null &&
+    row.waiting_contents == null
+  ) {
+    return base
+  }
+  return {
+    ...base,
+    total: Number(row.total_contents ?? 0),
+    success: Number(row.completed_contents ?? 0),
+    failed_locked: Number(row.failed_contents ?? 0),
+    waiting_resources: Number(row.waiting_contents ?? 0),
+    waiting: Number(row.waiting_contents ?? 0),
+  }
+}
+
+export function actionsForStatus(status: CampaignStatus): CampaignAction[] {
+  switch (status) {
+    case 'draft':
+      return ['edit', 'start', 'cancel']
+    case 'scheduled':
+      return ['edit', 'start', 'cancel']
+    case 'running':
+      return ['pause', 'cancel']
+    case 'paused':
+      return ['resume', 'cancel', 'start']
+    default:
+      return []
+  }
+}
+
 const ACTIONS = new Set<CampaignAction>([
   'start',
   'pause',
@@ -125,52 +169,126 @@ const ACTIONS = new Set<CampaignAction>([
   'edit',
 ])
 
+function mapContentInput(
+  raw: LiveContentRow['input'],
+): CampaignContent['input'] {
+  if (!raw || typeof raw !== 'object') {
+    return { title: null, body: null, variables: {} }
+  }
+  const row = raw as Record<string, unknown>
+  const nestedVars =
+    row.variables && typeof row.variables === 'object' && !Array.isArray(row.variables)
+      ? (row.variables as Record<string, string | null>)
+      : null
+
+  const title =
+    typeof row.title === 'string'
+      ? row.title
+      : row.title == null
+        ? null
+        : String(row.title)
+  const bodyRaw = row.body ?? row.content
+  const body =
+    typeof bodyRaw === 'string'
+      ? bodyRaw
+      : bodyRaw == null
+        ? null
+        : String(bodyRaw)
+
+  const variables: Record<string, string | null> = { ...(nestedVars ?? {}) }
+  if (!nestedVars) {
+    for (const [k, v] of Object.entries(row)) {
+      if (k === 'title' || k === 'body' || k === 'content' || k === 'variables') {
+        continue
+      }
+      if (v == null) variables[k] = null
+      else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        variables[k] = String(v)
+      }
+    }
+  }
+
+  return { title, body, variables }
+}
+
 export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
   const status = asCampaignStatus(row.status)
   const allowed = Array.isArray(row.allowed_actions)
     ? row.allowed_actions.filter((a): a is CampaignAction =>
         ACTIONS.has(a as CampaignAction),
       )
-    : []
+    : actionsForStatus(status)
+
+  const scriptKey = String(row.script_package_key ?? row.script_id ?? '')
+  const campaignId = String(row.id ?? '')
+  const contents = Array.isArray(row.contents)
+    ? row.contents.map((c) =>
+        mapLiveContent(c, campaignId),
+      )
+    : undefined
+  const pinned =
+    row.account_id == null || String(row.account_id).trim() === ''
+      ? null
+      : String(row.account_id).trim()
 
   return {
-    id: String(row.id ?? ''),
+    id: campaignId,
     name: String(row.name ?? ''),
     site_key: String(row.site_key ?? row.platform ?? ''),
     site_name: String(row.site_name ?? row.site_key ?? row.platform ?? ''),
-    script_package_key: String(
-      row.script_package_key ?? row.script_id ?? '',
-    ),
-    script_name: String(row.script_name ?? row.script_package_key ?? ''),
+    script_package_key: scriptKey,
+    script_name: String(row.script_name ?? scriptKey),
+    script_version: String(row.script_version ?? ''),
+    account_id: pinned,
     execution_mode: asExecutionMode(row.execution_mode),
     run_mode: asRunMode(row.run_mode),
     status,
-    schedule: mapSchedule(row.schedule),
-    summary: mapSummary(row.summary),
+    schedule: mapSchedule(row.schedule, row.resource_recheck_seconds),
+    summary: mapSummaryFromRow(row),
     created_at: String(row.created_at ?? ''),
     updated_at: String(row.updated_at ?? ''),
     allowed_actions: allowed,
+    contents,
   }
 }
 
-export function mapLiveContent(row: unknown): CampaignContent {
+export function mapLiveContent(
+  row: unknown,
+  fallbackCampaignId = '',
+): CampaignContent {
   const r = (row ?? {}) as LiveContentRow
+  const errCode =
+    typeof r.last_error_code === 'string' && r.last_error_code.trim()
+      ? r.last_error_code.trim()
+      : null
+  const errMsg =
+    typeof r.last_error_message === 'string' && r.last_error_message.trim()
+      ? r.last_error_message.trim()
+      : null
+  const lastResult =
+    r.last_result ??
+    (errCode || errMsg
+      ? [errCode, errMsg].filter(Boolean).join(': ')
+      : null)
+
   return {
     id: String(r.id ?? ''),
-    campaign_id: String(r.campaign_id ?? ''),
+    campaign_id: String(r.campaign_id ?? fallbackCampaignId),
     external_ref: String(r.external_ref ?? ''),
     source: 'manual',
     status: asContentStatus(r.status),
-    input: {
-      title: r.input?.title ?? null,
-      body: r.input?.body ?? null,
-      variables: { ...(r.input?.variables ?? {}) },
-    },
+    input: mapContentInput(r.input),
     editor_doc: null,
-    assigned_account_id: r.assigned_account_id ?? null,
-    assigned_account_label: r.assigned_account_label ?? null,
-    current_job_id: r.current_job_id ?? null,
-    last_result: r.last_result ?? null,
+    assigned_account_id:
+      r.assigned_account_id == null ? null : String(r.assigned_account_id),
+    assigned_account_label:
+      r.assigned_account_label ??
+      (r.assigned_account_id != null ? String(r.assigned_account_id) : null),
+    current_job_id:
+      r.current_job_id == null ? null : String(r.current_job_id),
+    last_result: lastResult,
+    last_error_code: errCode,
+    last_error_message: errMsg,
     created_at: String(r.created_at ?? ''),
     updated_at: String(r.updated_at ?? ''),
   }

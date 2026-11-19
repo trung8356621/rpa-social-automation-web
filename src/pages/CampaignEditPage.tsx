@@ -32,9 +32,13 @@ export function CampaignEditPage() {
       name: campaign.name,
       site_key: campaign.site_key,
       script_package_key: campaign.script_package_key,
+      script_version: campaign.script_version || '',
       execution_mode: campaign.execution_mode,
       run_mode: campaign.run_mode,
       schedule: scheduleApiToForm(campaign.schedule),
+      content_title: '',
+      content_external_ref: '',
+      account_id: campaign.account_id ?? '',
     })
   }, [campaign])
 

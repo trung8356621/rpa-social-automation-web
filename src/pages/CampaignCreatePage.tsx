@@ -4,44 +4,77 @@ import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
+import { useAccounts } from '@/features/accounts/use-accounts'
 import { useAccountSites } from '@/features/accounts/use-account-sites'
+import { buildLiveCampaignCreateBody } from '@/features/campaigns/api/build-create-payload'
 import { CampaignFormFields } from '@/features/campaigns/components/CampaignFormFields'
 import { emptyScheduleForm } from '@/features/campaigns/schedule'
+import {
+  canStartWithRunMode,
+  resolveTestModeCompatibility,
+} from '@/features/campaigns/script-compat'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import {
   validateCampaignForm,
   type CampaignFormValues,
 } from '@/features/campaigns/validation'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
+import { toSafeApiMessage } from '@/lib/api/errors'
 
 export function CampaignCreatePage() {
   const navigate = useNavigate()
   const registry = useCampaigns()
   const sites = useAccountSites()
   const scripts = useScriptRegistry()
+  const accounts = useAccounts()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [form, setForm] = useState<CampaignFormValues>({
     name: '',
     site_key: '',
     script_package_key: '',
+    script_version: '',
     execution_mode: 'one_account_one_job',
     run_mode: 'live',
     schedule: emptyScheduleForm(),
+    content_title: '',
+    content_external_ref: '',
+    account_id: '',
   })
+
+  const selectedDetail = form.script_package_key
+    ? scripts.data.details[form.script_package_key]
+    : null
 
   const testCompatible = useMemo(() => {
     if (!form.script_package_key) return null
-    return registry.getScriptInputSchema(form.script_package_key)
+    const mockFlag = registry.getScriptInputSchema(form.script_package_key)
       .test_mode_compatible
-  }, [form.script_package_key, registry])
+    return resolveTestModeCompatibility(selectedDetail, mockFlag)
+  }, [form.script_package_key, registry, selectedDetail])
 
   const submit = async () => {
-    const validated = validateCampaignForm(form)
+    const validated = validateCampaignForm(form, {
+      requireContents: true,
+      requireAccountPin: true,
+    })
     if (!validated.ok) {
       setError(validated.message)
       return
     }
+    const runGate = canStartWithRunMode(
+      validated.value.run_mode,
+      testCompatible,
+    )
+    // Create is allowed even when Test Mode cannot Start later — gate Start only.
+    if (validated.value.run_mode === 'test' && !runGate.ok) {
+      setError(
+        runGate.reason ??
+          'Test Mode requires an explicitly compatible Script. Do not force compatibility.',
+      )
+      return
+    }
+
     const site = sites.sites.find((s) => s.key === validated.value.site_key)
     const script = scripts.data.scripts.find(
       (s) => s.package_key === validated.value.script_package_key,
@@ -49,13 +82,21 @@ export function CampaignCreatePage() {
     setBusy(true)
     setError(null)
     try {
+      // Preview OpenAPI body in DEV console for contract QA — no network side-effect beyond create.
+      if (import.meta.env.DEV && registry.mode === 'live') {
+        // eslint-disable-next-line no-console
+        console.info(
+          '[Campaign LIVE create body]',
+          buildLiveCampaignCreateBody(validated.value),
+        )
+      }
       const created = await registry.createCampaign(validated.value, {
         site_name: site?.name,
         script_name: script?.name,
       })
       navigate(`/social-automation/campaigns/${created.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Create failed')
+      setError(toSafeApiMessage(err))
     } finally {
       setBusy(false)
     }
@@ -65,7 +106,7 @@ export function CampaignCreatePage() {
     <div className="mx-auto w-full max-w-3xl space-y-4">
       <PageHeader
         title="Create Campaign"
-        description="Configure Campaign — add Content before Start."
+        description="LIVE create: platform + script_id/version + account_id pin + title-only contents[]. No auto-Start."
         actions={
           <Button
             size="sm"
@@ -81,6 +122,7 @@ export function CampaignCreatePage() {
         onChange={setForm}
         sites={sites.sites}
         scripts={scripts.data.scripts}
+        accounts={accounts.data.accounts}
         testCompatible={testCompatible}
         disabled={busy}
       />

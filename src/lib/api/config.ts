@@ -107,7 +107,7 @@ export const STAFF_SESSION_BOOTSTRAP_PATH =
 const CAMPAIGNS_BASE = '/social-automation/api/campaigns'
 const CAMPAIGN_CONTENTS_BASE = '/social-automation/api/campaign-contents'
 
-/** Staff Session Campaigns (CP19A/B). Production mutations require explicit approval. */
+/** Staff Session Campaigns (CP19A/B OpenAPI). LIVE wired; no auto-Start. */
 export const CAMPAIGN_PATHS = {
   list: CAMPAIGNS_BASE,
   detail: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}`,
@@ -117,7 +117,7 @@ export const CAMPAIGN_PATHS = {
   cancel: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/cancel`,
 } as const
 
-/** Admin Campaign Content actions (CP19A/B). Manual CRUD awaits CP19C OpenAPI. */
+/** Admin Campaign Content actions (retry/skip/cancel). Post-create CRUD not in OpenAPI. */
 export const CAMPAIGN_CONTENT_PATHS = {
   retry: (id: string) =>
     `${CAMPAIGN_CONTENTS_BASE}/${encodeURIComponent(id)}/retry`,

@@ -79,7 +79,7 @@ export function CampaignsScreen({
         description={
           mode === 'mock'
             ? 'MOCK — Campaign Management UI. Không ghi production.'
-            : 'LIVE adapter scaffold — production Campaign mutations chưa kích hoạt cho UI này.'
+            : 'LIVE Staff Campaign API — list/create/detail/start wired. No auto-Start; Client Claim stays OFF until approved.'
         }
         actions={
           <Button

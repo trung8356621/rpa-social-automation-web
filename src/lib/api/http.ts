@@ -73,6 +73,11 @@ function extractErrorCode(payload: JsonObject | null): string | null {
   if (typeof error === 'string' && error.trim()) return error.trim()
   const message = payload.message
   if (typeof message === 'string' && message.trim()) return message.trim()
+  const errors = payload.errors
+  if (Array.isArray(errors) && errors.length > 0) {
+    const first = errors[0]
+    if (typeof first === 'string' && first.trim()) return first.trim()
+  }
   return null
 }
 
@@ -155,12 +160,20 @@ export async function staffApiRequest<T>(
 
     if (!response.ok) {
       const code = extractErrorCode(payload)
+      const errorsList =
+        payload && Array.isArray(payload.errors)
+          ? payload.errors
+              .filter((e): e is string => typeof e === 'string' && e.trim() !== '')
+              .map((e) => e.trim())
+          : []
       const laravelMessage =
         payload && typeof payload.message === 'string' && payload.message.trim()
           ? payload.message.trim()
           : payload && typeof payload.error === 'string' && payload.error.trim()
             ? payload.error.trim()
-            : ''
+            : errorsList.length > 0
+              ? errorsList.join('; ')
+              : ''
       const message =
         (response.status === 422 || response.status === 403) && laravelMessage
           ? laravelMessage
