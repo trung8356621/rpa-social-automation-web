@@ -44,8 +44,14 @@ export default defineConfig(({ command }) => {
     // DEV proxy is serve-only. Production `vite build` must not register it.
     server: isDevServe
       ? {
+          // Bind IPv4 so Cloudflare Tunnel origin http://127.0.0.1:5173 works
+          // (default can listen on ::1 only, which breaks 127.0.0.1 connectors).
+          host: '127.0.0.1',
           port: 5173,
           strictPort: true,
+          // Public DEV hostname via Cloudflare Tunnel (Desktop connector).
+          // Keep explicit allowlist — do not use allowedHosts: true.
+          allowedHosts: ['dev.cholinktonghop.com'],
           proxy: createDevProxy(),
         }
       : undefined,
