@@ -5,6 +5,19 @@ import type { AuthPinPayload } from './resolve-auth-pin'
 
 type OkResponse = { ok?: boolean; error?: string }
 
+export type PathMutationResponse = OkResponse & {
+  path?: {
+    id?: number
+    site_id?: number
+    key?: string
+    name?: string
+    url_pattern?: string
+    description?: string | null
+    is_authentication?: boolean | null
+    path_inputs?: unknown
+  }
+}
+
 export type StoreSiteBody = {
   name: string
   key?: string
@@ -28,12 +41,15 @@ export type StorePathBody = {
   key?: string
   url_pattern: string
   description?: string | null
+  /** Authentication Path — persisted on sa_paths when schema ready */
+  is_authentication?: boolean
 }
 
 export type UpdatePathBody = {
   name?: string
   url_pattern?: string
   description?: string | null
+  is_authentication?: boolean
 }
 
 export type StoreTagBody = {
@@ -64,8 +80,10 @@ export async function liveUpdateSite(
 }
 
 /** POST /action-registry/paths */
-export async function liveStorePath(body: StorePathBody): Promise<OkResponse> {
-  return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.paths, {
+export async function liveStorePath(
+  body: StorePathBody,
+): Promise<PathMutationResponse> {
+  return staffApiRequest<PathMutationResponse>(ACTION_REGISTRY_PATHS.paths, {
     method: 'POST',
     body,
   })
@@ -75,8 +93,8 @@ export async function liveStorePath(body: StorePathBody): Promise<OkResponse> {
 export async function liveUpdatePath(
   id: number,
   body: UpdatePathBody,
-): Promise<OkResponse> {
-  return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.path(id), {
+): Promise<PathMutationResponse> {
+  return staffApiRequest<PathMutationResponse>(ACTION_REGISTRY_PATHS.path(id), {
     method: 'PUT',
     body,
   })

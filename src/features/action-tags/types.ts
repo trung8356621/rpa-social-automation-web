@@ -31,6 +31,11 @@ export type PathItem = {
   url_pattern: string
   path_inputs: PathInput[]
   description?: string | null
+  /**
+   * Authentication Path — Path intent for login scripts.
+   * Live: sa_paths.is_authentication. Never inferred from path key/name.
+   */
+  is_authentication?: boolean
 }
 
 export type ActionItem = {

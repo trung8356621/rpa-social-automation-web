@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { mapLiveActionRegistry } from '../src/features/action-tags/api/mappers.ts'
+import {
+  describeAuthCatalogEmpty,
+  filterSelectableAuthScripts,
+  getAuthScriptAvailability,
+} from '../src/features/action-tags/auth-script-availability.ts'
+import { assertPathAuthenticationPersisted } from '../src/features/action-tags/api/assert-path-auth.ts'
+import { mapAuthPackage, mapLiveActionRegistry } from '../src/features/action-tags/api/mappers.ts'
+import { resolveAuthPinPayload } from '../src/features/action-tags/api/resolve-auth-pin.ts'
 import { MOCK_ACTION_REGISTRY } from '../src/features/action-tags/mock-data.ts'
+import type { AuthScriptOption } from '../src/features/action-tags/types.ts'
 import {
   buildTagKey,
   findExistingSitePathTag,
@@ -219,5 +227,145 @@ describe('Action Tag Site + Path refactor & legacy compatibility', () => {
     )
     assert.equal(resolved.valid, true)
     assert.equal(resolved.url, 'https://mayhopphat.example.test/wp-login.php')
+  })
+})
+
+describe('Authentication Script catalog & auth-pin contract', () => {
+  it('8. Does not infer Authentication from package_key / tag name mayhopphat.login', () => {
+    const publishedOnly: AuthScriptOption = {
+      script_id: 'mayhopphat.login',
+      package_id: 99,
+      name: 'mayhopphat.login',
+      version: '1',
+      status: 'published',
+      is_authentication: false,
+      releases: [{ release_id: 1, version: '1', status: 'published' }],
+    }
+    assert.equal(getAuthScriptAvailability(publishedOnly), 'not_authentication')
+    assert.deepEqual(filterSelectableAuthScripts([publishedOnly]), [])
+    const empty = describeAuthCatalogEmpty([publishedOnly], [])
+    assert.ok(empty)
+    assert.equal(empty?.reason, 'none_marked_authentication')
+  })
+
+  it('9. mapAuthPackage marks published auth package available; unpublished → unavailable', () => {
+    const available = mapAuthPackage({
+      package_id: 7,
+      package_key: 'mayhopphat.login',
+      name: 'Mayhopphat Login',
+      is_authentication: true,
+      releases: [
+        { id: 11, version: '1', status: 'published' },
+        { id: 10, version: '0.9', status: 'yanked' },
+      ],
+    })
+    assert.equal(available.script_id, 'mayhopphat.login')
+    assert.equal(available.status, 'published')
+    assert.equal(getAuthScriptAvailability(available), 'available')
+
+    const draftOnly = mapAuthPackage({
+      package_id: 8,
+      package_key: 'mayhopphat.login',
+      name: 'Mayhopphat Login',
+      is_authentication: true,
+      releases: [{ id: 12, version: '1', status: 'pending_media' }],
+    })
+    assert.equal(draftOnly.status, 'unavailable')
+    assert.equal(getAuthScriptAvailability(draftOnly), 'not_published')
+  })
+
+  it('10. resolveAuthPinPayload requires authentication + published release ids', () => {
+    const catalog: AuthScriptOption[] = [
+      {
+        script_id: 'mayhopphat.login',
+        package_id: 7,
+        name: 'Mayhopphat Login',
+        version: '1',
+        status: 'published',
+        is_authentication: true,
+        releases: [{ release_id: 42, version: '1', status: 'published' }],
+      },
+    ]
+    assert.deepEqual(resolveAuthPinPayload(catalog, 'mayhopphat.login', { forUpdate: false }), {
+      auth_script_id: 7,
+      auth_release_id: 42,
+    })
+    assert.deepEqual(resolveAuthPinPayload(catalog, null, { forUpdate: true }), {
+      clear: true,
+    })
+    assert.throws(() =>
+      resolveAuthPinPayload(
+        [{ ...catalog[0], is_authentication: false }],
+        'mayhopphat.login',
+        { forUpdate: true },
+      ),
+    )
+  })
+
+  it('11. Empty LIVE catalog explains Published-in-Registry is not enough', () => {
+    const empty = describeAuthCatalogEmpty([], [])
+    assert.ok(empty)
+    assert.equal(empty?.reason, 'none_in_catalog')
+    assert.match(empty!.message, /is_authentication=true/)
+  })
+
+  it('12a. assertPathAuthenticationPersisted rejects silent ignore / mismatch', () => {
+    assert.throws(() => assertPathAuthenticationPersisted(undefined, true))
+    assert.throws(() => assertPathAuthenticationPersisted({}, true))
+    assert.throws(() =>
+      assertPathAuthenticationPersisted({ is_authentication: false }, true),
+    )
+    assert.doesNotThrow(() =>
+      assertPathAuthenticationPersisted({ is_authentication: true }, true),
+    )
+    assert.doesNotThrow(() =>
+      assertPathAuthenticationPersisted({ is_authentication: false }, false),
+    )
+  })
+
+  it('12. Authentication Path maps from live without inventing from path key', () => {
+    const mapped = mapLiveActionRegistry(
+      {
+        ok: true,
+        sites: [
+          {
+            id: 3,
+            key: 'mayhopphat',
+            name: 'Mayhopphat',
+            base_url: 'https://mayhopphat.com',
+          },
+        ],
+        paths: [
+          {
+            id: 4,
+            site_id: 3,
+            site_key: 'mayhopphat',
+            key: 'login',
+            name: 'login',
+            url_pattern: '/wp-login.php',
+            path_inputs: [],
+            is_authentication: true,
+          },
+          {
+            id: 5,
+            site_id: 3,
+            site_key: 'mayhopphat',
+            key: 'products',
+            name: 'products',
+            url_pattern: '/wp-admin/edit.php?post_type=product',
+            path_inputs: [],
+          },
+        ],
+        actions: [],
+        tags: [],
+        requests: [],
+      },
+      [],
+    )
+    const login = mapped.paths.find((p) => p.key === 'login')!
+    const products = mapped.paths.find((p) => p.key === 'products')!
+    assert.equal(login.is_authentication, true)
+    assert.equal(products.is_authentication, undefined)
+    assert.equal(login.key, 'login')
   })
 })

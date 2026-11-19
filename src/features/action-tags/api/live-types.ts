@@ -28,6 +28,8 @@ export type LivePath = {
   url_pattern: string
   path_inputs: LivePathInput[]
   description?: string | null
+  /** Present when addon exposes sa_paths.is_authentication */
+  is_authentication?: boolean
 }
 
 export type LiveAction = {

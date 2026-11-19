@@ -93,6 +93,7 @@ export function ActionTagsPage() {
           actions={registry.data.actions}
           tags={registry.data.tags}
           authScripts={registry.data.auth_scripts}
+          dataMode={registry.mode}
           mutationsEnabled={mutationsEnabled}
           onOpenSitesPaths={openSitesPaths}
           onCreateTag={registry.createTag}

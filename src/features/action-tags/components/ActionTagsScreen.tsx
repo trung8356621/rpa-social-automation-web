@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
+import type { RpaApiMode } from '@/lib/api/config'
+
 import type {
   ActionItem,
   ActionTagItem,
@@ -24,6 +26,8 @@ type ActionTagsScreenProps = {
   actions?: ActionItem[]
   tags: ActionTagItem[]
   authScripts: AuthScriptOption[]
+  /** mock | live — drives Auth drawer labels and mutation copy */
+  dataMode?: RpaApiMode
   /** False when live mutations are intentionally gated */
   mutationsEnabled?: boolean
   onOpenSitesPaths: () => void
@@ -45,6 +49,7 @@ export function ActionTagsScreen({
   paths,
   tags,
   authScripts,
+  dataMode = 'mock',
   mutationsEnabled = true,
   onOpenSitesPaths,
   onCreateTag,
@@ -371,6 +376,7 @@ export function ActionTagsScreen({
         <AddTagDrawer
           open={isDrawerOpen}
           mode={isEditAuthDrawer ? 'edit-auth' : 'create'}
+          dataMode={dataMode}
           editingTag={editingTag}
           sites={sites}
           paths={paths}

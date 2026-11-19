@@ -31,7 +31,8 @@ type SitesPathsScreenProps = {
     name: string
     url_pattern: string
     description?: string
-  }) => Promise<void>
+    is_authentication?: boolean
+  }) => Promise<{ id: number; is_authentication: boolean } | void>
 }
 
 export function SitesPathsScreen({
@@ -49,6 +50,7 @@ export function SitesPathsScreen({
   )
   const [pathNameInput, setPathNameInput] = useState('')
   const [pathPatternInput, setPathPatternInput] = useState('/')
+  const [pathIsAuthentication, setPathIsAuthentication] = useState(false)
   const [testValues, setTestValues] = useState<Record<string, string>>({})
   const [isSavingPath, setIsSavingPath] = useState(false)
   const [pathError, setPathError] = useState('')
@@ -79,6 +81,7 @@ export function SitesPathsScreen({
     setSelectedPathId(p.id)
     setPathNameInput(p.name)
     setPathPatternInput(p.url_pattern)
+    setPathIsAuthentication(Boolean(p.is_authentication))
     setPathError('')
     const initialTests: Record<string, string> = {}
     for (const input of p.path_inputs ?? []) {
@@ -93,11 +96,17 @@ export function SitesPathsScreen({
   useEffect(() => {
     if (activeSitePaths.length > 0) {
       const current = activeSitePaths.find((p) => p.id === selectedPathId)
-      if (!current && selectedPathId !== 'new') {
+      if (current) {
+        // Keep editor selection across soft registry reload; do not overwrite
+        // unsaved checkbox edits here — Save handler syncs from verified API.
+        return
+      }
+      if (selectedPathId !== 'new') {
         const first = activeSitePaths[0]
         setSelectedPathId(first.id)
         setPathNameInput(first.name)
         setPathPatternInput(first.url_pattern)
+        setPathIsAuthentication(Boolean(first.is_authentication))
         setPathError('')
         const initialTests: Record<string, string> = {}
         for (const input of first.path_inputs ?? []) {
@@ -112,6 +121,7 @@ export function SitesPathsScreen({
       setSelectedPathId('new')
       setPathNameInput('')
       setPathPatternInput('/')
+      setPathIsAuthentication(false)
       setTestValues({})
     }
   }, [activeSite?.id, activeSitePaths, selectedPathId])
@@ -124,6 +134,7 @@ export function SitesPathsScreen({
     setSelectedPathId('new')
     setPathNameInput('')
     setPathPatternInput('/wp-admin/post-new.php')
+    setPathIsAuthentication(false)
     setPathError('')
     setTestValues({})
   }
@@ -187,12 +198,17 @@ export function SitesPathsScreen({
     setPathError('')
     setIsSavingPath(true)
     try {
-      await onSavePath({
+      const saved = await onSavePath({
         id: selectedPathId === 'new' ? undefined : (selectedPathId ?? undefined),
         site_id: activeSite.id,
         name: pathNameInput.trim(),
         url_pattern: pathPatternInput.trim(),
+        is_authentication: pathIsAuthentication,
       })
+      if (saved) {
+        setSelectedPathId(saved.id)
+        setPathIsAuthentication(Boolean(saved.is_authentication))
+      }
     } catch (err) {
       setPathError(err instanceof Error ? err.message : 'Lỗi khi lưu Path')
     } finally {
@@ -426,7 +442,16 @@ export function SitesPathsScreen({
                           )}
                           onClick={() => selectPath(path)}
                         >
-                          <td className="px-3 py-2.5">{path.name}</td>
+                          <td className="px-3 py-2.5">
+                            <span className="inline-flex flex-wrap items-center gap-1.5">
+                              {path.name}
+                              {path.is_authentication ? (
+                                <Badge variant="primary" className="text-[10px]">
+                                  Auth Path
+                                </Badge>
+                              ) : null}
+                            </span>
+                          </td>
                           <td className="px-3 py-2.5 font-mono text-xs">
                             {path.url_pattern}
                           </td>
@@ -483,6 +508,32 @@ export function SitesPathsScreen({
                   className="font-mono"
                 />
               </div>
+            </div>
+
+            <div className="mt-3 rounded-[var(--radius-control)] border border-border bg-surface-muted/40 px-3 py-2.5">
+              <label
+                htmlFor="path-is-authentication"
+                className="flex cursor-pointer items-start gap-2.5"
+              >
+                <input
+                  id="path-is-authentication"
+                  type="checkbox"
+                  className="mt-0.5 size-4 rounded border-border"
+                  checked={pathIsAuthentication}
+                  onChange={(e) => setPathIsAuthentication(e.target.checked)}
+                />
+                <span>
+                  <span className="block text-sm font-medium text-foreground">
+                    Authentication Path
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                    Đánh dấu Path dùng cho kịch bản đăng nhập. Khi Script của
+                    Action Tag gắn Path này được Publish, package nhận{' '}
+                    <code className="font-mono">is_authentication=true</code>.
+                    Không suy ra từ tên Path/Script. Không đổi Auth pin hiện có.
+                  </span>
+                </span>
+              </label>
             </div>
 
             <div className="mt-3">

@@ -123,6 +123,7 @@ export const MOCK_ACTION_REGISTRY: ActionRegistryData = {
       url_pattern: '/wp-login.php',
       path_inputs: [],
       description: null,
+      is_authentication: true,
     },
     {
       id: 5,
@@ -133,6 +134,7 @@ export const MOCK_ACTION_REGISTRY: ActionRegistryData = {
       url_pattern: '/wp-admin/edit.php?post_type=product',
       path_inputs: [],
       description: null,
+      is_authentication: false,
     },
   ],
   tags: [

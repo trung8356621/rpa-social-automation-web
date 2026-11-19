@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { getRpaApiMode, type RpaApiMode } from '@/lib/api/config'
 import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 
+import { assertPathAuthenticationPersisted } from './api/assert-path-auth'
 import { fetchLiveActionRegistry } from './api/fetch-action-registry'
 import {
   liveDestroyTag,
@@ -33,7 +34,6 @@ function useActionRegistryLive(enabled: boolean) {
     message: string
     type: 'success' | 'error'
   } | null>(null)
-  const [reloadToken, setReloadToken] = useState(0)
 
   const showToast = useCallback(
     (message: string, type: 'success' | 'error' = 'success') => {
@@ -76,9 +76,9 @@ function useActionRegistryLive(enabled: boolean) {
     let cancelled = false
 
     setLoading(true)
+    setData(structuredClone(EMPTY_REGISTRY))
     setError(null)
     setAuthRequired(false)
-    setData(structuredClone(EMPTY_REGISTRY))
 
     void fetchLiveActionRegistry({ signal: controller.signal })
       .then((registry) => {
@@ -106,10 +106,16 @@ function useActionRegistryLive(enabled: boolean) {
       cancelled = true
       controller.abort()
     }
-  }, [demo, enabled, reloadToken])
+  }, [demo, enabled])
 
-  const reload = useCallback(async () => {
-    setReloadToken((n) => n + 1)
+  /** Soft registry refresh — never unmount Sites/Paths (no hard reload). */
+  const reload = useCallback(async (): Promise<ActionRegistryData> => {
+    const registry = await fetchLiveActionRegistry()
+    setData(registry)
+    setError(null)
+    setAuthRequired(false)
+    setLoading(false)
+    return registry
   }, [])
 
   const createTag = useCallback(
@@ -217,23 +223,45 @@ function useActionRegistryLive(enabled: boolean) {
       name: string
       url_pattern: string
       description?: string
+      is_authentication?: boolean
     }) => {
-      if (pathData.id) {
-        await liveUpdatePath(pathData.id, {
-          name: pathData.name,
-          url_pattern: pathData.url_pattern,
-          description: pathData.description ?? null,
-        })
-      } else {
-        await liveStorePath({
-          site_id: pathData.site_id,
-          name: pathData.name,
-          url_pattern: pathData.url_pattern,
-          description: pathData.description ?? null,
-        })
-      }
+      const isAuth = Boolean(pathData.is_authentication)
+      const response = pathData.id
+        ? await liveUpdatePath(pathData.id, {
+            name: pathData.name,
+            url_pattern: pathData.url_pattern,
+            description: pathData.description ?? null,
+            is_authentication: isAuth,
+          })
+        : await liveStorePath({
+            site_id: pathData.site_id,
+            name: pathData.name,
+            url_pattern: pathData.url_pattern,
+            description: pathData.description ?? null,
+            is_authentication: isAuth,
+          })
+
+      // PUT/POST must echo persisted flag — do not toast success on silent ignore.
+      assertPathAuthenticationPersisted(response.path, isAuth)
+
+      const registry = await reload()
+      const pathId = pathData.id ?? Number(response.path?.id)
+      const fromRegistry =
+        Number.isFinite(pathId) && pathId > 0
+          ? registry.paths.find((p) => p.id === pathId)
+          : registry.paths.find(
+              (p) =>
+                p.site_id === pathData.site_id &&
+                p.name === pathData.name &&
+                p.url_pattern === pathData.url_pattern,
+            )
+      assertPathAuthenticationPersisted(fromRegistry, isAuth)
+
       showToast(`Đã lưu Path [${pathData.name}] (live).`)
-      await reload()
+      return {
+        id: Number(fromRegistry!.id),
+        is_authentication: Boolean(fromRegistry!.is_authentication),
+      }
     },
     [reload, showToast],
   )

@@ -4,7 +4,14 @@ import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
+import type { RpaApiMode } from '@/lib/api/config'
 
+import {
+  authAvailabilityLabel,
+  describeAuthCatalogEmpty,
+  filterSelectableAuthScripts,
+  getAuthScriptAvailability,
+} from '../auth-script-availability'
 import type {
   ActionTagItem,
   AuthScriptOption,
@@ -17,6 +24,8 @@ import { buildTagKey, findExistingSitePathTag } from '../utils'
 type AddTagDrawerProps = {
   open: boolean
   mode?: 'create' | 'edit-auth'
+  /** mock = local seed; live = staff registry + auth-pin mutations */
+  dataMode?: RpaApiMode
   editingTag?: ActionTagItem | null
   sites: Site[]
   paths: PathItem[]
@@ -40,6 +49,7 @@ type AddTagDrawerProps = {
 export function AddTagDrawer({
   open,
   mode = 'create',
+  dataMode = 'mock',
   editingTag = null,
   sites,
   paths,
@@ -52,6 +62,7 @@ export function AddTagDrawer({
   onUpdateAuthScript,
 }: AddTagDrawerProps) {
   const isEditAuth = mode === 'edit-auth' && editingTag
+  const isLive = dataMode === 'live'
 
   const [selectedSiteId, setSelectedSiteId] = useState<number | ''>(
     sites[0]?.id ?? '',
@@ -111,31 +122,77 @@ export function AddTagDrawer({
     return findExistingSitePathTag(tags, selectedSite, selectedPath)
   }, [isEditAuth, tags, selectedSite, selectedPath])
 
-  /**
-   * MOCK presentation filter only when seed has compatible_site_keys.
-   * Unknown compatibility (null/omitted) stays visible with unverified label — no backend rule.
-   */
   const selectableAuthScripts = useMemo(() => {
-    const siteKey = selectedSite?.key
-    return authScripts.filter((s) => {
-      if (!s.is_authentication) return false
-      if (!s.compatible_site_keys || s.compatible_site_keys.length === 0) {
-        return true
-      }
-      if (!siteKey) return true
-      return s.compatible_site_keys.includes(siteKey)
-    })
-  }, [authScripts, selectedSite?.key])
+    const filtered = filterSelectableAuthScripts(
+      authScripts,
+      selectedSite?.key,
+    )
+    // Keep currently pinned Auth visible when reopening drawer even if catalog
+    // temporarily omits it (e.g. flag cleared server-side) — mark unavailable.
+    const pinned = isEditAuth ? editingTag?.auth_script : null
+    if (
+      pinned?.script_id &&
+      !filtered.some((s) => s.script_id === pinned.script_id)
+    ) {
+      filtered.push({
+        script_id: pinned.script_id,
+        package_id: pinned.package_id,
+        name: pinned.name,
+        version: pinned.version,
+        status: pinned.status === 'published' ? 'published' : 'unavailable',
+        is_authentication: true,
+        compatible_site_keys: null,
+        releases:
+          pinned.release_id != null
+            ? [
+                {
+                  release_id: pinned.release_id,
+                  version: pinned.version ?? '',
+                  status: pinned.status === 'published' ? 'published' : 'unavailable',
+                },
+              ]
+            : [],
+      })
+    }
+    return filtered
+  }, [
+    authScripts,
+    selectedSite?.key,
+    isEditAuth,
+    editingTag?.auth_script,
+  ])
+
+  const catalogEmpty = useMemo(
+    () =>
+      describeAuthCatalogEmpty(
+        authScripts,
+        selectableAuthScripts,
+        selectedSite?.key,
+      ),
+    [authScripts, selectableAuthScripts, selectedSite?.key],
+  )
 
   useEffect(() => {
     if (!selectedAuthScriptId) return
     const stillValid = selectableAuthScripts.some(
-      (s) => s.script_id === selectedAuthScriptId,
+      (s) =>
+        s.script_id === selectedAuthScriptId &&
+        getAuthScriptAvailability(s) === 'available',
     )
     if (!stillValid) {
+      // Keep pinned value visible when editing even if catalog temporarily empty;
+      // clear only when switching site filter drops a non-pinned create selection.
+      if (isEditAuth && editingTag?.auth_script?.script_id === selectedAuthScriptId) {
+        return
+      }
       setSelectedAuthScriptId('')
     }
-  }, [selectableAuthScripts, selectedAuthScriptId])
+  }, [
+    selectableAuthScripts,
+    selectedAuthScriptId,
+    isEditAuth,
+    editingTag?.auth_script?.script_id,
+  ])
 
   useEffect(() => {
     if (!open) return
@@ -186,6 +243,18 @@ export function AddTagDrawer({
     }
   }
 
+  const editSubtitle = isLive
+    ? 'LIVE — PUT /action-registry/tags/{id}/auth-pin (staff session)'
+    : 'MOCK — chỉnh liên kết Auth Script trên dữ liệu local'
+
+  const editBanner = isLive
+    ? 'Save gọi API auth-pin đã xác minh, rồi reload registry. Gỡ pin = clear: true. Không lưu Client API Key trong web.'
+    : 'Backend mock local — thay đổi chỉ lưu trên trình duyệt, không gọi API production.'
+
+  const authHelp = isLive
+    ? 'Script chạy trước Checkpoint khi Client mở Browser (có Action Tag context). Catalog LIVE chỉ gồm package is_authentication=true + published release. Không suy ra Authentication từ tên script/tag. Đổi Site sẽ bỏ chọn Auth không còn trong danh sách.'
+    : 'Script chạy trước Checkpoint khi Client mở Browser. Catalog MOCK: lọc theo compatible_site_keys seed nếu có. Không suy ra Authentication từ tên. Đổi Site sẽ bỏ chọn Auth không còn trong danh sách.'
+
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
       <button
@@ -207,7 +276,7 @@ export function AddTagDrawer({
             </h2>
             <p className="mt-0.5 text-xs text-muted">
               {isEditAuth
-                ? 'MOCK — chỉnh liên kết Auth Script trên dữ liệu local'
+                ? editSubtitle
                 : 'Liên kết Site và Path (tự động tạo Script Request)'}
             </p>
           </div>
@@ -218,9 +287,14 @@ export function AddTagDrawer({
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {isEditAuth ? (
-            <div className="rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-              Backend chưa có endpoint update Action Tag / Auth Script đã xác minh.
-              Thay đổi chỉ lưu mock local — không gọi API.
+            <div
+              className={`rounded-[var(--radius-control)] border px-3 py-2 text-xs text-foreground ${
+                isLive
+                  ? 'border-border bg-surface-muted'
+                  : 'border-warning/40 bg-warning/10'
+              }`}
+            >
+              {editBanner}
             </div>
           ) : null}
 
@@ -339,17 +413,18 @@ export function AddTagDrawer({
               <option value="">Không sử dụng</option>
               {selectableAuthScripts.length === 0 ? (
                 <option value="" disabled>
-                  (Không có Auth Script tương thích Site này — MOCK)
+                  (Không có Authentication Script khả dụng)
                 </option>
               ) : (
                 selectableAuthScripts.map((script) => {
-                  const disabled = script.status !== 'published'
+                  const availability = getAuthScriptAvailability(script)
+                  const disabled = availability !== 'available'
                   const label = formatAuthScriptLabel(script)
-                  const statusSuffix =
-                    script.status === 'published' ? '' : ` — ${script.status}`
+                  const availSuffix = authAvailabilityLabel(availability)
                   const unverifiedSite =
-                    !script.compatible_site_keys ||
-                    script.compatible_site_keys.length === 0
+                    !isLive &&
+                    (!script.compatible_site_keys ||
+                      script.compatible_site_keys.length === 0)
                       ? ' — site chưa xác minh'
                       : ''
                   return (
@@ -359,22 +434,23 @@ export function AddTagDrawer({
                       disabled={disabled}
                     >
                       {label}
-                      {statusSuffix}
+                      {availSuffix ? ` — ${availSuffix}` : ''}
                       {unverifiedSite}
                     </option>
                   )
                 })
               )}
             </Select>
+            {catalogEmpty ? (
+              <p className="mt-1.5 text-xs leading-relaxed text-warning">
+                {catalogEmpty.message}
+              </p>
+            ) : null}
             <p
               id="auth-script-help"
               className="mt-1.5 text-xs leading-relaxed text-muted"
             >
-              Script này được chạy trước Checkpoint khi Client mở Browser.
-              Catalog MOCK: lọc theo `compatible_site_keys` seed local nếu có;
-              chưa có contract backend cho flag Authentication hay Site↔Auth
-              compatibility. Đổi Site sẽ bỏ chọn Auth Script không còn trong
-              danh sách.
+              {authHelp}
             </p>
           </div>
 
@@ -397,7 +473,9 @@ export function AddTagDrawer({
             {isSubmitting
               ? 'Saving...'
               : isEditAuth
-                ? 'Save Auth Script (MOCK)'
+                ? isLive
+                  ? 'Save Auth Script'
+                  : 'Save Auth Script (MOCK)'
                 : 'Create Tag'}
           </Button>
         </footer>

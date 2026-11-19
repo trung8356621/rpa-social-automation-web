@@ -68,6 +68,11 @@ function mapPath(path: LivePath): PathItem {
     url_pattern: String(path.url_pattern ?? ''),
     path_inputs: mapPathInputs(path.path_inputs),
     description: path.description ?? null,
+    // Do not invent false when field absent from older backends.
+    is_authentication:
+      path.is_authentication == null
+        ? undefined
+        : Boolean(path.is_authentication),
   }
 }
 

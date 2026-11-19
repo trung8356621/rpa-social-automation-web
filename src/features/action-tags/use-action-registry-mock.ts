@@ -307,6 +307,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       name: string
       url_pattern: string
       description?: string
+      is_authentication?: boolean
     }) => {
       await delay(280)
       const site = data.sites.find((s) => s.id === pathData.site_id)
@@ -314,6 +315,8 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
 
       const key = slugifyKey(pathData.name)
       const pathInputs = parseInputsFromPattern(pathData.url_pattern)
+      const isAuth = Boolean(pathData.is_authentication)
+      const savedId = pathData.id ?? nextId(data.paths)
 
       setData((prev) => {
         if (pathData.id) {
@@ -325,6 +328,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
                   url_pattern: pathData.url_pattern,
                   path_inputs: pathInputs,
                   description: pathData.description || null,
+                  is_authentication: isAuth,
                 }
               : p,
           )
@@ -332,7 +336,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
         }
 
         const path: PathItem = {
-          id: nextId(prev.paths),
+          id: savedId,
           site_id: site.id,
           site_key: site.key,
           key,
@@ -340,6 +344,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
           url_pattern: pathData.url_pattern,
           path_inputs: pathInputs,
           description: pathData.description || null,
+          is_authentication: isAuth,
         }
         const paths = [...prev.paths, path]
         const sites = prev.sites.map((s) =>
@@ -354,8 +359,9 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       })
 
       showToast(`Đã lưu Path [${pathData.name}] thành công!`)
+      return { id: savedId, is_authentication: isAuth }
     },
-    [data.sites, showToast],
+    [data.sites, data.paths, showToast],
   )
 
   const reload = useCallback(async () => {

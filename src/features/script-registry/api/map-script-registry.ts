@@ -88,7 +88,11 @@ export function mapLiveScriptListItem(item: LiveScriptListItem): ScriptListItem 
         : formatSyncLabel(item.published_at),
     updated_by_label:
       typeof item.updated_by_label === 'string' ? item.updated_by_label : '—',
-    is_authentication: Boolean(item.is_authentication),
+    // Staff list may omit the field — do not invent false; leave undefined.
+    is_authentication:
+      item.is_authentication == null
+        ? undefined
+        : Boolean(item.is_authentication),
   }
 }
 
@@ -147,7 +151,10 @@ export function mapLiveScriptDetail(script: LiveScriptDetail): ScriptDetail {
       typeof script.updated_by_label === 'string'
         ? script.updated_by_label
         : '—',
-    is_authentication: Boolean(script.is_authentication),
+    is_authentication:
+      script.is_authentication == null
+        ? undefined
+        : Boolean(script.is_authentication),
     releases,
   }
 }
