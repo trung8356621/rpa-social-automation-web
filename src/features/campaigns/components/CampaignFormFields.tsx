@@ -9,10 +9,12 @@ import { Select } from '@/components/ui/select'
 import { displayScriptTitle } from '@/features/script-registry/types'
 
 import { filterScriptsForSite } from '../script-compat'
+import type { ScriptInputSchema } from '../types'
 import type { CampaignFormValues } from '../validation'
 import { ExecutionModeCards } from './ExecutionModeCards'
 import { RunModeCards } from './RunModeCards'
 import { ScheduleForm } from './ScheduleForm'
+import { ShortcodeMappingFields } from './ShortcodeMappingFields'
 
 type Props = {
   value: CampaignFormValues
@@ -21,6 +23,7 @@ type Props = {
   scripts: ScriptListItem[]
   accounts?: AccountItem[]
   testCompatible: boolean | null
+  scriptSchema: ScriptInputSchema
   disabled?: boolean
 }
 
@@ -31,6 +34,7 @@ export function CampaignFormFields({
   scripts,
   accounts = [],
   testCompatible,
+  scriptSchema,
   disabled,
 }: Props) {
   const compatibleScripts = useMemo(
@@ -184,37 +188,12 @@ export function CampaignFormFields({
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-foreground">
-          B — Content (create-time contents[])
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="content_title">Title (required)</Label>
-            <Input
-              id="content_title"
-              disabled={disabled}
-              value={value.content_title}
-              onChange={(e) => patch({ content_title: e.target.value })}
-              placeholder="WordPress draft title"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="content_ref">External ref (optional)</Label>
-            <Input
-              id="content_ref"
-              disabled={disabled}
-              value={value.content_external_ref}
-              onChange={(e) => patch({ content_external_ref: e.target.value })}
-              placeholder="poc-draft-001"
-            />
-          </div>
-        </div>
-        <p className="text-[11px] text-muted">
-          Title-only POC — body omitted. LIVE create requires contents[]
-          (OpenAPI minItems: 1).
-        </p>
-      </section>
+      <ShortcodeMappingFields
+        value={value.shortcode_mapping}
+        onChange={(shortcode_mapping) => patch({ shortcode_mapping })}
+        schema={scriptSchema}
+        disabled={disabled}
+      />
 
       <ExecutionModeCards
         value={value.execution_mode}

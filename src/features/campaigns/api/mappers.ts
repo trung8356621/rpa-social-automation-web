@@ -3,6 +3,7 @@ import {
   DEFAULT_TIMEZONE,
 } from '../schedule.ts'
 import { emptySummary } from '../status-labels.ts'
+import { mappingFromApi } from '../shortcode-mapping.ts'
 import type {
   Campaign,
   CampaignAction,
@@ -15,6 +16,7 @@ import type {
   CampaignScheduleType,
   CampaignStatus,
   CampaignSummary,
+  ContentSourceFormat,
 } from '../types.ts'
 import type {
   LiveCampaignRow,
@@ -231,6 +233,11 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
       ? null
       : String(row.account_id).trim()
 
+  const mappingVersion =
+    row.shortcode_mapping_version == null
+      ? null
+      : Number(row.shortcode_mapping_version)
+
   return {
     id: campaignId,
     name: String(row.name ?? ''),
@@ -249,6 +256,10 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
     updated_at: String(row.updated_at ?? ''),
     allowed_actions: allowed,
     contents,
+    shortcode_mapping: mappingFromApi(row.shortcode_mapping),
+    shortcode_mapping_version: Number.isFinite(mappingVersion)
+      ? mappingVersion
+      : null,
   }
 }
 
@@ -271,6 +282,17 @@ export function mapLiveContent(
       ? [errCode, errMsg].filter(Boolean).join(': ')
       : null)
 
+  const sourceFormat: ContentSourceFormat =
+    r.source_format === 'shortcode' ? 'shortcode' : 'legacy_input'
+  const mappingVersion =
+    r.mapping_version == null ? null : Number(r.mapping_version)
+  const rawSource =
+    typeof r.raw_source === 'string'
+      ? r.raw_source
+      : r.raw_source == null
+        ? null
+        : String(r.raw_source)
+
   return {
     id: String(r.id ?? ''),
     campaign_id: String(r.campaign_id ?? fallbackCampaignId),
@@ -278,6 +300,9 @@ export function mapLiveContent(
     source: 'manual',
     status: asContentStatus(r.status),
     input: mapContentInput(r.input),
+    source_format: sourceFormat,
+    raw_source: rawSource,
+    mapping_version: Number.isFinite(mappingVersion) ? mappingVersion : null,
     editor_doc: null,
     assigned_account_id:
       r.assigned_account_id == null ? null : String(r.assigned_account_id),

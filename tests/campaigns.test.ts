@@ -133,9 +133,11 @@ function formBase(
     execution_mode: 'one_account_one_job',
     run_mode: 'live',
     schedule: emptyScheduleForm(),
-    content_title: 'POC title',
-    content_external_ref: 'poc-001',
     account_id: 'ff0035e0-a6d8-42af-8370-f5be9e453f2d',
+    shortcode_mapping: [
+      { id: '1', shortcode: 'body', variable: 'body' },
+      { id: '2', shortcode: 'group', variable: 'group_id' },
+    ],
     ...overrides,
   }
 }
@@ -158,24 +160,21 @@ describe('CP19E Campaign Management', () => {
         site_key: '',
         script_package_key: '',
         script_version: '',
-        content_title: '',
+        shortcode_mapping: [],
       }),
-      { requireContents: true },
     )
     assert.equal(bad.ok, false)
 
-    const ok = validateCampaignForm(formBase(), { requireContents: true })
+    const ok = validateCampaignForm(formBase())
     assert.equal(ok.ok, true)
   })
 
   it('3. Execution mode selection values', () => {
     const a = validateCampaignForm(
       formBase({ name: 'A', execution_mode: 'one_account_one_job' }),
-      { requireContents: true },
     )
     const b = validateCampaignForm(
       formBase({ name: 'B', execution_mode: 'one_account_many_jobs' }),
-      { requireContents: true },
     )
     assert.equal(a.ok, true)
     assert.equal(b.ok, true)
@@ -636,40 +635,51 @@ describe('CP19E Campaign Management', () => {
     )
   })
 
-  it('21. LIVE create payload matches OpenAPI wordpress_draft_poc (90886a7)', () => {
+  it('21. LIVE create payload matches OpenAPI empty_campaign_shortcode_v2 (af4a652)', () => {
     const accountId = 'ff0035e0-a6d8-42af-8370-f5be9e453f2d'
+    const schema: import('../src/features/campaigns/types.ts').ScriptInputSchema =
+      {
+        fields: [],
+        test_mode_compatible: null,
+        title_required: true,
+        body_required: false,
+        schema_available: true,
+        title_supported: true,
+        body_supported: false,
+      }
     const validated = validateCampaignForm(
       formBase({
-        name: 'WP Draft POC',
+        name: 'Shortcode V2 Empty',
         site_key: 'mayhopphat',
         script_package_key: 'mayhopphat.create_post',
         script_version: '1',
         execution_mode: 'one_account_one_job',
         run_mode: 'live',
-        content_title: 'POC Draft Title',
-        content_external_ref: 'poc-draft-001',
         account_id: accountId,
+        shortcode_mapping: [
+          { id: '1', shortcode: 'body', variable: 'title' },
+        ],
       }),
-      { requireContents: true, requireAccountPin: true },
+      { requireAccountPin: true, schema },
     )
     assert.equal(validated.ok, true)
     if (!validated.ok) return
     const body = buildLiveCampaignCreateBody(validated.value)
-    assert.equal(body.name, 'WP Draft POC')
+    assert.equal(body.name, 'Shortcode V2 Empty')
     assert.equal(body.platform, 'mayhopphat')
     assert.equal(body.script_id, 'mayhopphat.create_post')
     assert.equal(body.script_version, '1')
     assert.equal(body.execution_mode, 'one_account_one_job')
     assert.equal(body.run_mode, 'live')
     assert.equal(body.account_id, accountId)
-    assert.equal(body.contents.length, 1)
-    assert.equal(body.contents[0].input.title, 'POC Draft Title')
-    assert.equal(body.contents[0].external_ref, 'poc-draft-001')
-    assert.equal('body' in body.contents[0].input, false)
+    assert.equal(body.contents.length, 0)
+    assert.deepEqual(body.shortcode_mapping, {
+      entries: [{ shortcode: 'body', variable: 'title' }],
+    })
 
     const missingPin = validateCampaignForm(
       formBase({ account_id: '' }),
-      { requireContents: true, requireAccountPin: true },
+      { requireAccountPin: true, schema },
     )
     assert.equal(missingPin.ok, false)
   })

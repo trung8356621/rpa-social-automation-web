@@ -7,6 +7,10 @@ import { Toast } from '@/components/ui/toast'
 import { useAccountSites } from '@/features/accounts/use-account-sites'
 import { CampaignFormFields } from '@/features/campaigns/components/CampaignFormFields'
 import { scheduleApiToForm } from '@/features/campaigns/schedule'
+import {
+  emptyShortcodeMappingEntry,
+  defaultShortcodeMappingForm,
+} from '@/features/campaigns/shortcode-mapping'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import {
   validateCampaignForm,
@@ -28,6 +32,14 @@ export function CampaignEditPage() {
 
   useEffect(() => {
     if (!campaign) return
+    const mappingEntries = campaign.shortcode_mapping?.entries?.length
+      ? campaign.shortcode_mapping.entries.map((e) =>
+          emptyShortcodeMappingEntry({
+            shortcode: e.shortcode,
+            variable: e.variable,
+          }),
+        )
+      : defaultShortcodeMappingForm()
     setForm({
       name: campaign.name,
       site_key: campaign.site_key,
@@ -36,11 +48,17 @@ export function CampaignEditPage() {
       execution_mode: campaign.execution_mode,
       run_mode: campaign.run_mode,
       schedule: scheduleApiToForm(campaign.schedule),
-      content_title: '',
-      content_external_ref: '',
       account_id: campaign.account_id ?? '',
+      shortcode_mapping: mappingEntries,
     })
   }, [campaign])
+
+  const scriptSchema = useMemo(() => {
+    if (!form?.script_package_key) {
+      return registry.getScriptInputSchema('')
+    }
+    return registry.getScriptInputSchema(form.script_package_key)
+  }, [form?.script_package_key, registry])
 
   const testCompatible = useMemo(() => {
     if (!form?.script_package_key) return null
@@ -117,12 +135,24 @@ export function CampaignEditPage() {
         sites={sites.sites}
         scripts={scripts.data.scripts}
         testCompatible={testCompatible}
-        disabled={busy}
+        scriptSchema={scriptSchema}
+        disabled={busy || campaign.status !== 'draft'}
       />
+      {campaign.status !== 'draft' ? (
+        <p className="text-xs text-muted">
+          shortcode_mapping is immutable after start — edit disabled.
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
-      <Button size="sm" disabled={busy} onClick={() => void submit()}>
-        Save Campaign
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={busy || campaign.status !== 'draft'}
+          onClick={() => void submit()}
+        >
+          Save
+        </Button>
+      </div>
       <Toast toast={registry.toast} />
     </div>
   )

@@ -52,6 +52,10 @@ export type LiveCampaignRow = {
   next_recheck_at?: string | null
   contents?: LiveContentRow[]
   allowed_actions?: string[]
+  shortcode_mapping?: {
+    entries?: Array<{ shortcode?: string; variable?: string }>
+  } | null
+  shortcode_mapping_version?: number | null
   created_at?: string
   updated_at?: string
 }
@@ -88,6 +92,9 @@ export type LiveContentRow = {
     body?: string | null
     variables?: Record<string, string | null>
   }
+  source_format?: string
+  raw_source?: string | null
+  mapping_version?: number | null
   assigned_account_id?: string | number | null
   assigned_account_label?: string | null
   current_job_id?: string | number | null

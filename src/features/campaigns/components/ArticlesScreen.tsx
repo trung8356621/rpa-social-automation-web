@@ -16,20 +16,30 @@ import {
 } from '../api/build-content-payload'
 import { resolveArticlesListState } from '../articles-list-state'
 import { checkContentLength, siteContentPolicy } from '../content-limit'
+import { contentListPreview } from '../shortcode-source'
 import { contentStatusBadge } from '../status-labels'
-import { isContentEditable, validateManualContent } from '../validation'
+import {
+  isContentEditable,
+  validateManualContent,
+  validateShortcodeContent,
+} from '../validation'
 import type {
   Campaign,
   CampaignContent,
   ManualContentDraft,
+  MockPreviewResult,
+  MockSaveResult,
   ScriptInputSchema,
   TipTapDocJson,
 } from '../types'
 import { ManualArticleEditor } from './ManualArticleEditor'
+import { MockArticleGenerator } from './MockArticleGenerator'
+import { ShortcodeArticleEditor } from './ShortcodeArticleEditor'
 
 type ContentSaveOpts = {
   schema: ScriptInputSchema
   allowDiscard?: boolean
+  preferShortcode?: boolean
 }
 
 type Props = {
@@ -47,6 +57,12 @@ type Props = {
     opts: ContentSaveOpts,
   ) => Promise<void>
   onRemoveDraft: (id: string) => Promise<void>
+  onMockPreview: (campaignId: string, count: number) => Promise<MockPreviewResult>
+  onMockSave: (
+    campaignId: string,
+    count: number,
+    idempotencyKey: string,
+  ) => Promise<MockSaveResult>
   mode: 'mock' | 'live'
   contentsLoading?: boolean
   contentsError?: string | null
@@ -73,6 +89,8 @@ export function ArticlesScreen({
   onCreate,
   onUpdate,
   onRemoveDraft,
+  onMockPreview,
+  onMockSave,
   mode,
   contentsLoading = false,
   contentsError = null,
@@ -86,6 +104,7 @@ export function ArticlesScreen({
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
+  const [rawSource, setRawSource] = useState('')
   const [editorDoc, setEditorDoc] = useState<TipTapDocJson | null>(null)
   const [variables, setVariables] = useState<Record<string, string | null>>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -96,6 +115,7 @@ export function ArticlesScreen({
   const schema = campaign
     ? getSchema(campaign.script_package_key)
     : EMPTY_SCHEMA
+  const useShortcode = Boolean(campaign?.shortcode_mapping?.entries?.length)
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -107,6 +127,9 @@ export function ArticlesScreen({
       if (!q) return true
       const hay = [
         c.external_ref,
+        c.raw_source ?? '',
+        c.source_format,
+        c.mapping_version == null ? '' : String(c.mapping_version),
         c.input.title ?? '',
         c.input.body ?? '',
         c.id,
@@ -120,6 +143,7 @@ export function ArticlesScreen({
   const resetForm = () => {
     setTitle('')
     setBody('')
+    setRawSource('')
     setEditorDoc(null)
     setVariables({})
     setFormError(null)
@@ -129,6 +153,10 @@ export function ArticlesScreen({
 
   const openCreate = () => {
     resetForm()
+    if (useShortcode && campaign?.shortcode_mapping) {
+      const first = campaign.shortcode_mapping.entries[0]?.shortcode ?? 'body'
+      setRawSource(`[${first}][/${first}]`)
+    }
     setCreating(true)
   }
 
@@ -143,6 +171,7 @@ export function ArticlesScreen({
     setEditingId(row.id)
     setTitle(row.input.title ?? '')
     setBody(row.input.body ?? '')
+    setRawSource(row.raw_source ?? '')
     setEditorDoc(row.editor_doc)
     setVariables({ ...row.input.variables })
     setFormError(null)
@@ -156,6 +185,40 @@ export function ArticlesScreen({
     }
     if (schemaLoading) {
       setFormError('Loading Script input schema…')
+      return
+    }
+
+    if (useShortcode) {
+      const shortcodes =
+        campaign.shortcode_mapping?.entries.map((e) => e.shortcode) ?? []
+      const validated = validateShortcodeContent(rawSource, shortcodes)
+      if (!validated.ok) {
+        setFormError(validated.message)
+        return
+      }
+      const draft: ManualContentDraft = {
+        campaign_id: campaign.id,
+        title: null,
+        body: null,
+        variables: {},
+        raw_source: rawSource,
+        editor_doc: null,
+      }
+      setBusy(true)
+      setFormError(null)
+      try {
+        const opts: ContentSaveOpts = {
+          schema,
+          preferShortcode: true,
+        }
+        if (editingId) await onUpdate(editingId, draft, opts)
+        else await onCreate(draft, opts)
+        resetForm()
+      } catch (err) {
+        setFormError(toSafeApiMessage(err))
+      } finally {
+        setBusy(false)
+      }
       return
     }
 
@@ -231,8 +294,8 @@ export function ArticlesScreen({
         title="Bài viết"
         description={
           mode === 'mock'
-            ? 'Campaign Content (manual) — MOCK. Không phải WordPress/SEO Articles.'
-            : 'Campaign Content — LIVE Staff API (POST/PUT /campaigns/{id}/contents).'
+            ? 'Campaign Content — MOCK Shortcode V2. Không phải WordPress/SEO Articles.'
+            : 'Campaign Content — LIVE Staff API (raw_source shortcode / legacy input).'
         }
         actions={
           <Button size="sm" disabled={!campaignId} onClick={openCreate}>
@@ -303,6 +366,14 @@ export function ArticlesScreen({
         </div>
       </div>
 
+      {campaignId && useShortcode ? (
+        <MockArticleGenerator
+          disabled={!campaignId || busy}
+          onPreview={(count) => onMockPreview(campaignId, count)}
+          onSave={(count, key) => onMockSave(campaignId, count, key)}
+        />
+      ) : null}
+
       {contentsLoading ? (
         <p className="text-xs text-muted">Loading campaign contents…</p>
       ) : null}
@@ -315,25 +386,34 @@ export function ArticlesScreen({
           <h2 className="text-sm font-semibold">
             {editingId ? 'Edit Article' : 'Add Article'}
           </h2>
-          <ManualArticleEditor
-            title={title}
-            bodyPlain={body}
-            variables={variables}
-            editorDoc={editorDoc}
-            schema={schema}
-            site={site}
-            disabled={busy || schemaLoading}
-            onTitleChange={setTitle}
-            onBodyChange={(plain, doc) => {
-              setBody(plain)
-              setEditorDoc(doc)
-            }}
-            onVariablesChange={setVariables}
-          />
+          {useShortcode && campaign?.shortcode_mapping ? (
+            <ShortcodeArticleEditor
+              rawSource={rawSource}
+              mapping={campaign.shortcode_mapping}
+              disabled={busy}
+              onChange={setRawSource}
+            />
+          ) : (
+            <ManualArticleEditor
+              title={title}
+              bodyPlain={body}
+              variables={variables}
+              editorDoc={editorDoc}
+              schema={schema}
+              site={site}
+              disabled={busy || schemaLoading}
+              onTitleChange={setTitle}
+              onBodyChange={(plain, doc) => {
+                setBody(plain)
+                setEditorDoc(doc)
+              }}
+              onVariablesChange={setVariables}
+            />
+          )}
           {schemaLoading ? (
             <p className="text-xs text-muted">Loading Script input schema…</p>
           ) : null}
-          {!schemaLoading && !schema.schema_available ? (
+          {!useShortcode && !schemaLoading && !schema.schema_available ? (
             <p className="text-xs text-danger">
               Script input schema unavailable. Cannot save until Script Registry
               variables are loaded.
@@ -345,7 +425,10 @@ export function ArticlesScreen({
           <div className="flex gap-2">
             <Button
               size="sm"
-              disabled={busy || schemaLoading || !schema.schema_available}
+              disabled={
+                busy ||
+                (!useShortcode && (schemaLoading || !schema.schema_available))
+              }
               onClick={() => void submit()}
             >
               Save
@@ -370,19 +453,25 @@ export function ArticlesScreen({
               Close
             </Button>
           </div>
-          <p className="mt-2 font-medium">{preview.input.title || '(no title)'}</p>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-muted">
-            {preview.input.body}
+          <p className="mt-1 text-xs text-muted">
+            format={preview.source_format}
+            {preview.mapping_version != null
+              ? ` · mapping_version=${preview.mapping_version}`
+              : ''}
+          </p>
+          <pre className="mt-2 whitespace-pre-wrap text-xs">
+            {contentListPreview(preview) || '(empty)'}
           </pre>
         </div>
       ) : null}
 
       <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
-        <table className="w-full min-w-[48rem] text-left text-sm">
+        <table className="w-full min-w-[56rem] text-left text-sm">
           <thead className="border-b border-border bg-surface-muted text-xs text-muted">
             <tr>
               <th className="px-3 py-2">Ref</th>
               <th className="px-3 py-2">Campaign</th>
+              <th className="px-3 py-2">Format</th>
               <th className="px-3 py-2">Content</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Actions</th>
@@ -391,21 +480,21 @@ export function ArticlesScreen({
           <tbody>
             {listState === 'loading' ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted">
+                <td colSpan={6} className="px-3 py-8 text-center text-muted">
                   Loading campaign contents…
                 </td>
               </tr>
             ) : listState === 'error' ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-danger">
+                <td colSpan={6} className="px-3 py-8 text-center text-danger">
                   Failed to load articles. {contentsError}
                 </td>
               </tr>
             ) : listState === 'empty' ? (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-muted">
-                  No articles. Manual Campaign starts with zero Content — add at
-                  least one before Start.
+                <td colSpan={6} className="px-3 py-8 text-center text-muted">
+                  No articles. Shortcode V2 Campaigns start with zero Content —
+                  add Articles or Generate Mock before Start.
                 </td>
               </tr>
             ) : (
@@ -417,13 +506,18 @@ export function ArticlesScreen({
                     <td className="px-3 py-2 font-mono text-xs">
                       {row.external_ref}
                     </td>
-                    <td className="px-3 py-2 text-xs">{camp?.name ?? row.campaign_id}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {camp?.name ?? row.campaign_id}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[11px]">
+                      {row.source_format}
+                      {row.mapping_version != null
+                        ? ` · v${row.mapping_version}`
+                        : ''}
+                    </td>
                     <td className="px-3 py-2">
-                      <div className="line-clamp-2 text-xs">
-                        {row.input.title ? (
-                          <span className="font-medium">{row.input.title} — </span>
-                        ) : null}
-                        {row.input.body}
+                      <div className="line-clamp-2 font-mono text-xs">
+                        {contentListPreview(row) || '(empty)'}
                       </div>
                     </td>
                     <td className="px-3 py-2">

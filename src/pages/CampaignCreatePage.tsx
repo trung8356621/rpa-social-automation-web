@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -11,8 +11,14 @@ import { CampaignFormFields } from '@/features/campaigns/components/CampaignForm
 import { emptyScheduleForm } from '@/features/campaigns/schedule'
 import {
   canStartWithRunMode,
+  parseScriptInputSchema,
   resolveTestModeCompatibility,
+  unavailableScriptInputSchema,
 } from '@/features/campaigns/script-compat'
+import {
+  defaultShortcodeMappingForm,
+  preferredDefaultVariable,
+} from '@/features/campaigns/shortcode-mapping'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import {
   validateCampaignForm,
@@ -37,14 +43,28 @@ export function CampaignCreatePage() {
     execution_mode: 'one_account_one_job',
     run_mode: 'live',
     schedule: emptyScheduleForm(),
-    content_title: '',
-    content_external_ref: '',
     account_id: '',
+    shortcode_mapping: defaultShortcodeMappingForm(),
   })
 
   const selectedDetail = form.script_package_key
     ? scripts.data.details[form.script_package_key]
     : null
+
+  const scriptSchema = useMemo(() => {
+    if (!form.script_package_key) return unavailableScriptInputSchema(null)
+    const mockSchema = registry.getScriptInputSchema(form.script_package_key)
+    if (registry.mode === 'mock') return mockSchema
+    if (selectedDetail) {
+      return parseScriptInputSchema(selectedDetail, {
+        testModeCompatible: resolveTestModeCompatibility(
+          selectedDetail,
+          mockSchema.test_mode_compatible,
+        ),
+      })
+    }
+    return unavailableScriptInputSchema(null)
+  }, [form.script_package_key, registry, selectedDetail])
 
   const testCompatible = useMemo(() => {
     if (!form.script_package_key) return null
@@ -53,10 +73,26 @@ export function CampaignCreatePage() {
     return resolveTestModeCompatibility(selectedDetail, mockFlag)
   }, [form.script_package_key, registry, selectedDetail])
 
+  useEffect(() => {
+    if (!scriptSchema.schema_available) return
+    const preferred = preferredDefaultVariable(scriptSchema)
+    setForm((prev) => {
+      const onlyDefault =
+        prev.shortcode_mapping.length === 1 &&
+        prev.shortcode_mapping[0]?.shortcode === 'body' &&
+        !prev.shortcode_mapping[0]?.variable
+      if (!onlyDefault) return prev
+      return {
+        ...prev,
+        shortcode_mapping: defaultShortcodeMappingForm(preferred),
+      }
+    })
+  }, [scriptSchema])
+
   const submit = async () => {
     const validated = validateCampaignForm(form, {
-      requireContents: true,
       requireAccountPin: true,
+      schema: scriptSchema,
     })
     if (!validated.ok) {
       setError(validated.message)
@@ -66,7 +102,6 @@ export function CampaignCreatePage() {
       validated.value.run_mode,
       testCompatible,
     )
-    // Create is allowed even when Test Mode cannot Start later — gate Start only.
     if (validated.value.run_mode === 'test' && !runGate.ok) {
       setError(
         runGate.reason ??
@@ -82,7 +117,6 @@ export function CampaignCreatePage() {
     setBusy(true)
     setError(null)
     try {
-      // Preview OpenAPI body in DEV console for contract QA — no network side-effect beyond create.
       if (import.meta.env.DEV && registry.mode === 'live') {
         // eslint-disable-next-line no-console
         console.info(
@@ -106,7 +140,7 @@ export function CampaignCreatePage() {
     <div className="mx-auto w-full max-w-3xl space-y-4">
       <PageHeader
         title="Create Campaign"
-        description="LIVE create: platform + script_id/version + account_id pin + title-only contents[]. No auto-Start."
+        description="Shortcode V2: zero Contents + shortcode_mapping. No auto-Start."
         actions={
           <Button
             size="sm"
@@ -124,6 +158,7 @@ export function CampaignCreatePage() {
         scripts={scripts.data.scripts}
         accounts={accounts.data.accounts}
         testCompatible={testCompatible}
+        scriptSchema={scriptSchema}
         disabled={busy}
       />
       {error ? <p className="text-sm text-danger">{error}</p> : null}

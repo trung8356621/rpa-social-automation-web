@@ -4,6 +4,10 @@ import {
   type ScheduleFormValues,
 } from './schedule.ts'
 import { canStartWithRunMode } from './script-compat.ts'
+import {
+  validateShortcodeMappingForm,
+  type ShortcodeMappingFormEntry,
+} from './shortcode-mapping.ts'
 import type {
   Campaign,
   CampaignContent,
@@ -21,11 +25,10 @@ export type CampaignFormValues = {
   execution_mode: CampaignExecutionMode
   run_mode: CampaignRunMode
   schedule: ScheduleFormValues
-  /** POC: title-only content included on create (OpenAPI contents[]) */
-  content_title: string
-  content_external_ref: string
   /** Hard Account UUID pin — sent as OpenAPI account_id */
   account_id: string
+  /** Shortcode V2 mapping rows (create-time). */
+  shortcode_mapping: ShortcodeMappingFormEntry[]
 }
 
 export type ValidationOk<T> = { ok: true; value: T }
@@ -33,9 +36,11 @@ export type ValidationErr = { ok: false; message: string }
 
 export function validateCampaignForm(
   form: CampaignFormValues,
-  options?: { requireContents?: boolean; requireAccountPin?: boolean },
+  options?: {
+    requireAccountPin?: boolean
+    schema?: ScriptInputSchema
+  },
 ): ValidationOk<CreateCampaignInput> | ValidationErr {
-  const requireContents = options?.requireContents === true
   const requireAccountPin = options?.requireAccountPin === true
   const name = form.name.trim()
   if (!name) return { ok: false, message: 'Campaign Name is required.' }
@@ -64,14 +69,6 @@ export function validateCampaignForm(
   const sched = validateScheduleForm(form.schedule)
   if (!sched.ok) return sched
 
-  const title = form.content_title.trim()
-  if (requireContents && !title) {
-    return {
-      ok: false,
-      message: 'Content title is required (OpenAPI contents[] on create).',
-    }
-  }
-
   const accountId = form.account_id.trim()
   if (requireAccountPin && !accountId) {
     return {
@@ -91,6 +88,24 @@ export function validateCampaignForm(
     }
   }
 
+  let shortcode_mapping: CreateCampaignInput['shortcode_mapping']
+  if (options?.schema) {
+    const mapped = validateShortcodeMappingForm(
+      form.shortcode_mapping,
+      options.schema,
+    )
+    if (!mapped.ok) return mapped
+    shortcode_mapping = mapped.mapping
+  } else if (form.shortcode_mapping.length > 0) {
+    const entries = form.shortcode_mapping
+      .map((e) => ({
+        shortcode: e.shortcode.trim(),
+        variable: e.variable.trim(),
+      }))
+      .filter((e) => e.shortcode && e.variable)
+    if (entries.length > 0) shortcode_mapping = { entries }
+  }
+
   return {
     ok: true,
     value: {
@@ -102,16 +117,8 @@ export function validateCampaignForm(
       run_mode: form.run_mode,
       schedule: scheduleFormToApi(form.schedule),
       account_id: accountId || null,
-      contents: title
-        ? [
-            {
-              external_ref: form.content_external_ref.trim() || undefined,
-              title,
-              body: null,
-              variables: {},
-            },
-          ]
-        : undefined,
+      shortcode_mapping,
+      contents: [],
     },
   }
 }
@@ -188,6 +195,35 @@ export function validateManualContent(
         ok: false,
         message: `Field "${field.label ?? field.key}" is required by Script schema.`,
       }
+    }
+  }
+  return { ok: true, value: true }
+}
+
+export function validateShortcodeContent(
+  rawSource: string,
+  mappingShortcodes: string[],
+): ValidationOk<true> | ValidationErr {
+  const raw = rawSource.trim()
+  if (!raw) {
+    return { ok: false, message: 'Shortcode source is required.' }
+  }
+  try {
+    // reuse assert via dynamic import avoidance — inline check
+    if (/<\s*\/?\s*[a-zA-Z][^>]*>/.test(rawSource)) {
+      return {
+        ok: false,
+        message:
+          'richtext_format_unsupported: Backend accepts plain text shortcode only.',
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  if (mappingShortcodes.length === 0) {
+    return {
+      ok: false,
+      message: 'Campaign shortcode_mapping is required before saving Articles.',
     }
   }
   return { ok: true, value: true }

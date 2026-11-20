@@ -53,6 +53,18 @@ export type CampaignSummary = {
   waiting: number
 }
 
+/** OpenAPI CampaignShortcodeMapping — campaign-owned shortcode → Script variable. */
+export type CampaignShortcodeMappingEntry = {
+  shortcode: string
+  variable: string
+}
+
+export type CampaignShortcodeMapping = {
+  entries: CampaignShortcodeMappingEntry[]
+}
+
+export type ContentSourceFormat = 'legacy_input' | 'shortcode'
+
 export type Campaign = {
   id: string
   name: string
@@ -78,6 +90,9 @@ export type Campaign = {
   allowed_actions: CampaignAction[]
   /** Nested on detail responses; empty on list rows */
   contents?: CampaignContent[]
+  /** Immutable after start (OpenAPI shortcode_mapping) */
+  shortcode_mapping: CampaignShortcodeMapping | null
+  shortcode_mapping_version: number | null
 }
 
 export type CampaignAction =
@@ -121,8 +136,14 @@ export type CampaignContent = {
   external_ref: string
   source: CampaignContentSource
   status: CampaignContentStatus
+  /** Legacy Script input (source_format=legacy_input). */
   input: CampaignContentInput
-  /** Local editor document — mock only until CP19C confirms storage */
+  /** OpenAPI source_format — shortcode vs legacy_input. */
+  source_format: ContentSourceFormat
+  /** Canonical shortcode plain text when source_format=shortcode. */
+  raw_source: string | null
+  mapping_version: number | null
+  /** Local editor document — never sent to Backend. */
   editor_doc: TipTapDocJson | null
   assigned_account_id: string | null
   assigned_account_label: string | null
@@ -190,12 +211,13 @@ export type SiteContentPolicy = {
   field_source: 'site.content_max_length' | 'unavailable'
 }
 
-/** Content rows required at Staff create (OpenAPI contents minItems 1). */
+/** Optional create-time contents (OpenAPI minItems 0 — Shortcode V2). */
 export type CreateCampaignContentDraft = {
   external_ref?: string
-  title: string | null
+  title?: string | null
   body?: string | null
   variables?: ScriptInputValueMap
+  raw_source?: string
 }
 
 export type CreateCampaignInput = {
@@ -207,8 +229,10 @@ export type CreateCampaignInput = {
   execution_mode: CampaignExecutionMode
   run_mode: CampaignRunMode
   schedule: CampaignSchedule
-  /** At least one for LIVE create; MOCK may create empty then add Articles */
+  /** Zero contents allowed at create (Shortcode V2). */
   contents?: CreateCampaignContentDraft[]
+  /** Campaign-owned shortcode → Script variable mapping. */
+  shortcode_mapping?: CampaignShortcodeMapping
   /**
    * Hard Account UUID pin (OpenAPI account_id).
    * Required for WordPress Draft POC / one_account_one_job — no silent fallback.
@@ -226,7 +250,28 @@ export type ManualContentDraft = {
   title: string | null
   body: string | null
   variables: ScriptInputValueMap
+  /** Canonical shortcode plain text — preferred when Campaign has mapping. */
+  raw_source?: string | null
   editor_doc: TipTapDocJson | null
+}
+
+export type MockPreviewArticle = {
+  external_ref: string
+  raw_source: string
+  input: Record<string, string | number | boolean | null>
+}
+
+export type MockPreviewResult = {
+  count: number
+  mapping_version: number
+  articles: MockPreviewArticle[]
+}
+
+export type MockSaveResult = {
+  count: number
+  mapping_version: number
+  idempotent: boolean
+  contents: CampaignContent[]
 }
 
 export type CampaignListFilters = {

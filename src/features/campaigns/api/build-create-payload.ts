@@ -1,11 +1,12 @@
-import type { CreateCampaignInput } from '../types.ts'
+import type {
+  CampaignShortcodeMapping,
+  CreateCampaignInput,
+} from '../types.ts'
 
 /**
- * Staff OpenAPI `CampaignCreateRequest` (addon commit 90886a7).
- * Required: name, platform, execution_mode, script_id, contents (minItems 1).
- * Optional: run_mode, script_version, account_id, resource_recheck_seconds.
- *
- * When account_id is set it is a hard pin — dispatch never silently falls back.
+ * Staff OpenAPI `CampaignCreateRequest` (addon af4a652 — Shortcode V2).
+ * Required: name, platform, execution_mode, script_id.
+ * Optional: shortcode_mapping, contents (minItems 0), run_mode, script_version, account_id.
  */
 export type LiveCampaignCreateBody = {
   name: string
@@ -16,15 +17,17 @@ export type LiveCampaignCreateBody = {
   script_version: string
   account_id?: string
   resource_recheck_seconds: number
+  shortcode_mapping?: CampaignShortcodeMapping
   contents: Array<{
     external_ref?: string
-    input: Record<string, string | number | boolean | null>
+    input?: Record<string, string | number | boolean | null>
+    raw_source?: string
   }>
 }
 
 /** Flatten UI content draft into placeholder-safe Script input object. */
 export function contentDraftToLiveInput(row: {
-  title: string | null
+  title?: string | null
   body?: string | null
   variables?: Record<string, string | null>
 }): Record<string, string | number | boolean | null> {
@@ -34,7 +37,6 @@ export function contentDraftToLiveInput(row: {
   for (const [key, value] of Object.entries(row.variables ?? {})) {
     if (!key.trim()) continue
     if (value == null || !String(value).trim()) continue
-    // Never send credential-like keys from Campaign Content
     if (/password|secret|token|api[_-]?key/i.test(key)) continue
     input[key] = String(value).trim()
   }
@@ -43,18 +45,22 @@ export function contentDraftToLiveInput(row: {
 
 /**
  * Map CreateCampaignInput → OpenAPI create body.
- * script_id accepts package_key / Action Tag key (e.g. mayhopphat.create_post).
+ * Zero contents allowed. shortcode_mapping sent when present.
  */
 export function buildLiveCampaignCreateBody(
   input: CreateCampaignInput,
 ): LiveCampaignCreateBody {
   const contents = (input.contents ?? []).map((row, index) => {
     const external = row.external_ref?.trim()
-    const body: LiveCampaignCreateBody['contents'][number] = {
-      input: contentDraftToLiveInput(row),
-    }
+    const body: LiveCampaignCreateBody['contents'][number] = {}
     if (external) body.external_ref = external
-    else body.external_ref = `poc-${index + 1}`
+    else if (!row.raw_source?.trim()) body.external_ref = `poc-${index + 1}`
+
+    if (row.raw_source?.trim()) {
+      body.raw_source = row.raw_source.trim()
+    } else {
+      body.input = contentDraftToLiveInput(row)
+    }
     return body
   })
 
@@ -73,5 +79,13 @@ export function buildLiveCampaignCreateBody(
     contents,
   }
   if (accountId) body.account_id = accountId
+  if (input.shortcode_mapping?.entries?.length) {
+    body.shortcode_mapping = {
+      entries: input.shortcode_mapping.entries.map((e) => ({
+        shortcode: e.shortcode.trim(),
+        variable: e.variable.trim(),
+      })),
+    }
+  }
   return body
 }

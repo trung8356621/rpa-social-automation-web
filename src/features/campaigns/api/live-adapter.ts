@@ -6,6 +6,8 @@ import type {
   CampaignJobAttempt,
   CreateCampaignInput,
   ManualContentDraft,
+  MockPreviewResult,
+  MockSaveResult,
   ScriptInputSchema,
   UpdateCampaignInput,
 } from '../types'
@@ -57,11 +59,6 @@ export const liveCampaignAdapter = {
     input: CreateCampaignInput,
     _meta?: { site_name?: string; script_name?: string },
   ): Promise<Campaign> {
-    if (!input.contents || input.contents.length === 0) {
-      throw new Error(
-        'LIVE create requires contents[] (OpenAPI minItems: 1). Add at least one title-only Article.',
-      )
-    }
     if (!String(input.script_version ?? '').trim()) {
       throw new Error(
         'LIVE create requires script_version (exact published release).',
@@ -70,6 +67,11 @@ export const liveCampaignAdapter = {
     if (!String(input.account_id ?? '').trim()) {
       throw new Error(
         'LIVE create requires account_id (hard Account UUID pin). No silent fallback.',
+      )
+    }
+    if (!input.shortcode_mapping?.entries?.length) {
+      throw new Error(
+        'LIVE create requires shortcode_mapping (Shortcode V2). Zero contents allowed.',
       )
     }
     const body = buildLiveCampaignCreateBody(input)
@@ -158,7 +160,11 @@ export const liveCampaignAdapter = {
 
   async createManualContent(
     draft: ManualContentDraft,
-    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+    opts?: {
+      schema: ScriptInputSchema
+      allowDiscard?: boolean
+      preferShortcode?: boolean
+    },
   ): Promise<CampaignContent> {
     if (!opts?.schema) {
       throw new Error(
@@ -168,6 +174,7 @@ export const liveCampaignAdapter = {
     const body = buildLiveCampaignContentBody(draft, {
       schema: opts.schema,
       allowDiscard: opts.allowDiscard === true,
+      preferShortcode: opts.preferShortcode === true,
     })
     const res = await staffApiRequest<{ data?: unknown; content?: unknown }>(
       CAMPAIGN_CONTENT_PATHS.create(draft.campaign_id),
@@ -181,7 +188,11 @@ export const liveCampaignAdapter = {
   async updateManualContent(
     id: string,
     draft: ManualContentDraft,
-    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+    opts?: {
+      schema: ScriptInputSchema
+      allowDiscard?: boolean
+      preferShortcode?: boolean
+    },
   ): Promise<CampaignContent> {
     if (!opts?.schema) {
       throw new Error(
@@ -191,6 +202,7 @@ export const liveCampaignAdapter = {
     const body = buildLiveCampaignContentBody(draft, {
       schema: opts.schema,
       allowDiscard: opts.allowDiscard === true,
+      preferShortcode: opts.preferShortcode === true,
     })
     const res = await staffApiRequest<{ data?: unknown; content?: unknown }>(
       CAMPAIGN_CONTENT_PATHS.update(draft.campaign_id, id),
@@ -199,6 +211,69 @@ export const liveCampaignAdapter = {
     const row = res.data ?? res.content
     if (!row) throw new Error('Update Content response missing data.')
     return mapLiveContent(row, draft.campaign_id)
+  },
+
+  async mockPreviewContents(
+    campaignId: string,
+    count: number,
+  ): Promise<MockPreviewResult> {
+    const res = await staffApiRequest<{
+      data?: {
+        count?: number
+        mapping_version?: number
+        articles?: Array<{
+          external_ref?: string
+          raw_source?: string
+          input?: Record<string, string | number | boolean | null>
+        }>
+      }
+    }>(CAMPAIGN_CONTENT_PATHS.mockPreview(campaignId), {
+      method: 'POST',
+      body: { count },
+    })
+    const data = res.data
+    if (!data) throw new Error('Mock preview response missing data.')
+    return {
+      count: Number(data.count ?? 0),
+      mapping_version: Number(data.mapping_version ?? 0),
+      articles: (data.articles ?? []).map((a, i) => ({
+        external_ref: String(a.external_ref ?? `preview-${i + 1}`),
+        raw_source: String(a.raw_source ?? ''),
+        input: (a.input ?? {}) as Record<
+          string,
+          string | number | boolean | null
+        >,
+      })),
+    }
+  },
+
+  async mockSaveContents(
+    campaignId: string,
+    count: number,
+    idempotencyKey: string,
+  ): Promise<MockSaveResult> {
+    const res = await staffApiRequest<{
+      data?: {
+        count?: number
+        mapping_version?: number
+        idempotent?: boolean
+        contents?: unknown[]
+      }
+    }>(CAMPAIGN_CONTENT_PATHS.mockSave(campaignId), {
+      method: 'POST',
+      body: { count, idempotency_key: idempotencyKey },
+      headers: { 'Idempotency-Key': idempotencyKey },
+    })
+    const data = res.data
+    if (!data) throw new Error('Mock save response missing data.')
+    return {
+      count: Number(data.count ?? 0),
+      mapping_version: Number(data.mapping_version ?? 0),
+      idempotent: Boolean(data.idempotent),
+      contents: (data.contents ?? []).map((row) =>
+        mapLiveContent(row, campaignId),
+      ),
+    }
   },
 
   async removeDraftContent(_id: string): Promise<void> {

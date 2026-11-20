@@ -12,6 +12,8 @@ import type {
   CreateCampaignInput,
   DemoScenario,
   ManualContentDraft,
+  MockPreviewResult,
+  MockSaveResult,
   ScriptInputSchema,
   UpdateCampaignInput,
 } from './types'
@@ -218,7 +220,11 @@ export function useCampaigns() {
   const createManualContent = useCallback(
     async (
       draft: ManualContentDraft,
-      opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+      opts?: {
+        schema: ScriptInputSchema
+        allowDiscard?: boolean
+        preferShortcode?: boolean
+      },
     ) => {
       const row = await adapter.createManualContent(draft, opts)
       setContents((prev) => {
@@ -251,7 +257,11 @@ export function useCampaigns() {
     async (
       id: string,
       draft: ManualContentDraft,
-      opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+      opts?: {
+        schema: ScriptInputSchema
+        allowDiscard?: boolean
+        preferShortcode?: boolean
+      },
     ) => {
       const row = await adapter.updateManualContent(id, draft, opts)
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
@@ -355,6 +365,34 @@ export function useCampaigns() {
     [adapter],
   )
 
+  const mockPreviewContents = useCallback(
+    async (campaignId: string, count: number): Promise<MockPreviewResult> => {
+      return adapter.mockPreviewContents(campaignId, count)
+    },
+    [adapter],
+  )
+
+  const mockSaveContents = useCallback(
+    async (
+      campaignId: string,
+      count: number,
+      idempotencyKey: string,
+    ): Promise<MockSaveResult> => {
+      const result = await adapter.mockSaveContents(
+        campaignId,
+        count,
+        idempotencyKey,
+      )
+      setContents((prev) => {
+        const without = prev.filter((c) => c.campaign_id !== campaignId)
+        return [...result.contents, ...without]
+      })
+      showToast(`Mock saved (${result.count})`)
+      return result
+    },
+    [adapter, showToast],
+  )
+
   return {
     mode,
     loading,
@@ -380,6 +418,8 @@ export function useCampaigns() {
     loadCampaignDetail,
     loadContentsForCampaign,
     getScriptInputSchema,
+    mockPreviewContents,
+    mockSaveContents,
     /** LIVE Staff mutations are wired; operator must click — no auto Start. */
     mutationsEnabled: true,
     liveMutationsBlockedReason:

@@ -210,6 +210,8 @@ export function ArticlesPage() {
           await registry.updateManualContent(id, draft, opts)
         }}
         onRemoveDraft={registry.removeDraftContent}
+        onMockPreview={registry.mockPreviewContents}
+        onMockSave={registry.mockSaveContents}
         mode={registry.mode}
       />
       <Toast toast={registry.toast} />

@@ -1,10 +1,10 @@
-import { draftToScriptInput } from '../content-adapters'
+import { draftToScriptInput } from '../content-adapters.ts'
 import {
   createMockCampaignStore,
   MOCK_SCRIPT_INPUT_SCHEMAS,
   MOCK_TEST_MODE_COMPATIBLE_SCRIPTS,
-} from '../mock-data'
-import { summarizeContents } from '../status-labels'
+} from '../mock-data.ts'
+import { summarizeContents } from '../status-labels.ts'
 import type {
   Campaign,
   CampaignAction,
@@ -13,11 +13,14 @@ import type {
   CampaignStoreSnapshot,
   CreateCampaignInput,
   ManualContentDraft,
+  MockPreviewResult,
+  MockSaveResult,
   ScriptInputSchema,
   UpdateCampaignInput,
-} from '../types'
-import { parseScriptInputSchema } from '../script-compat'
-import { buildLiveCampaignContentBody } from './build-content-payload'
+} from '../types.ts'
+import { parseScriptInputSchema } from '../script-compat.ts'
+import { serializeShortcodeSegments } from '../shortcode-source.ts'
+import { buildLiveCampaignContentBody } from './build-content-payload.ts'
 
 function actionsFor(status: Campaign['status']): CampaignAction[] {
   switch (status) {
@@ -96,6 +99,9 @@ export const mockCampaignAdapter = {
   ): Promise<Campaign> {
     assertMockOnly()
     const id = `camp_local_${Date.now()}`
+    const mapping = input.shortcode_mapping?.entries?.length
+      ? structuredClone(input.shortcode_mapping)
+      : null
     const campaign: Campaign = {
       id,
       name: input.name,
@@ -115,31 +121,39 @@ export const mockCampaignAdapter = {
       allowed_actions: actionsFor(
         input.schedule.type === 'scheduled' ? 'scheduled' : 'draft',
       ),
+      shortcode_mapping: mapping,
+      shortcode_mapping_version: mapping ? 1 : null,
     }
     store.campaigns = [campaign, ...store.campaigns]
     if (input.contents && input.contents.length > 0) {
       const pinned = input.account_id?.trim() || null
-      const rows: CampaignContent[] = input.contents.map((row, i) => ({
-        id: `cnt_local_${Date.now()}_${i}`,
-        campaign_id: id,
-        external_ref: row.external_ref?.trim() || `manual-${i + 1}`,
-        source: 'manual' as const,
-        status: 'pending' as const,
-        input: {
-          title: row.title,
-          body: row.body ?? null,
-          variables: { ...(row.variables ?? {}) },
-        },
-        editor_doc: null,
-        assigned_account_id: pinned,
-        assigned_account_label: pinned,
-        current_job_id: null,
-        last_result: null,
-        last_error_code: null,
-        last_error_message: null,
-        created_at: nowIso(),
-        updated_at: nowIso(),
-      }))
+      const rows: CampaignContent[] = input.contents.map((row, i) => {
+        const raw = row.raw_source?.trim() || null
+        return {
+          id: `cnt_local_${Date.now()}_${i}`,
+          campaign_id: id,
+          external_ref: row.external_ref?.trim() || `manual-${i + 1}`,
+          source: 'manual' as const,
+          status: 'pending' as const,
+          input: {
+            title: row.title ?? null,
+            body: row.body ?? null,
+            variables: { ...(row.variables ?? {}) },
+          },
+          source_format: raw ? ('shortcode' as const) : ('legacy_input' as const),
+          raw_source: raw,
+          mapping_version: raw && mapping ? 1 : null,
+          editor_doc: null,
+          assigned_account_id: pinned,
+          assigned_account_label: pinned,
+          current_job_id: null,
+          last_result: null,
+          last_error_code: null,
+          last_error_message: null,
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        }
+      })
       store.contents = [...rows, ...store.contents]
       refreshSummaries(store)
     }
@@ -239,25 +253,57 @@ export const mockCampaignAdapter = {
 
   async createManualContent(
     draft: ManualContentDraft,
-    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+    opts?: {
+      schema: ScriptInputSchema
+      allowDiscard?: boolean
+      preferShortcode?: boolean
+    },
   ): Promise<CampaignContent> {
     assertMockOnly()
-    findCampaign(draft.campaign_id)
+    const campaign = findCampaign(draft.campaign_id)
+    const preferShortcode =
+      opts?.preferShortcode === true || Boolean(draft.raw_source?.trim())
+    if (preferShortcode) {
+      const raw = draft.raw_source?.trim() || ''
+      if (!raw) throw new Error('raw_source is required for shortcode Content.')
+      const row: CampaignContent = {
+        id: `cnt_local_${Date.now()}`,
+        campaign_id: draft.campaign_id,
+        external_ref: draft.external_ref?.trim() || `manual-${Date.now()}`,
+        source: 'manual',
+        status: 'draft',
+        input: { title: null, body: null, variables: {} },
+        source_format: 'shortcode',
+        raw_source: raw,
+        mapping_version: campaign.shortcode_mapping_version ?? 1,
+        editor_doc: draft.editor_doc,
+        assigned_account_id: campaign.account_id,
+        assigned_account_label: campaign.account_id,
+        current_job_id: null,
+        last_result: null,
+        last_error_code: null,
+        last_error_message: null,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      }
+      store.contents = [row, ...store.contents]
+      refreshSummaries(store)
+      return structuredClone(row)
+    }
     const mapped = opts?.schema
       ? (() => {
           const body = buildLiveCampaignContentBody(draft, {
             schema: opts.schema,
             allowDiscard: opts.allowDiscard === true,
           })
+          const input = body.input ?? {}
           return {
             external_ref: body.external_ref ?? `manual-${Date.now()}`,
             input: {
-              title:
-                typeof body.input.title === 'string' ? body.input.title : null,
-              body:
-                typeof body.input.body === 'string' ? body.input.body : null,
+              title: typeof input.title === 'string' ? input.title : null,
+              body: typeof input.body === 'string' ? input.body : null,
               variables: Object.fromEntries(
-                Object.entries(body.input)
+                Object.entries(input)
                   .filter(([k]) => k !== 'title' && k !== 'body')
                   .map(([k, v]) => [k, v == null ? null : String(v)]),
               ),
@@ -272,6 +318,9 @@ export const mockCampaignAdapter = {
       source: 'manual',
       status: 'draft',
       input: mapped.input,
+      source_format: 'legacy_input',
+      raw_source: null,
+      mapping_version: null,
       editor_doc: draft.editor_doc,
       assigned_account_id: null,
       assigned_account_label: null,
@@ -290,7 +339,11 @@ export const mockCampaignAdapter = {
   async updateManualContent(
     id: string,
     draft: ManualContentDraft,
-    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+    opts?: {
+      schema: ScriptInputSchema
+      allowDiscard?: boolean
+      preferShortcode?: boolean
+    },
   ): Promise<CampaignContent> {
     assertMockOnly()
     const row = store.contents.find((c) => c.id === id)
@@ -298,21 +351,35 @@ export const mockCampaignAdapter = {
     if (row.status !== 'draft' && row.status !== 'pending') {
       throw new Error(`Cannot edit content in status ${row.status}`)
     }
+    const campaign = findCampaign(draft.campaign_id)
+    const preferShortcode =
+      opts?.preferShortcode === true || Boolean(draft.raw_source?.trim())
+    if (preferShortcode) {
+      const raw = draft.raw_source?.trim() || ''
+      if (!raw) throw new Error('raw_source is required for shortcode Content.')
+      row.external_ref = draft.external_ref?.trim() || row.external_ref
+      row.source_format = 'shortcode'
+      row.raw_source = raw
+      row.mapping_version = campaign.shortcode_mapping_version ?? 1
+      row.editor_doc = draft.editor_doc
+      row.updated_at = nowIso()
+      refreshSummaries(store)
+      return structuredClone(row)
+    }
     const mapped = opts?.schema
       ? (() => {
           const body = buildLiveCampaignContentBody(draft, {
             schema: opts.schema,
             allowDiscard: opts.allowDiscard === true,
           })
+          const input = body.input ?? {}
           return {
             external_ref: body.external_ref ?? row.external_ref,
             input: {
-              title:
-                typeof body.input.title === 'string' ? body.input.title : null,
-              body:
-                typeof body.input.body === 'string' ? body.input.body : null,
+              title: typeof input.title === 'string' ? input.title : null,
+              body: typeof input.body === 'string' ? input.body : null,
               variables: Object.fromEntries(
-                Object.entries(body.input)
+                Object.entries(input)
                   .filter(([k]) => k !== 'title' && k !== 'body')
                   .map(([k, v]) => [k, v == null ? null : String(v)]),
               ),
@@ -322,10 +389,93 @@ export const mockCampaignAdapter = {
       : draftToScriptInput(draft)
     row.external_ref = mapped.external_ref
     row.input = mapped.input
+    row.source_format = 'legacy_input'
+    row.raw_source = null
+    row.mapping_version = null
     row.editor_doc = draft.editor_doc
     row.updated_at = nowIso()
     refreshSummaries(store)
     return structuredClone(row)
+  },
+
+  async mockPreviewContents(
+    campaignId: string,
+    count: number,
+  ): Promise<MockPreviewResult> {
+    assertMockOnly()
+    const campaign = findCampaign(campaignId)
+    if (!campaign.shortcode_mapping?.entries?.length) {
+      throw new Error('shortcode_mapping_required')
+    }
+    const n = Math.min(50, Math.max(1, count))
+    const articles = Array.from({ length: n }, (_, i) => {
+      const ref = `mock-preview-${Date.now()}-${i + 1}`
+      const raw = serializeShortcodeSegments(
+        campaign.shortcode_mapping!.entries.map((e) => ({
+          name: e.shortcode,
+          inner: `Mock ${e.variable} #${i + 1} (${ref})`,
+        })),
+      )
+      const input: Record<string, string | number | boolean | null> = {}
+      for (const e of campaign.shortcode_mapping!.entries) {
+        input[e.variable] = `Mock ${e.variable} #${i + 1} (${ref})`
+      }
+      return { external_ref: ref, raw_source: raw, input }
+    })
+    return {
+      count: n,
+      mapping_version: campaign.shortcode_mapping_version ?? 1,
+      articles,
+    }
+  },
+
+  async mockSaveContents(
+    campaignId: string,
+    count: number,
+    idempotencyKey: string,
+  ): Promise<MockSaveResult> {
+    assertMockOnly()
+    if (!idempotencyKey.trim()) {
+      throw new Error('Idempotency-Key required for mock-save.')
+    }
+    const preview = await this.mockPreviewContents(campaignId, count)
+    const campaign = findCampaign(campaignId)
+    const rows: CampaignContent[] = preview.articles.map((a) => ({
+      id: `cnt_mock_${Date.now()}_${a.external_ref}`,
+      campaign_id: campaignId,
+      external_ref: a.external_ref,
+      source: 'manual' as const,
+      status: 'pending' as const,
+      input: {
+        title: typeof a.input.title === 'string' ? a.input.title : null,
+        body: typeof a.input.body === 'string' ? a.input.body : null,
+        variables: Object.fromEntries(
+          Object.entries(a.input)
+            .filter(([k]) => k !== 'title' && k !== 'body')
+            .map(([k, v]) => [k, v == null ? null : String(v)]),
+        ),
+      },
+      source_format: 'shortcode' as const,
+      raw_source: a.raw_source,
+      mapping_version: preview.mapping_version,
+      editor_doc: null,
+      assigned_account_id: campaign.account_id,
+      assigned_account_label: campaign.account_id,
+      current_job_id: null,
+      last_result: null,
+      last_error_code: null,
+      last_error_message: null,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+    }))
+    store.contents = [...rows, ...store.contents]
+    refreshSummaries(store)
+    return {
+      count: rows.length,
+      mapping_version: preview.mapping_version,
+      idempotent: false,
+      contents: structuredClone(rows),
+    }
   },
 
   async removeDraftContent(id: string): Promise<void> {
