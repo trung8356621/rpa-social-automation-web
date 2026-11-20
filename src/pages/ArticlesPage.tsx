@@ -96,10 +96,12 @@ export function ArticlesPage() {
     registry.reload,
   ])
 
-  const activePackageKey = useMemo(() => {
-    const camp = registry.campaigns.find((c) => c.id === activeCampaignId)
-    return camp?.script_package_key?.trim() || ''
-  }, [activeCampaignId, registry.campaigns])
+  const activeCampaign = useMemo(
+    () => registry.campaigns.find((c) => c.id === activeCampaignId) ?? null,
+    [activeCampaignId, registry.campaigns],
+  )
+  const activePackageKey = activeCampaign?.script_package_key?.trim() || ''
+  const activeScriptVersion = activeCampaign?.script_version?.trim() || ''
 
   useEffect(() => {
     if (!activePackageKey) {
@@ -159,14 +161,24 @@ export function ArticlesPage() {
         mockFallback.test_mode_compatible,
       )
       if (detail) {
-        return parseScriptInputSchema(detail, { testModeCompatible: testMode })
+        return parseScriptInputSchema(detail, {
+          testModeCompatible: testMode,
+          scriptVersion:
+            packageKey === activePackageKey ? activeScriptVersion : null,
+        })
       }
       if (registry.mode === 'live') {
         return unavailableScriptInputSchema(testMode)
       }
       return mockFallback
     }
-  }, [activePackageKey, registry, schemaDetail, scripts.data.details])
+  }, [
+    activePackageKey,
+    activeScriptVersion,
+    registry,
+    schemaDetail,
+    scripts.data.details,
+  ])
 
   if (registry.loading) {
     return (

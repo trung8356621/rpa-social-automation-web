@@ -12,6 +12,7 @@ import {
   defaultShortcodeMappingForm,
 } from '@/features/campaigns/shortcode-mapping'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
+import { usePublishedScriptSchema } from '@/features/campaigns/use-published-script-schema'
 import {
   validateCampaignForm,
   type CampaignFormValues,
@@ -53,18 +54,28 @@ export function CampaignEditPage() {
     })
   }, [campaign])
 
-  const scriptSchema = useMemo(() => {
-    if (!form?.script_package_key) {
-      return registry.getScriptInputSchema('')
-    }
-    return registry.getScriptInputSchema(form.script_package_key)
-  }, [form?.script_package_key, registry])
+  const cachedDetail = form?.script_package_key
+    ? (scripts.data.details[form.script_package_key] ?? null)
+    : null
+  const mockSchema = form?.script_package_key
+    ? registry.getScriptInputSchema(form.script_package_key)
+    : undefined
+
+  const {
+    schema: scriptSchema,
+    loading: schemaLoading,
+    error: schemaError,
+  } = usePublishedScriptSchema({
+    packageKey: form?.script_package_key ?? '',
+    scriptVersion: form?.script_version,
+    cachedDetail,
+    mockSchema,
+  })
 
   const testCompatible = useMemo(() => {
     if (!form?.script_package_key) return null
-    return registry.getScriptInputSchema(form.script_package_key)
-      .test_mode_compatible
-  }, [form?.script_package_key, registry])
+    return scriptSchema.test_mode_compatible
+  }, [form?.script_package_key, scriptSchema.test_mode_compatible])
 
   if (registry.loading || !form) {
     return (
@@ -136,6 +147,8 @@ export function CampaignEditPage() {
         scripts={scripts.data.scripts}
         testCompatible={testCompatible}
         scriptSchema={scriptSchema}
+        schemaLoading={schemaLoading}
+        schemaError={schemaError}
         disabled={busy || campaign.status !== 'draft'}
       />
       {campaign.status !== 'draft' ? (

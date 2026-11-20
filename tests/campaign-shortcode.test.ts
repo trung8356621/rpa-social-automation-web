@@ -28,8 +28,13 @@ import {
   serializeShortcodeSegments,
   tipTapDocToRawSource,
 } from '../src/features/campaigns/shortcode-source.ts'
+import {
+  parseScriptInputSchema,
+  selectPublishedRelease,
+} from '../src/features/campaigns/script-compat.ts'
 import { validateCampaignForm } from '../src/features/campaigns/validation.ts'
 import type { ScriptInputSchema } from '../src/features/campaigns/types.ts'
+import type { ScriptDetail } from '../src/features/script-registry/types.ts'
 
 const titleOnlySchema: ScriptInputSchema = {
   fields: [],
@@ -42,6 +47,67 @@ const titleOnlySchema: ScriptInputSchema = {
 }
 
 describe('Campaign Shortcode V2', () => {
+  it('selects published release by pinned version for variables', () => {
+    const detail: ScriptDetail = {
+      package_key: 'mayhopphat.create_post',
+      name: 'create_post',
+      action_tag_key: null,
+      description: null,
+      updated_by_label: 'test',
+      releases: [
+        {
+          id: 9,
+          version: '2',
+          content_digest: '',
+          status: 'draft',
+          published_at: null,
+          variables: [{ key: 'wrong', type: 'string', required: true }],
+          steps: [],
+          assets: [],
+          runtime_requirements: [],
+          video_demo: null,
+          video_demo_status: 'missing',
+          video_media_id: null,
+          thumbnail_media_id: null,
+          thumbnail_url: null,
+          video_url: null,
+        },
+        {
+          id: 1,
+          version: '1',
+          content_digest: '',
+          status: 'published',
+          published_at: null,
+          variables: [
+            { key: 'title', type: 'string', required: true, label: 'Title' },
+          ],
+          steps: [],
+          assets: [],
+          runtime_requirements: [],
+          video_demo: null,
+          video_demo_status: 'missing',
+          video_media_id: null,
+          thumbnail_media_id: null,
+          thumbnail_url: null,
+          video_url: null,
+        },
+      ],
+    }
+    const release = selectPublishedRelease(detail, '1')
+    assert.equal(release?.version, '1')
+    const schema = parseScriptInputSchema(detail, { scriptVersion: '1' })
+    assert.equal(schema.schema_available, true)
+    assert.equal(schema.title_supported, true)
+    assert.equal(preferredDefaultVariable(schema), 'title')
+
+    // Pinned draft version must fail closed — do not invent from another release.
+    assert.equal(selectPublishedRelease(detail, '2'), null)
+    assert.equal(
+      parseScriptInputSchema(detail, { scriptVersion: '2' }).schema_available,
+      false,
+    )
+  })
+
   it('default shortcode is body without assuming Script body variable', () => {
     const vars = allScriptVariables(titleOnlySchema)
     assert.deepEqual(

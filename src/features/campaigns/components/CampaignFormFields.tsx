@@ -24,6 +24,8 @@ type Props = {
   accounts?: AccountItem[]
   testCompatible: boolean | null
   scriptSchema: ScriptInputSchema
+  schemaLoading?: boolean
+  schemaError?: string | null
   disabled?: boolean
 }
 
@@ -35,6 +37,8 @@ export function CampaignFormFields({
   accounts = [],
   testCompatible,
   scriptSchema,
+  schemaLoading = false,
+  schemaError = null,
   disabled,
 }: Props) {
   const compatibleScripts = useMemo(
@@ -192,6 +196,8 @@ export function CampaignFormFields({
         value={value.shortcode_mapping}
         onChange={(shortcode_mapping) => patch({ shortcode_mapping })}
         schema={scriptSchema}
+        schemaLoading={schemaLoading}
+        schemaError={schemaError}
         disabled={disabled}
       />
 

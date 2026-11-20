@@ -1,4 +1,8 @@
-import type { ScriptDetail, ScriptListItem } from '../script-registry/types.ts'
+import type {
+  ScriptDetail,
+  ScriptListItem,
+  ScriptReleaseDetail,
+} from '../script-registry/types.ts'
 
 import type { ScriptInputField, ScriptInputSchema } from './types.ts'
 
@@ -35,10 +39,6 @@ function asFieldType(raw: unknown): ScriptInputField['type'] {
   return 'string'
 }
 
-/**
- * Parse Script release variables into an input schema.
- * Unknown variable shapes are skipped — never invent keys.
- */
 /** Fail-closed placeholder when Script Registry variables cannot be read. */
 export function unavailableScriptInputSchema(
   testModeCompatible: boolean | null = null,
@@ -54,9 +54,51 @@ export function unavailableScriptInputSchema(
   }
 }
 
+/**
+ * Authoritative published release for Campaign pin.
+ * Prefer exact version match; otherwise first published release.
+ * Fail-closed (null) when pin misses or no published release exists.
+ */
+export function selectPublishedRelease(
+  detail: ScriptDetail | null | undefined,
+  scriptVersion?: string | null,
+): ScriptReleaseDetail | null {
+  if (!detail || !Array.isArray(detail.releases) || detail.releases.length === 0) {
+    return null
+  }
+  const version = scriptVersion?.trim() || ''
+  if (version) {
+    const exactPublished = detail.releases.find(
+      (r) => r.version === version && r.status === 'published',
+    )
+    if (exactPublished) return exactPublished
+    // Pinned version exists but is not published — do not fall back to another release.
+    const exactAny = detail.releases.find((r) => r.version === version)
+    if (exactAny) return null
+    return null
+  }
+  return (
+    detail.releases.find((r) => r.status === 'published') ?? null
+  )
+}
+
+function variableKeyFromRow(row: Record<string, unknown>): string {
+  if (typeof row.key === 'string' && row.key.trim()) return row.key.trim()
+  // Some release manifests use `name` as the variable identity.
+  if (typeof row.name === 'string' && row.name.trim()) return row.name.trim()
+  return ''
+}
+
+/**
+ * Parse Script release variables into an input schema.
+ * Unknown variable shapes are skipped — never invent keys.
+ */
 export function parseScriptInputSchema(
   detail: ScriptDetail | null | undefined,
-  options?: { testModeCompatible?: boolean | null },
+  options?: {
+    testModeCompatible?: boolean | null
+    scriptVersion?: string | null
+  },
 ): ScriptInputSchema {
   const testMode =
     options?.testModeCompatible === undefined
@@ -64,18 +106,19 @@ export function parseScriptInputSchema(
       : options.testModeCompatible
 
   if (!detail) return unavailableScriptInputSchema(testMode)
-  const release = detail.releases?.[0]
+  const release = selectPublishedRelease(detail, options?.scriptVersion)
   if (!release || !Array.isArray(release.variables)) {
     return unavailableScriptInputSchema(testMode)
   }
 
+  // Empty array is still an authoritative schema (Script may have zero vars).
   const variables = release.variables
   const fields: ScriptInputField[] = []
 
   for (const raw of variables) {
     if (!raw || typeof raw !== 'object') continue
     const row = raw as Record<string, unknown>
-    const key = typeof row.key === 'string' ? row.key.trim() : ''
+    const key = variableKeyFromRow(row)
     if (!key) continue
     // Credentials must never be collected as Campaign Content
     if (key === 'password' || asFieldType(row.type) === 'secret') continue

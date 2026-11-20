@@ -9,17 +9,13 @@ import { useAccountSites } from '@/features/accounts/use-account-sites'
 import { buildLiveCampaignCreateBody } from '@/features/campaigns/api/build-create-payload'
 import { CampaignFormFields } from '@/features/campaigns/components/CampaignFormFields'
 import { emptyScheduleForm } from '@/features/campaigns/schedule'
-import {
-  canStartWithRunMode,
-  parseScriptInputSchema,
-  resolveTestModeCompatibility,
-  unavailableScriptInputSchema,
-} from '@/features/campaigns/script-compat'
+import { canStartWithRunMode } from '@/features/campaigns/script-compat'
 import {
   defaultShortcodeMappingForm,
   preferredDefaultVariable,
 } from '@/features/campaigns/shortcode-mapping'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
+import { usePublishedScriptSchema } from '@/features/campaigns/use-published-script-schema'
 import {
   validateCampaignForm,
   type CampaignFormValues,
@@ -47,31 +43,28 @@ export function CampaignCreatePage() {
     shortcode_mapping: defaultShortcodeMappingForm(),
   })
 
-  const selectedDetail = form.script_package_key
-    ? scripts.data.details[form.script_package_key]
+  const cachedDetail = form.script_package_key
+    ? (scripts.data.details[form.script_package_key] ?? null)
     : null
+  const mockSchema = form.script_package_key
+    ? registry.getScriptInputSchema(form.script_package_key)
+    : undefined
 
-  const scriptSchema = useMemo(() => {
-    if (!form.script_package_key) return unavailableScriptInputSchema(null)
-    const mockSchema = registry.getScriptInputSchema(form.script_package_key)
-    if (registry.mode === 'mock') return mockSchema
-    if (selectedDetail) {
-      return parseScriptInputSchema(selectedDetail, {
-        testModeCompatible: resolveTestModeCompatibility(
-          selectedDetail,
-          mockSchema.test_mode_compatible,
-        ),
-      })
-    }
-    return unavailableScriptInputSchema(null)
-  }, [form.script_package_key, registry, selectedDetail])
+  const {
+    schema: scriptSchema,
+    loading: schemaLoading,
+    error: schemaError,
+  } = usePublishedScriptSchema({
+    packageKey: form.script_package_key,
+    scriptVersion: form.script_version,
+    cachedDetail,
+    mockSchema,
+  })
 
   const testCompatible = useMemo(() => {
     if (!form.script_package_key) return null
-    const mockFlag = registry.getScriptInputSchema(form.script_package_key)
-      .test_mode_compatible
-    return resolveTestModeCompatibility(selectedDetail, mockFlag)
-  }, [form.script_package_key, registry, selectedDetail])
+    return scriptSchema.test_mode_compatible
+  }, [form.script_package_key, scriptSchema.test_mode_compatible])
 
   useEffect(() => {
     if (!scriptSchema.schema_available) return
@@ -90,6 +83,19 @@ export function CampaignCreatePage() {
   }, [scriptSchema])
 
   const submit = async () => {
+    if (schemaLoading) {
+      setError('Loading published Script variables…')
+      return
+    }
+    if (!scriptSchema.schema_available) {
+      setError(
+        schemaError
+          ? `Script schema unavailable: ${schemaError}`
+          : 'Script schema unavailable. Published Script release variables could not be loaded. Fail-closed — cannot create mapping.',
+      )
+      return
+    }
+
     const validated = validateCampaignForm(form, {
       requireAccountPin: true,
       schema: scriptSchema,
@@ -159,11 +165,17 @@ export function CampaignCreatePage() {
         accounts={accounts.data.accounts}
         testCompatible={testCompatible}
         scriptSchema={scriptSchema}
+        schemaLoading={schemaLoading}
+        schemaError={schemaError}
         disabled={busy}
       />
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       <div className="flex gap-2">
-        <Button size="sm" disabled={busy} onClick={() => void submit()}>
+        <Button
+          size="sm"
+          disabled={busy || schemaLoading || !scriptSchema.schema_available}
+          onClick={() => void submit()}
+        >
           Create Campaign
         </Button>
       </div>

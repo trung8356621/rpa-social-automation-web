@@ -16,6 +16,8 @@ type Props = {
   value: ShortcodeMappingFormEntry[]
   onChange: (next: ShortcodeMappingFormEntry[]) => void
   schema: ScriptInputSchema
+  schemaLoading?: boolean
+  schemaError?: string | null
   disabled?: boolean
 }
 
@@ -23,6 +25,8 @@ export function ShortcodeMappingFields({
   value,
   onChange,
   schema,
+  schemaLoading = false,
+  schemaError = null,
   disabled,
 }: Props) {
   const variables = allScriptVariables(schema)
@@ -53,7 +57,7 @@ export function ShortcodeMappingFields({
           type="button"
           size="sm"
           variant="outline"
-          disabled={disabled || !schema.schema_available}
+          disabled={disabled || schemaLoading || !schema.schema_available}
           onClick={addRow}
         >
           <Plus className="size-3.5" />
@@ -67,13 +71,19 @@ export function ShortcodeMappingFields({
         at create.
       </p>
 
-      {!schema.schema_available ? (
+      {schemaLoading ? (
+        <p className="text-xs text-muted">
+          Loading published Script release variables…
+        </p>
+      ) : !schema.schema_available ? (
         <p className="text-xs text-danger">
-          Script schema unavailable — select a Script with published variables.
+          {schemaError
+            ? `Script schema unavailable: ${schemaError}`
+            : 'Script schema unavailable — published release variables could not be resolved for this Script/version. Fail-closed; variables are not invented.'}
         </p>
       ) : variables.length === 0 ? (
         <p className="text-xs text-warning">
-          Selected Script exposes no mappable variables.
+          Published Script release exposes no mappable variables.
         </p>
       ) : null}
 
@@ -89,7 +99,7 @@ export function ShortcodeMappingFields({
                 <Label htmlFor={`sc_${row.id}`}>Shortcode</Label>
                 <Input
                   id={`sc_${row.id}`}
-                  disabled={disabled}
+                  disabled={disabled || schemaLoading}
                   value={row.shortcode}
                   placeholder="body"
                   onChange={(e) =>
@@ -101,7 +111,9 @@ export function ShortcodeMappingFields({
                 <Label htmlFor={`var_${row.id}`}>Script variable</Label>
                 <Select
                   id={`var_${row.id}`}
-                  disabled={disabled || !schema.schema_available}
+                  disabled={
+                    disabled || schemaLoading || !schema.schema_available
+                  }
                   value={row.variable}
                   onChange={(e) =>
                     patchRow(row.id, { variable: e.target.value })

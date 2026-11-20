@@ -115,7 +115,25 @@ export function ArticlesScreen({
   const schema = campaign
     ? getSchema(campaign.script_package_key)
     : EMPTY_SCHEMA
-  const useShortcode = Boolean(campaign?.shortcode_mapping?.entries?.length)
+  const hasShortcodeMapping = Boolean(
+    campaign?.shortcode_mapping?.entries?.length,
+  )
+  const editingRow =
+    editingId != null
+      ? (contents.find((c) => c.id === editingId) ?? null)
+      : null
+  /**
+   * V2 with mapping → ShortcodeArticleEditor for create + shortcode rows.
+   * Legacy_input rows stay on ManualArticleEditor (no auto-migrate).
+   * Campaigns without mapping → explicit legacy compatibility mode.
+   * Never fall back to Title+Body when mapping exists but schema load fails.
+   */
+  const editorMode: 'shortcode' | 'legacy' | null = (() => {
+    if (!campaign) return null
+    if (editingRow?.source_format === 'legacy_input') return 'legacy'
+    if (hasShortcodeMapping) return 'shortcode'
+    return 'legacy'
+  })()
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -153,7 +171,7 @@ export function ArticlesScreen({
 
   const openCreate = () => {
     resetForm()
-    if (useShortcode && campaign?.shortcode_mapping) {
+    if (hasShortcodeMapping && campaign?.shortcode_mapping) {
       const first = campaign.shortcode_mapping.entries[0]?.shortcode ?? 'body'
       setRawSource(`[${first}][/${first}]`)
     }
@@ -188,9 +206,16 @@ export function ArticlesScreen({
       return
     }
 
-    if (useShortcode) {
-      const shortcodes =
-        campaign.shortcode_mapping?.entries.map((e) => e.shortcode) ?? []
+    if (editorMode === 'shortcode') {
+      if (!hasShortcodeMapping || !campaign.shortcode_mapping) {
+        setFormError(
+          'Campaign shortcode_mapping is required for Shortcode editor. Refusing Title+Body fallback.',
+        )
+        return
+      }
+      const shortcodes = campaign.shortcode_mapping.entries.map(
+        (e) => e.shortcode,
+      )
       const validated = validateShortcodeContent(rawSource, shortcodes)
       if (!validated.ok) {
         setFormError(validated.message)
@@ -366,7 +391,20 @@ export function ArticlesScreen({
         </div>
       </div>
 
-      {campaignId && useShortcode ? (
+      {campaignId && !hasShortcodeMapping ? (
+        <div className="rounded-[var(--radius-card)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
+          Legacy Campaign compatibility: this Campaign has no{' '}
+          <code className="font-mono">shortcode_mapping</code>
+          {campaign?.shortcode_mapping_version != null
+            ? ` (mapping_version=${campaign.shortcode_mapping_version})`
+            : ''}
+          . Existing <code className="font-mono">legacy_input</code> Articles
+          stay readable/editable under safe rules. Shortcode editor is not used.
+          Create a new Campaign with Shortcode Mapping for V2.
+        </div>
+      ) : null}
+
+      {campaignId && hasShortcodeMapping ? (
         <MockArticleGenerator
           disabled={!campaignId || busy}
           onPreview={(count) => onMockPreview(campaignId, count)}
@@ -386,37 +424,52 @@ export function ArticlesScreen({
           <h2 className="text-sm font-semibold">
             {editingId ? 'Edit Article' : 'Add Article'}
           </h2>
-          {useShortcode && campaign?.shortcode_mapping ? (
+          {editorMode === 'shortcode' && campaign?.shortcode_mapping ? (
             <ShortcodeArticleEditor
               rawSource={rawSource}
               mapping={campaign.shortcode_mapping}
               disabled={busy}
               onChange={setRawSource}
             />
+          ) : editorMode === 'legacy' ? (
+            <>
+              {editingRow?.source_format === 'legacy_input' &&
+              hasShortcodeMapping ? (
+                <p className="text-xs text-muted">
+                  Editing preserved <code className="font-mono">legacy_input</code>{' '}
+                  row — not auto-migrated to shortcode.
+                </p>
+              ) : null}
+              <ManualArticleEditor
+                title={title}
+                bodyPlain={body}
+                variables={variables}
+                editorDoc={editorDoc}
+                schema={schema}
+                site={site}
+                disabled={busy || schemaLoading}
+                onTitleChange={setTitle}
+                onBodyChange={(plain, doc) => {
+                  setBody(plain)
+                  setEditorDoc(doc)
+                }}
+                onVariablesChange={setVariables}
+              />
+            </>
           ) : (
-            <ManualArticleEditor
-              title={title}
-              bodyPlain={body}
-              variables={variables}
-              editorDoc={editorDoc}
-              schema={schema}
-              site={site}
-              disabled={busy || schemaLoading}
-              onTitleChange={setTitle}
-              onBodyChange={(plain, doc) => {
-                setBody(plain)
-                setEditorDoc(doc)
-              }}
-              onVariablesChange={setVariables}
-            />
+            <p className="text-xs text-danger">
+              Editor blocked — select a Campaign first.
+            </p>
           )}
-          {schemaLoading ? (
+          {schemaLoading && editorMode === 'legacy' ? (
             <p className="text-xs text-muted">Loading Script input schema…</p>
           ) : null}
-          {!useShortcode && !schemaLoading && !schema.schema_available ? (
+          {editorMode === 'legacy' &&
+          !schemaLoading &&
+          !schema.schema_available ? (
             <p className="text-xs text-danger">
-              Script input schema unavailable. Cannot save until Script Registry
-              variables are loaded.
+              Script input schema unavailable. Cannot save legacy Title/Body
+              until Script Registry variables are loaded. Fail-closed.
             </p>
           ) : null}
           {formError ? (
@@ -427,7 +480,10 @@ export function ArticlesScreen({
               size="sm"
               disabled={
                 busy ||
-                (!useShortcode && (schemaLoading || !schema.schema_available))
+                editorMode == null ||
+                (editorMode === 'legacy' &&
+                  (schemaLoading || !schema.schema_available)) ||
+                (editorMode === 'shortcode' && !hasShortcodeMapping)
               }
               onClick={() => void submit()}
             >
