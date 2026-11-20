@@ -19,6 +19,7 @@ import {
   executionModeLabel,
   runModeLabel,
 } from '../status-labels'
+import { contentListPreview } from '../shortcode-source'
 import {
   RETRY_WARNING,
   UNKNOWN_RETRY_WARNING,
@@ -34,6 +35,8 @@ import type {
 type Props = {
   campaign: Campaign
   contents: CampaignContent[]
+  /** Content list GET failure — never treat as zero Content. */
+  contentsError?: string | null
   testCompatible: boolean | null
   mode: 'mock' | 'live'
   liveBlockedReason: string | null
@@ -55,6 +58,7 @@ type Props = {
 export function CampaignDetailScreen({
   campaign,
   contents,
+  contentsError = null,
   testCompatible,
   mode,
   liveBlockedReason,
@@ -348,10 +352,23 @@ export function CampaignDetailScreen({
               </tr>
             </thead>
             <tbody>
-              {contents.length === 0 ? (
+              {contentsError ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-danger">
+                    Failed to load Content list. {contentsError}
+                  </td>
+                </tr>
+              ) : campaign.summary.total === 0 && contents.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-6 text-center text-muted">
                     Zero Content — Start disabled until Articles are added.
+                  </td>
+                </tr>
+              ) : contents.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-muted">
+                    Content rows not loaded yet (summary.total=
+                    {campaign.summary.total}).
                   </td>
                 </tr>
               ) : (
@@ -362,9 +379,14 @@ export function CampaignDetailScreen({
                     <tr key={c.id} className="border-b border-border">
                       <td className="px-3 py-2">
                         <div className="font-mono text-xs">{c.external_ref}</div>
-                        <div className="line-clamp-2 text-xs text-muted">
-                          {c.input.title ? `${c.input.title} — ` : ''}
-                          {c.input.body}
+                        <div className="text-[11px] text-muted">
+                          {c.source_format}
+                          {c.mapping_version != null
+                            ? ` · v${c.mapping_version}`
+                            : ''}
+                        </div>
+                        <div className="line-clamp-2 font-mono text-xs text-muted">
+                          {contentListPreview(c) || '(empty)'}
                         </div>
                       </td>
                       <td className="px-3 py-2">

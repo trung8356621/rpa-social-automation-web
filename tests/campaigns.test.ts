@@ -20,7 +20,11 @@ import { extractLiveContentListRows } from '../src/features/campaigns/api/parse-
 import { resolveArticlesListState } from '../src/features/campaigns/articles-list-state.ts'
 import { resolveArticlesCampaignId } from '../src/features/campaigns/articles-selection.ts'
 import { buildLiveCampaignCreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
-import { mapLiveCampaign, mapLiveContent } from '../src/features/campaigns/api/mappers.ts'
+import {
+  mapLiveCampaign,
+  mapLiveContent,
+  mapSummaryFromRow,
+} from '../src/features/campaigns/api/mappers.ts'
 import {
   resolveAccountDisplay,
   resolveScriptDisplay,
@@ -255,9 +259,90 @@ describe('CP19E Campaign Management', () => {
     const campaign = store.campaigns.find((c) => c.id === 'camp_draft_empty')!
     const contents = store.contents.filter((c) => c.campaign_id === campaign.id)
     assert.equal(contents.length, 0)
+    assert.equal(campaign.summary.total, 0)
     const gate = canStartCampaign(campaign, contents, true)
     assert.equal(gate.ok, false)
     assert.ok(gate.reasons.some((r) => /zero Content/i.test(r)))
+  })
+
+  it('9b. Detail summary + pending shortcode Content — Start enabled', () => {
+    const campaign = mapLiveCampaign({
+      id: 'cf0d8be1-5475-4c84-a788-600a6a8ae17f',
+      name: 'test wp 3',
+      platform: 'mayhopphat',
+      script_id: 'mayhopphat.create_post',
+      script_version: '1',
+      status: 'draft',
+      execution_mode: 'one_account_one_job',
+      run_mode: 'live',
+      waiting_contents: 1,
+      total_contents: 1,
+      summary: {
+        total: 1,
+        pending: 1,
+        waiting_resources: 0,
+        running: 0,
+        success: 0,
+        failed_locked: 0,
+        unknown: 0,
+        skipped: 0,
+        cancelled: 0,
+      },
+      contents: [
+        {
+          id: '7ee8aabb-bf02-46ca-a867-14a839fc0f0e',
+          status: 'pending',
+          source_format: 'shortcode',
+          mapping_version: 1,
+          raw_source: '[body]xa asd asd sad asd d[/body]',
+          input: { title: 'xa asd asd sad asd d' },
+          current_job_id: null,
+        },
+      ],
+    })
+    assert.equal(campaign.summary.total, 1)
+    assert.equal(campaign.summary.pending, 1)
+    assert.equal(campaign.summary.waiting_resources, 0)
+    assert.equal(campaign.contents?.length, 1)
+    assert.equal(campaign.contents?.[0]?.source_format, 'shortcode')
+    assert.equal(campaign.contents?.[0]?.mapping_version, 1)
+    const gate = canStartCampaign(campaign, campaign.contents ?? [], null)
+    assert.equal(gate.ok, true)
+
+    // Flat waiting_contents must never become Waiting Resources.
+    const flatOnly = mapSummaryFromRow({
+      total_contents: 1,
+      waiting_contents: 1,
+      completed_contents: 0,
+      failed_contents: 0,
+    })
+    assert.equal(flatOnly.total, 1)
+    assert.equal(flatOnly.waiting_resources, 0)
+    assert.equal(flatOnly.pending, 0)
+
+    const waitingRow = mapLiveCampaign({
+      id: 'camp-wait',
+      name: 'W',
+      platform: 'mayhopphat',
+      script_id: 'mayhopphat.create_post',
+      status: 'draft',
+      summary: {
+        total: 1,
+        pending: 0,
+        waiting_resources: 1,
+      },
+      contents: [
+        {
+          id: 'c-wait',
+          status: 'waiting_resources',
+          source_format: 'legacy_input',
+          input: { title: 'legacy' },
+        },
+      ],
+    })
+    assert.equal(waitingRow.summary.waiting_resources, 1)
+    assert.equal(waitingRow.summary.pending, 0)
+    assert.equal(waitingRow.contents?.[0]?.source_format, 'legacy_input')
   })
 
   it('10. Manual Content creation mapping', () => {

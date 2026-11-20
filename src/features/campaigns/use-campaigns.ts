@@ -84,10 +84,9 @@ export function useCampaigns() {
               setError(contentErr.message)
             }
           }
-        } else {
-          // LIVE: contents come from detail — keep list-level contents empty
-          if (!cancelled) setContents([])
         }
+        // LIVE: do not wipe contents — Detail/Articles own Content GETs.
+        // Clearing here races with loadCampaignDetail and empties the Detail list.
         setLoading(false)
       } catch (err) {
         if (cancelled) return
@@ -347,9 +346,19 @@ export function useCampaigns() {
       setCampaigns((prev) => {
         const exists = prev.some((c) => c.id === detail.id)
         if (!exists) return [detail, ...prev]
-        return prev.map((c) => (c.id === detail.id ? { ...c, ...detail } : c))
+        return prev.map((c) =>
+          c.id === detail.id
+            ? {
+                ...c,
+                ...detail,
+                // Prefer nested detail summary over stale list flat counters.
+                summary: detail.summary,
+                contents: detail.contents ?? c.contents,
+              }
+            : c,
+        )
       })
-      if (detail.contents) {
+      if (Array.isArray(detail.contents)) {
         setContents((prev) => {
           const without = prev.filter((c) => c.campaign_id !== id)
           return [...detail.contents!, ...without]

@@ -18,38 +18,57 @@ export function CampaignDetailPage() {
   const accounts = useAccounts()
   const [detailLoading, setDetailLoading] = useState(registry.mode === 'live')
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [contentsError, setContentsError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) return
     if (registry.mode !== 'live') {
       setDetailLoading(false)
+      setDetailError(null)
+      setContentsError(null)
       return
     }
+    // Wait for Campaign list settle so list fetch cannot race-wipe Detail.
+    if (registry.loading) {
+      setDetailLoading(true)
+      return
+    }
+
     let cancelled = false
     setDetailLoading(true)
     setDetailError(null)
-    void registry
-      .loadCampaignDetail(id)
-      .then(() => {
-        if (!cancelled) setDetailLoading(false)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setDetailError(toSafeApiMessage(err))
-          setDetailLoading(false)
+    setContentsError(null)
+
+    void (async () => {
+      try {
+        await registry.loadCampaignDetail(id)
+        if (cancelled) return
+        try {
+          await registry.loadContentsForCampaign(id)
+          if (!cancelled) setContentsError(null)
+        } catch (err: unknown) {
+          if (!cancelled) setContentsError(toSafeApiMessage(err))
         }
-      })
+        if (!cancelled) setDetailLoading(false)
+      } catch (err: unknown) {
+        if (cancelled) return
+        setDetailError(toSafeApiMessage(err))
+        setDetailLoading(false)
+      }
+    })()
+
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, registry.mode, registry.reload])
+  }, [id, registry.mode, registry.loading, registry.reload])
 
   const campaign = registry.campaigns.find((c) => c.id === id) ?? null
-  const contents = useMemo(
-    () => registry.contents.filter((c) => c.campaign_id === id),
-    [registry.contents, id],
-  )
+  const contents = useMemo(() => {
+    const fromDetail = campaign?.contents
+    if (Array.isArray(fromDetail) && fromDetail.length > 0) return fromDetail
+    return registry.contents.filter((c) => c.campaign_id === id)
+  }, [campaign?.contents, registry.contents, id])
 
   const detail = campaign
     ? scripts.data.details[campaign.script_package_key]
@@ -106,6 +125,7 @@ export function CampaignDetailPage() {
       <CampaignDetailScreen
         campaign={campaign}
         contents={contents}
+        contentsError={contentsError}
         testCompatible={testCompatible}
         mode={registry.mode}
         liveBlockedReason={registry.liveMutationsBlockedReason}

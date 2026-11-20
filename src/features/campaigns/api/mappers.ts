@@ -107,7 +107,11 @@ function mapSchedule(
   }
 }
 
-function mapSummary(raw: LiveCampaignRow['summary']): CampaignSummary {
+/**
+ * Nested Staff detail summary — Pending/Waiting come ONLY from these fields.
+ * Never alias aggregate `waiting_contents` into Waiting Resources.
+ */
+export function mapSummary(raw: LiveCampaignRow['summary']): CampaignSummary {
   const base = emptySummary()
   if (!raw) return base
   return {
@@ -122,12 +126,16 @@ function mapSummary(raw: LiveCampaignRow['summary']): CampaignSummary {
     cancelled: Number(raw.cancelled ?? 0),
     completed: Number(raw.completed ?? 0),
     failed: Number(raw.failed ?? 0),
-    waiting: Number(raw.waiting ?? 0),
+    // `waiting` is legacy alias only when API sends it; prefer waiting_resources for UI.
+    waiting: Number(raw.waiting ?? raw.waiting_resources ?? 0),
   }
 }
 
-/** List rows expose flat counters; detail uses nested summary. */
-function mapSummaryFromRow(row: LiveCampaignRow): CampaignSummary {
+/**
+ * List rows may expose flat counters only.
+ * `waiting_contents` is an aggregate — NOT `waiting_resources`.
+ */
+export function mapSummaryFromRow(row: LiveCampaignRow): CampaignSummary {
   if (row.summary) return mapSummary(row.summary)
   const base = emptySummary()
   if (
@@ -143,8 +151,8 @@ function mapSummaryFromRow(row: LiveCampaignRow): CampaignSummary {
     total: Number(row.total_contents ?? 0),
     success: Number(row.completed_contents ?? 0),
     failed_locked: Number(row.failed_contents ?? 0),
-    waiting_resources: Number(row.waiting_contents ?? 0),
-    waiting: Number(row.waiting_contents ?? 0),
+    // Intentionally leave pending / waiting_resources at 0 — flat aggregates
+    // do not provide status breakdown. Never map waiting_contents → Waiting.
   }
 }
 

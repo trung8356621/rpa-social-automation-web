@@ -248,7 +248,9 @@ export function canStartCampaign(
       c.status !== 'cancelled' &&
       c.status !== 'skipped',
   )
-  if (validContents.length === 0) {
+  // Authoritative zero-content gate: summary.total. Contents list is a
+  // secondary signal when detail rows are already hydrated.
+  if (campaign.summary.total === 0 && validContents.length === 0) {
     reasons.push('Campaign has zero Content. Add at least one Article before Start.')
   }
 
