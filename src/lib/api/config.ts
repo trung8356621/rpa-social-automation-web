@@ -117,8 +117,14 @@ export const CAMPAIGN_PATHS = {
   cancel: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/cancel`,
 } as const
 
-/** Admin Campaign Content actions (retry/skip/cancel). Post-create CRUD not in OpenAPI. */
+/** Admin Campaign Content actions + nested CRUD under /campaigns/{id}/contents. */
 export const CAMPAIGN_CONTENT_PATHS = {
+  list: (campaignId: string) =>
+    `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents`,
+  create: (campaignId: string) =>
+    `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents`,
+  update: (campaignId: string, contentId: string) =>
+    `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents/${encodeURIComponent(contentId)}`,
   retry: (id: string) =>
     `${CAMPAIGN_CONTENTS_BASE}/${encodeURIComponent(id)}/retry`,
   skip: (id: string) =>

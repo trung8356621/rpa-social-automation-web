@@ -11,6 +11,14 @@ import {
   measureContentLength,
   siteContentPolicy,
 } from '../src/features/campaigns/content-limit.ts'
+import {
+  buildLiveCampaignContentBody,
+  formatDiscardedInputWarning,
+  mapDraftToAllowedScriptInput,
+} from '../src/features/campaigns/api/build-content-payload.ts'
+import { extractLiveContentListRows } from '../src/features/campaigns/api/parse-content-list.ts'
+import { resolveArticlesListState } from '../src/features/campaigns/articles-list-state.ts'
+import { resolveArticlesCampaignId } from '../src/features/campaigns/articles-selection.ts'
 import { buildLiveCampaignCreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
 import { mapLiveCampaign, mapLiveContent } from '../src/features/campaigns/api/mappers.ts'
 import {
@@ -40,6 +48,7 @@ import {
 } from '../src/features/campaigns/script-compat.ts'
 import {
   canStartCampaign,
+  isContentEditable,
   isPinnedAccountUnavailable,
   validateCampaignForm,
   validateManualContent,
@@ -389,8 +398,242 @@ describe('CP19E Campaign Management', () => {
     assert.equal(CAMPAIGN_PATHS.list, '/social-automation/api/campaigns')
     assert.match(CAMPAIGN_PATHS.start('x'), /\/start$/)
     assert.match(CAMPAIGN_CONTENT_PATHS.retry('c1'), /\/retry$/)
+    assert.equal(
+      CAMPAIGN_CONTENT_PATHS.create('camp-1'),
+      '/social-automation/api/campaigns/camp-1/contents',
+    )
+    assert.equal(
+      CAMPAIGN_CONTENT_PATHS.update('camp-1', 'cnt-1'),
+      '/social-automation/api/campaigns/camp-1/contents/cnt-1',
+    )
     assert.ok(CAMPAIGN_PATHS.list.startsWith('/social-automation/api/'))
     assert.equal(CAMPAIGN_PATHS.list.startsWith('http'), false)
+  })
+
+  it('26. Content create payload is schema-aware; editable states', () => {
+    const titleOnly = parseScriptInputSchema({
+      package_key: 'mayhopphat.create_post',
+      name: 'create_post',
+      action_tag_key: null,
+      description: null,
+      updated_by_label: 'test',
+      releases: [
+        {
+          id: 1,
+          version: '1',
+          content_digest: '',
+          status: 'published',
+          published_at: null,
+          variables: [
+            { key: 'title', type: 'string', required: true, label: 'Title' },
+          ],
+          steps: [],
+          assets: [],
+          runtime_requirements: [],
+          video_demo: null,
+          video_demo_status: 'missing',
+          video_media_id: null,
+          thumbnail_media_id: null,
+          thumbnail_url: null,
+          video_url: null,
+        },
+      ],
+    })
+    assert.equal(titleOnly.schema_available, true)
+    assert.equal(titleOnly.title_supported, true)
+    assert.equal(titleOnly.body_supported, false)
+
+    const body = buildLiveCampaignContentBody(
+      {
+        campaign_id: 'camp-1',
+        external_ref: 'article-2',
+        title: 'Second draft title',
+        body: null,
+        variables: {},
+        editor_doc: null,
+      },
+      { schema: titleOnly },
+    )
+    assert.equal(body.external_ref, 'article-2')
+    assert.equal(body.input.title, 'Second draft title')
+    assert.equal('body' in body.input, false)
+
+    const titleBodySchema = parseScriptInputSchema({
+      package_key: 'script.wordpress.new_post.post',
+      name: 'WP',
+      action_tag_key: null,
+      description: null,
+      updated_by_label: 'test',
+      releases: [
+        {
+          id: 1,
+          version: '1',
+          content_digest: '',
+          status: 'published',
+          published_at: null,
+          variables: [
+            { key: 'title', type: 'string', required: true, label: 'Title' },
+            { key: 'body', type: 'text', required: true, label: 'Body' },
+            { key: 'group_id', type: 'string', required: false, label: 'Group' },
+          ],
+          steps: [],
+          assets: [],
+          runtime_requirements: [],
+          video_demo: null,
+          video_demo_status: 'missing',
+          video_media_id: null,
+          thumbnail_media_id: null,
+          thumbnail_url: null,
+          video_url: null,
+        },
+      ],
+    })
+    const withBody = buildLiveCampaignContentBody(
+      {
+        campaign_id: 'camp-1',
+        title: 'T',
+        body: 'Hello',
+        variables: { group_id: 'g1' },
+        editor_doc: null,
+      },
+      { schema: titleBodySchema },
+    )
+    assert.equal(withBody.input.body, 'Hello')
+    assert.equal(withBody.input.group_id, 'g1')
+
+    assert.equal(
+      isContentEditable({ status: 'pending', current_job_id: null }),
+      true,
+    )
+    assert.equal(
+      isContentEditable({ status: 'waiting_resources', current_job_id: null }),
+      true,
+    )
+    assert.equal(
+      isContentEditable({ status: 'running', current_job_id: null }),
+      false,
+    )
+    assert.equal(
+      isContentEditable({ status: 'pending', current_job_id: 'job-1' }),
+      false,
+    )
+  })
+
+  it('26b. Title-only Script never sends body; discard requires allowDiscard', () => {
+    const schema = parseScriptInputSchema({
+      package_key: 'mayhopphat.create_post',
+      name: 'create_post',
+      action_tag_key: null,
+      description: null,
+      updated_by_label: 'test',
+      releases: [
+        {
+          id: 1,
+          version: '1',
+          content_digest: '',
+          status: 'published',
+          published_at: null,
+          variables: [
+            { key: 'title', type: 'string', required: true, label: 'Title' },
+          ],
+          steps: [],
+          assets: [],
+          runtime_requirements: [],
+          video_demo: null,
+          video_demo_status: 'missing',
+          video_media_id: null,
+          thumbnail_media_id: null,
+          thumbnail_url: null,
+          video_url: null,
+        },
+      ],
+    })
+
+    const mapped = mapDraftToAllowedScriptInput(
+      {
+        campaign_id: 'camp-1',
+        title: 'test wp RPA 2',
+        body: 'test wp RPA 2',
+        variables: {},
+        editor_doc: null,
+      },
+      schema,
+    )
+    assert.equal(mapped.ok, true)
+    if (!mapped.ok) return
+    assert.equal(mapped.input.title, 'test wp RPA 2')
+    assert.equal('body' in mapped.input, false)
+    assert.equal(mapped.discarded.length, 1)
+    assert.equal(mapped.discarded[0]?.key, 'body')
+    assert.match(
+      formatDiscardedInputWarning(mapped.discarded, Object.keys(mapped.input)),
+      /Body/,
+    )
+
+    assert.throws(
+      () =>
+        buildLiveCampaignContentBody(
+          {
+            campaign_id: 'camp-1',
+            title: 'test wp RPA 2',
+            body: 'test wp RPA 2',
+            variables: {},
+            editor_doc: null,
+          },
+          { schema },
+        ),
+      /Confirm before saving/,
+    )
+
+    const allowed = buildLiveCampaignContentBody(
+      {
+        campaign_id: 'camp-1',
+        title: 'test wp RPA 2',
+        body: 'test wp RPA 2',
+        variables: {},
+        editor_doc: null,
+      },
+      { schema, allowDiscard: true },
+    )
+    assert.equal(allowed.input.title, 'test wp RPA 2')
+    assert.equal('body' in allowed.input, false)
+  })
+
+  it('26c. Schema unavailable fails closed (no guessed variables)', () => {
+    const unavailable = {
+      fields: [],
+      test_mode_compatible: null,
+      title_required: false,
+      body_required: false,
+      schema_available: false,
+      title_supported: false,
+      body_supported: false,
+    }
+    const mapped = mapDraftToAllowedScriptInput(
+      {
+        campaign_id: 'camp-1',
+        title: 'T',
+        body: 'B',
+        variables: {},
+        editor_doc: null,
+      },
+      unavailable,
+    )
+    assert.equal(mapped.ok, false)
+    if (mapped.ok) return
+    assert.match(mapped.message, /schema unavailable/i)
+
+    const validated = validateManualContent(
+      { title: 'T', body: 'B', variables: {} },
+      unavailable,
+      true,
+    )
+    assert.equal(validated.ok, false)
+
+    assert.equal(
+      parseScriptInputSchema(null).schema_available,
+      false,
+    )
   })
 
   it('21. LIVE create payload matches OpenAPI wordpress_draft_poc (90886a7)', () => {
@@ -565,5 +808,108 @@ describe('CP19E Campaign Management', () => {
     assert.equal(waiting.status, 'waiting_resources')
     assert.equal(waiting.last_error_code, 'pinned_account_unavailable')
     assert.equal(isPinnedAccountUnavailable(waiting), true)
+  })
+
+  it('27. Articles F5: resolve Campaign ID + Content list envelope + empty vs error', () => {
+    const camps = createMockCampaignStore().campaigns
+    const first = camps[0]!
+
+    // F5 without ?campaign= → first Campaign (parent must drive Content GET)
+    assert.equal(
+      resolveArticlesCampaignId({
+        selectedId: '',
+        urlCampaignId: undefined,
+        campaigns: camps,
+      }),
+      first.id,
+    )
+
+    // URL / explicit selection wins
+    const second = camps[1]!
+    assert.equal(
+      resolveArticlesCampaignId({
+        selectedId: second.id,
+        urlCampaignId: first.id,
+        campaigns: camps,
+      }),
+      second.id,
+    )
+    assert.equal(
+      resolveArticlesCampaignId({
+        selectedId: '',
+        urlCampaignId: second.id,
+        campaigns: camps,
+      }),
+      second.id,
+    )
+
+    // OpenAPI envelope { ok, data: [] }
+    const rows = extractLiveContentListRows({
+      ok: true,
+      data: [
+        {
+          id: 'cnt-1',
+          campaign_id: first.id,
+          external_ref: 'poc-1',
+          status: 'waiting_resources',
+          input: { title: 'POC' },
+        },
+      ],
+    })
+    assert.equal(rows.length, 1)
+    const mapped = mapLiveContent(rows[0], first.id)
+    assert.equal(mapped.external_ref, 'poc-1')
+    assert.equal(mapped.campaign_id, first.id)
+
+    // Genuine empty
+    assert.deepEqual(extractLiveContentListRows({ ok: true, data: [] }), [])
+
+    // Missing / invalid envelope → error (never silent empty)
+    assert.throws(() => extractLiveContentListRows(null), /invalid/i)
+    assert.throws(
+      () => extractLiveContentListRows({ ok: true }),
+      /missing data/i,
+    )
+    assert.throws(
+      () => extractLiveContentListRows({ ok: true, data: { id: 'x' } }),
+      /not an array/i,
+    )
+
+    // UI states: never show empty when error/loading
+    assert.equal(
+      resolveArticlesListState({ loading: true, error: null, rowCount: 0 }),
+      'loading',
+    )
+    assert.equal(
+      resolveArticlesListState({
+        loading: false,
+        error: 'HTTP 500',
+        rowCount: 0,
+      }),
+      'error',
+    )
+    assert.equal(
+      resolveArticlesListState({ loading: false, error: null, rowCount: 0 }),
+      'empty',
+    )
+    assert.equal(
+      resolveArticlesListState({ loading: false, error: null, rowCount: 2 }),
+      'ready',
+    )
+  })
+
+  it('27b. Out-of-order Content fetch seq drops stale apply', () => {
+    // Mirrors use-campaigns per-campaign seq gate
+    const seqByCampaign: Record<string, number> = {}
+    const apply = (campaignId: string, seq: number): boolean =>
+      seqByCampaign[campaignId] === seq
+
+    const camp = 'camp-a'
+    seqByCampaign[camp] = 1
+    const firstSeq = 1
+    seqByCampaign[camp] = 2
+    const secondSeq = 2
+    assert.equal(apply(camp, firstSeq), false)
+    assert.equal(apply(camp, secondSeq), true)
   })
 })

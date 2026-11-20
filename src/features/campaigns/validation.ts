@@ -116,6 +116,23 @@ export function validateCampaignForm(
   }
 }
 
+/**
+ * Safe editable states per OpenAPI update contract:
+ * pending / waiting_resources and no attached job.
+ * MOCK also allows `draft` for local Articles UX.
+ */
+export function isContentEditable(content: {
+  status: string
+  current_job_id?: string | null
+}): boolean {
+  if (content.current_job_id) return false
+  return (
+    content.status === 'pending' ||
+    content.status === 'waiting_resources' ||
+    content.status === 'draft'
+  )
+}
+
 /** True when content is waiting because the hard-pinned Account is unavailable. */
 export function isPinnedAccountUnavailable(content: {
   status: string
@@ -144,6 +161,13 @@ export function validateManualContent(
   lengthOk: boolean,
   lengthMessage?: string,
 ): ValidationOk<true> | ValidationErr {
+  if (!schema.schema_available) {
+    return {
+      ok: false,
+      message:
+        'Script input schema unavailable. Load Script Registry detail before saving Content. Do not guess variables.',
+    }
+  }
   if (!lengthOk) {
     return {
       ok: false,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { getRpaApiMode, type RpaApiMode } from '@/lib/api/config'
@@ -12,6 +12,7 @@ import type {
   CreateCampaignInput,
   DemoScenario,
   ManualContentDraft,
+  ScriptInputSchema,
   UpdateCampaignInput,
 } from './types'
 
@@ -30,6 +31,8 @@ export function useCampaigns() {
   const [contents, setContents] = useState<CampaignContent[]>([])
   const [toast, setToast] = useState<ToastState>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  /** Per-campaign Content GET generation — drop stale responses. */
+  const contentsFetchSeq = useRef<Record<string, number>>({})
 
   const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type })
@@ -194,21 +197,79 @@ export function useCampaigns() {
     [adapter, showToast],
   )
 
+  const loadContentsForCampaign = useCallback(
+    async (campaignId: string): Promise<CampaignContent[]> => {
+      const seq = (contentsFetchSeq.current[campaignId] ?? 0) + 1
+      contentsFetchSeq.current[campaignId] = seq
+      const rows = await adapter.listContents(campaignId)
+      if (contentsFetchSeq.current[campaignId] !== seq) {
+        // Newer request for same campaign won — do not overwrite.
+        return rows
+      }
+      setContents((prev) => {
+        const without = prev.filter((c) => c.campaign_id !== campaignId)
+        return [...rows, ...without]
+      })
+      return rows
+    },
+    [adapter],
+  )
+
   const createManualContent = useCallback(
-    async (draft: ManualContentDraft) => {
-      const row = await adapter.createManualContent(draft)
-      setContents((prev) => [row, ...prev])
+    async (
+      draft: ManualContentDraft,
+      opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+    ) => {
+      const row = await adapter.createManualContent(draft, opts)
+      setContents((prev) => {
+        const without = prev.filter((c) => c.id !== row.id)
+        return [row, ...without]
+      })
+      // Refresh list + campaign counters (do not invent success without server row)
+      try {
+        const detail = await adapter.getCampaign(draft.campaign_id)
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === detail.id ? { ...c, ...detail, contents: undefined } : c,
+          ),
+        )
+        const rows = await adapter.listContents(draft.campaign_id)
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== draft.campaign_id)
+          return [...rows, ...without]
+        })
+      } catch {
+        // Keep created row even if counter refresh fails
+      }
       showToast('Article added')
-      reload()
       return row
     },
-    [adapter, reload, showToast],
+    [adapter, showToast],
   )
 
   const updateManualContent = useCallback(
-    async (id: string, draft: ManualContentDraft) => {
-      const row = await adapter.updateManualContent(id, draft)
+    async (
+      id: string,
+      draft: ManualContentDraft,
+      opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+    ) => {
+      const row = await adapter.updateManualContent(id, draft, opts)
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
+      try {
+        const detail = await adapter.getCampaign(draft.campaign_id)
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === detail.id ? { ...c, ...detail, contents: undefined } : c,
+          ),
+        )
+        const rows = await adapter.listContents(draft.campaign_id)
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== draft.campaign_id)
+          return [...rows, ...without]
+        })
+      } catch {
+        // Keep updated row
+      }
       showToast('Article updated')
       return row
     },
@@ -317,6 +378,7 @@ export function useCampaigns() {
     cancelContent,
     listJobAttempts,
     loadCampaignDetail,
+    loadContentsForCampaign,
     getScriptInputSchema,
     /** LIVE Staff mutations are wired; operator must click — no auto Start. */
     mutationsEnabled: true,

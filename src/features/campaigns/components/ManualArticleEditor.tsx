@@ -89,7 +89,14 @@ export function ManualArticleEditor({
     <div className="space-y-3">
       <div className="space-y-1.5">
         <Label htmlFor="article_title">
-          Title{schema.title_required ? ' *' : ' (optional)'}
+          Title
+          {!schema.schema_available
+            ? ''
+            : schema.title_supported
+              ? schema.title_required
+                ? ' *'
+                : ' (optional)'
+              : ' (not in Script schema)'}
         </Label>
         <Input
           id="article_title"
@@ -100,7 +107,16 @@ export function ManualArticleEditor({
       </div>
 
       <div className="space-y-1.5">
-        <Label>Body{schema.body_required ? ' *' : ''}</Label>
+        <Label>
+          Body
+          {!schema.schema_available
+            ? ''
+            : schema.body_supported
+              ? schema.body_required
+                ? ' *'
+                : ''
+              : ' (not in Script schema)'}
+        </Label>
         <div className="flex flex-wrap gap-1 rounded-t-[var(--radius-control)] border border-border bg-surface-muted px-2 py-1">
           <Button
             type="button"
@@ -132,6 +148,12 @@ export function ManualArticleEditor({
         >
           <EditorContent editor={editor} />
         </div>
+        {schema.schema_available && !schema.body_supported ? (
+          <p className="text-xs text-warning">
+            This Script does not expose a <code>body</code> variable. Saving will
+            warn and require confirmation before discarding Body.
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           {policy.content_max_length != null ? (
             <span

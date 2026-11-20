@@ -9,12 +9,15 @@ import type {
   ScriptInputSchema,
   UpdateCampaignInput,
 } from '../types'
+import { buildLiveCampaignContentBody } from './build-content-payload'
 import { buildLiveCampaignCreateBody } from './build-create-payload'
+import { unavailableScriptInputSchema } from '../script-compat'
 import type {
   LiveCampaignDetailResponse,
   LiveCampaignListResponse,
   LiveCampaignMutationResponse,
 } from './live-types'
+import { extractLiveContentListRows } from './parse-content-list'
 import { CAMPAIGN_PATHS, CAMPAIGN_CONTENT_PATHS } from './paths'
 import { mapLiveCampaign, mapLiveContent } from './mappers'
 
@@ -142,34 +145,65 @@ export const liveCampaignAdapter = {
   async listContents(campaignId?: string): Promise<CampaignContent[]> {
     if (!campaignId) {
       throw new Error(
-        'CONTRACT GAP: Global Manual Content list is not in OpenAPI. Load contents via Campaign detail.',
+        'Campaign Content list requires campaignId (GET /campaigns/{id}/contents).',
       )
     }
-    const detail = await this.getCampaign(campaignId)
-    return (detail.contents ?? []).map((c) => ({
-      ...c,
-      campaign_id: c.campaign_id || campaignId,
-    }))
+    const res = await staffApiRequest<unknown>(
+      CAMPAIGN_CONTENT_PATHS.list(campaignId),
+      { method: 'GET' },
+    )
+    const rows = extractLiveContentListRows(res)
+    return rows.map((row) => mapLiveContent(row, campaignId))
   },
 
-  async createManualContent(_draft: ManualContentDraft): Promise<CampaignContent> {
-    throw new Error(
-      'CONTRACT GAP: Manual Content create after Campaign is not in OpenAPI. Include contents[] on Campaign create.',
+  async createManualContent(
+    draft: ManualContentDraft,
+    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+  ): Promise<CampaignContent> {
+    if (!opts?.schema) {
+      throw new Error(
+        'Script input schema required for LIVE Content create. Do not guess variables.',
+      )
+    }
+    const body = buildLiveCampaignContentBody(draft, {
+      schema: opts.schema,
+      allowDiscard: opts.allowDiscard === true,
+    })
+    const res = await staffApiRequest<{ data?: unknown; content?: unknown }>(
+      CAMPAIGN_CONTENT_PATHS.create(draft.campaign_id),
+      { method: 'POST', body },
     )
+    const row = res.data ?? res.content
+    if (!row) throw new Error('Create Content response missing data.')
+    return mapLiveContent(row, draft.campaign_id)
   },
 
   async updateManualContent(
-    _id: string,
-    _draft: ManualContentDraft,
+    id: string,
+    draft: ManualContentDraft,
+    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
   ): Promise<CampaignContent> {
-    throw new Error(
-      'CONTRACT GAP: Manual Content update is not in OpenAPI. No fake success.',
+    if (!opts?.schema) {
+      throw new Error(
+        'Script input schema required for LIVE Content update. Do not guess variables.',
+      )
+    }
+    const body = buildLiveCampaignContentBody(draft, {
+      schema: opts.schema,
+      allowDiscard: opts.allowDiscard === true,
+    })
+    const res = await staffApiRequest<{ data?: unknown; content?: unknown }>(
+      CAMPAIGN_CONTENT_PATHS.update(draft.campaign_id, id),
+      { method: 'PUT', body },
     )
+    const row = res.data ?? res.content
+    if (!row) throw new Error('Update Content response missing data.')
+    return mapLiveContent(row, draft.campaign_id)
   },
 
   async removeDraftContent(_id: string): Promise<void> {
     throw new Error(
-      'CONTRACT GAP: Manual Content delete is not in OpenAPI. No fake success.',
+      'CONTRACT GAP: Campaign Content DELETE is not in OpenAPI. Use Skip/Cancel for terminal removal.',
     )
   },
 
@@ -235,13 +269,8 @@ export const liveCampaignAdapter = {
   },
 
   getScriptInputSchema(_packageKey: string): ScriptInputSchema {
-    // Live Script Registry variables exist on detail; UI resolves via Script Registry hook.
-    return {
-      fields: [],
-      test_mode_compatible: null,
-      title_required: false,
-      body_required: false,
-    }
+    // LIVE: schema comes from Script Registry detail — never invent keys here.
+    return unavailableScriptInputSchema(null)
   },
 }
 

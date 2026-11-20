@@ -8,9 +8,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
+import { toSafeApiMessage } from '@/lib/api/errors'
+
+import {
+  formatDiscardedInputWarning,
+  mapDraftToAllowedScriptInput,
+} from '../api/build-content-payload'
+import { resolveArticlesListState } from '../articles-list-state'
 import { checkContentLength, siteContentPolicy } from '../content-limit'
 import { contentStatusBadge } from '../status-labels'
-import { validateManualContent } from '../validation'
+import { isContentEditable, validateManualContent } from '../validation'
 import type {
   Campaign,
   CampaignContent,
@@ -20,32 +27,57 @@ import type {
 } from '../types'
 import { ManualArticleEditor } from './ManualArticleEditor'
 
+type ContentSaveOpts = {
+  schema: ScriptInputSchema
+  allowDiscard?: boolean
+}
+
 type Props = {
   campaigns: Campaign[]
   contents: CampaignContent[]
   sites: Site[]
-  initialCampaignId?: string
+  /** Controlled Campaign filter — parent owns LIVE Content fetch. */
+  campaignId: string
+  onCampaignChange: (campaignId: string) => void
   getSchema: (packageKey: string) => ScriptInputSchema
-  onCreate: (draft: ManualContentDraft) => Promise<void>
-  onUpdate: (id: string, draft: ManualContentDraft) => Promise<void>
+  onCreate: (draft: ManualContentDraft, opts: ContentSaveOpts) => Promise<void>
+  onUpdate: (
+    id: string,
+    draft: ManualContentDraft,
+    opts: ContentSaveOpts,
+  ) => Promise<void>
   onRemoveDraft: (id: string) => Promise<void>
   mode: 'mock' | 'live'
+  contentsLoading?: boolean
+  contentsError?: string | null
+  schemaLoading?: boolean
+}
+
+const EMPTY_SCHEMA: ScriptInputSchema = {
+  fields: [],
+  test_mode_compatible: null,
+  title_required: false,
+  body_required: false,
+  schema_available: false,
+  title_supported: false,
+  body_supported: false,
 }
 
 export function ArticlesScreen({
   campaigns,
   contents,
   sites,
-  initialCampaignId,
+  campaignId,
+  onCampaignChange,
   getSchema,
   onCreate,
   onUpdate,
   onRemoveDraft,
   mode,
+  contentsLoading = false,
+  contentsError = null,
+  schemaLoading = false,
 }: Props) {
-  const [campaignId, setCampaignId] = useState(
-    initialCampaignId ?? campaigns[0]?.id ?? '',
-  )
   const [siteFilter, setSiteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -63,12 +95,7 @@ export function ArticlesScreen({
   const site = sites.find((s) => s.key === campaign?.site_key) ?? null
   const schema = campaign
     ? getSchema(campaign.script_package_key)
-    : {
-        fields: [],
-        test_mode_compatible: null,
-        title_required: false,
-        body_required: false,
-      }
+    : EMPTY_SCHEMA
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -106,6 +133,12 @@ export function ArticlesScreen({
   }
 
   const openEdit = (row: CampaignContent) => {
+    if (!isContentEditable(row)) {
+      setFormError(
+        'Content is not editable (only pending / waiting_resources without a job).',
+      )
+      return
+    }
     setCreating(false)
     setEditingId(row.id)
     setTitle(row.input.title ?? '')
@@ -113,7 +146,7 @@ export function ArticlesScreen({
     setEditorDoc(row.editor_doc)
     setVariables({ ...row.input.variables })
     setFormError(null)
-    setCampaignId(row.campaign_id)
+    onCampaignChange(row.campaign_id)
   }
 
   const submit = async () => {
@@ -121,6 +154,11 @@ export function ArticlesScreen({
       setFormError('Select a Campaign.')
       return
     }
+    if (schemaLoading) {
+      setFormError('Loading Script input schema…')
+      return
+    }
+
     const policy = siteContentPolicy(site)
     const length = checkContentLength(body, policy)
     const validated = validateManualContent(
@@ -146,14 +184,34 @@ export function ArticlesScreen({
       editor_doc: editorDoc,
     }
 
+    const mapped = mapDraftToAllowedScriptInput(draft, schema)
+    if (!mapped.ok) {
+      setFormError(mapped.message)
+      return
+    }
+
+    let allowDiscard = false
+    if (mapped.discarded.length > 0) {
+      const warning = formatDiscardedInputWarning(
+        mapped.discarded,
+        Object.keys(mapped.input),
+      )
+      setFormError(warning.replace(/\n/g, ' '))
+      if (!window.confirm(warning)) {
+        return
+      }
+      allowDiscard = true
+    }
+
     setBusy(true)
     setFormError(null)
     try {
-      if (editingId) await onUpdate(editingId, draft)
-      else await onCreate(draft)
+      const opts: ContentSaveOpts = { schema, allowDiscard }
+      if (editingId) await onUpdate(editingId, draft, opts)
+      else await onCreate(draft, opts)
       resetForm()
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Save failed')
+      setFormError(toSafeApiMessage(err))
     } finally {
       setBusy(false)
     }
@@ -161,6 +219,11 @@ export function ArticlesScreen({
 
   const preview = contents.find((c) => c.id === previewId) ?? null
   const showEditor = creating || editingId != null
+  const listState = resolveArticlesListState({
+    loading: contentsLoading,
+    error: contentsError,
+    rowCount: filtered.length,
+  })
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-full space-y-4">
@@ -169,7 +232,7 @@ export function ArticlesScreen({
         description={
           mode === 'mock'
             ? 'Campaign Content (manual) — MOCK. Không phải WordPress/SEO Articles.'
-            : 'Campaign Content — LIVE Manual CRUD chờ CP19C OpenAPI.'
+            : 'Campaign Content — LIVE Staff API (POST/PUT /campaigns/{id}/contents).'
         }
         actions={
           <Button size="sm" disabled={!campaignId} onClick={openCreate}>
@@ -185,7 +248,10 @@ export function ArticlesScreen({
           <Select
             className="w-64"
             value={campaignId}
-            onChange={(e) => setCampaignId(e.target.value)}
+            onChange={(e) => {
+              onCampaignChange(e.target.value)
+              resetForm()
+            }}
             aria-label="Campaign selector"
           >
             <option value="">Select campaign…</option>
@@ -237,6 +303,13 @@ export function ArticlesScreen({
         </div>
       </div>
 
+      {contentsLoading ? (
+        <p className="text-xs text-muted">Loading campaign contents…</p>
+      ) : null}
+      {contentsError ? (
+        <p className="text-xs text-danger">{contentsError}</p>
+      ) : null}
+
       {showEditor ? (
         <div className="rounded-[var(--radius-card)] border border-border bg-surface p-3 space-y-3">
           <h2 className="text-sm font-semibold">
@@ -249,7 +322,7 @@ export function ArticlesScreen({
             editorDoc={editorDoc}
             schema={schema}
             site={site}
-            disabled={busy}
+            disabled={busy || schemaLoading}
             onTitleChange={setTitle}
             onBodyChange={(plain, doc) => {
               setBody(plain)
@@ -257,11 +330,24 @@ export function ArticlesScreen({
             }}
             onVariablesChange={setVariables}
           />
+          {schemaLoading ? (
+            <p className="text-xs text-muted">Loading Script input schema…</p>
+          ) : null}
+          {!schemaLoading && !schema.schema_available ? (
+            <p className="text-xs text-danger">
+              Script input schema unavailable. Cannot save until Script Registry
+              variables are loaded.
+            </p>
+          ) : null}
           {formError ? (
-            <p className="text-xs text-danger">{formError}</p>
+            <p className="text-xs text-danger whitespace-pre-wrap">{formError}</p>
           ) : null}
           <div className="flex gap-2">
-            <Button size="sm" disabled={busy} onClick={() => void submit()}>
+            <Button
+              size="sm"
+              disabled={busy || schemaLoading || !schema.schema_available}
+              onClick={() => void submit()}
+            >
               Save
             </Button>
             <Button
@@ -303,7 +389,19 @@ export function ArticlesScreen({
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
+            {listState === 'loading' ? (
+              <tr>
+                <td colSpan={5} className="px-3 py-8 text-center text-muted">
+                  Loading campaign contents…
+                </td>
+              </tr>
+            ) : listState === 'error' ? (
+              <tr>
+                <td colSpan={5} className="px-3 py-8 text-center text-danger">
+                  Failed to load articles. {contentsError}
+                </td>
+              </tr>
+            ) : listState === 'empty' ? (
               <tr>
                 <td colSpan={5} className="px-3 py-8 text-center text-muted">
                   No articles. Manual Campaign starts with zero Content — add at
@@ -340,7 +438,7 @@ export function ArticlesScreen({
                         >
                           Preview
                         </Button>
-                        {row.status === 'draft' || row.status === 'pending' ? (
+                        {isContentEditable(row) ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -349,7 +447,7 @@ export function ArticlesScreen({
                             Edit
                           </Button>
                         ) : null}
-                        {row.status === 'draft' ? (
+                        {mode === 'mock' && row.status === 'draft' ? (
                           <Button
                             size="sm"
                             variant="outline"

@@ -9,10 +9,22 @@ export const CAMPAIGN_PATHS = {
   pause: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/pause`,
   resume: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/resume`,
   cancel: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/cancel`,
+  contents: (campaignId: string) =>
+    `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents`,
+  content: (campaignId: string, contentId: string) =>
+    `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents/${encodeURIComponent(contentId)}`,
 } as const
 
-/** Admin Content actions (CP19A/B). Manual CRUD awaits CP19C OpenAPI. */
+/**
+ * Nested Content CRUD (OpenAPI 9a519ff) + admin terminal actions.
+ * Create/Update live under `/campaigns/{id}/contents`.
+ * Retry/Skip/Cancel remain under `/campaign-contents/{id}/…`.
+ */
 export const CAMPAIGN_CONTENT_PATHS = {
+  list: (campaignId: string) => CAMPAIGN_PATHS.contents(campaignId),
+  create: (campaignId: string) => CAMPAIGN_PATHS.contents(campaignId),
+  update: (campaignId: string, contentId: string) =>
+    CAMPAIGN_PATHS.content(campaignId, contentId),
   retry: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/retry`,
   skip: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/skip`,
   cancel: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/cancel`,

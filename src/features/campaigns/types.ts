@@ -175,6 +175,12 @@ export type ScriptInputSchema = {
   test_mode_compatible: boolean | null
   title_required: boolean
   body_required: boolean
+  /** True when Script release variables were read (even if empty). */
+  schema_available: boolean
+  /** title is listed in Script variables — never invent */
+  title_supported: boolean
+  /** body is listed in Script variables — never invent */
+  body_supported: boolean
 }
 
 export type SiteContentPolicy = {

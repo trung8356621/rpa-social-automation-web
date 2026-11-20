@@ -614,6 +614,13 @@ export const MOCK_SCRIPT_INPUT_SCHEMAS: Record<
     test_mode_compatible: boolean | null
   }
 > = {
+  /** Mirrors LIVE mayhopphat.create_post v1 — title only (no body). */
+  'mayhopphat.create_post': {
+    variables: [
+      { key: 'title', type: 'string', required: true, label: 'Title' },
+    ],
+    test_mode_compatible: null,
+  },
   'script.wordpress.new_post.post': {
     variables: [
       { key: 'title', type: 'string', required: true, label: 'Title' },

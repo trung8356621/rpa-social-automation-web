@@ -17,6 +17,7 @@ import type {
   UpdateCampaignInput,
 } from '../types'
 import { parseScriptInputSchema } from '../script-compat'
+import { buildLiveCampaignContentBody } from './build-content-payload'
 
 function actionsFor(status: Campaign['status']): CampaignAction[] {
   switch (status) {
@@ -236,10 +237,34 @@ export const mockCampaignAdapter = {
     return structuredClone(list)
   },
 
-  async createManualContent(draft: ManualContentDraft): Promise<CampaignContent> {
+  async createManualContent(
+    draft: ManualContentDraft,
+    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
+  ): Promise<CampaignContent> {
     assertMockOnly()
     findCampaign(draft.campaign_id)
-    const mapped = draftToScriptInput(draft)
+    const mapped = opts?.schema
+      ? (() => {
+          const body = buildLiveCampaignContentBody(draft, {
+            schema: opts.schema,
+            allowDiscard: opts.allowDiscard === true,
+          })
+          return {
+            external_ref: body.external_ref ?? `manual-${Date.now()}`,
+            input: {
+              title:
+                typeof body.input.title === 'string' ? body.input.title : null,
+              body:
+                typeof body.input.body === 'string' ? body.input.body : null,
+              variables: Object.fromEntries(
+                Object.entries(body.input)
+                  .filter(([k]) => k !== 'title' && k !== 'body')
+                  .map(([k, v]) => [k, v == null ? null : String(v)]),
+              ),
+            },
+          }
+        })()
+      : draftToScriptInput(draft)
     const row: CampaignContent = {
       id: `cnt_local_${Date.now()}`,
       campaign_id: draft.campaign_id,
@@ -265,6 +290,7 @@ export const mockCampaignAdapter = {
   async updateManualContent(
     id: string,
     draft: ManualContentDraft,
+    opts?: { schema: ScriptInputSchema; allowDiscard?: boolean },
   ): Promise<CampaignContent> {
     assertMockOnly()
     const row = store.contents.find((c) => c.id === id)
@@ -272,7 +298,28 @@ export const mockCampaignAdapter = {
     if (row.status !== 'draft' && row.status !== 'pending') {
       throw new Error(`Cannot edit content in status ${row.status}`)
     }
-    const mapped = draftToScriptInput(draft)
+    const mapped = opts?.schema
+      ? (() => {
+          const body = buildLiveCampaignContentBody(draft, {
+            schema: opts.schema,
+            allowDiscard: opts.allowDiscard === true,
+          })
+          return {
+            external_ref: body.external_ref ?? row.external_ref,
+            input: {
+              title:
+                typeof body.input.title === 'string' ? body.input.title : null,
+              body:
+                typeof body.input.body === 'string' ? body.input.body : null,
+              variables: Object.fromEntries(
+                Object.entries(body.input)
+                  .filter(([k]) => k !== 'title' && k !== 'body')
+                  .map(([k, v]) => [k, v == null ? null : String(v)]),
+              ),
+            },
+          }
+        })()
+      : draftToScriptInput(draft)
     row.external_ref = mapped.external_ref
     row.input = mapped.input
     row.editor_doc = draft.editor_doc
@@ -346,6 +393,9 @@ export const mockCampaignAdapter = {
           : null,
         title_required: false,
         body_required: false,
+        schema_available: false,
+        title_supported: false,
+        body_supported: false,
       }
     }
     const fakeDetail = {

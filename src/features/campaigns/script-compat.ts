@@ -39,12 +39,37 @@ function asFieldType(raw: unknown): ScriptInputField['type'] {
  * Parse Script release variables into an input schema.
  * Unknown variable shapes are skipped — never invent keys.
  */
+/** Fail-closed placeholder when Script Registry variables cannot be read. */
+export function unavailableScriptInputSchema(
+  testModeCompatible: boolean | null = null,
+): ScriptInputSchema {
+  return {
+    fields: [],
+    test_mode_compatible: testModeCompatible,
+    title_required: false,
+    body_required: false,
+    schema_available: false,
+    title_supported: false,
+    body_supported: false,
+  }
+}
+
 export function parseScriptInputSchema(
   detail: ScriptDetail | null | undefined,
   options?: { testModeCompatible?: boolean | null },
 ): ScriptInputSchema {
-  const release = detail?.releases?.[0]
-  const variables = Array.isArray(release?.variables) ? release!.variables : []
+  const testMode =
+    options?.testModeCompatible === undefined
+      ? null
+      : options.testModeCompatible
+
+  if (!detail) return unavailableScriptInputSchema(testMode)
+  const release = detail.releases?.[0]
+  if (!release || !Array.isArray(release.variables)) {
+    return unavailableScriptInputSchema(testMode)
+  }
+
+  const variables = release.variables
   const fields: ScriptInputField[] = []
 
   for (const raw of variables) {
@@ -65,24 +90,23 @@ export function parseScriptInputSchema(
   }
 
   const keys = new Set(fields.map((f) => f.key))
-  const title_required = keys.has('title')
-    ? Boolean(fields.find((f) => f.key === 'title')?.required)
-    : false
-  const bodyField = fields.find((f) => f.key === 'body')
-  const body_required = bodyField ? bodyField.required : false
-
-  // Common content fields — present only when schema mentions them OR mock seed uses body
   const hasTitle = keys.has('title')
   const hasBody = keys.has('body')
+  const title_required = hasTitle
+    ? Boolean(fields.find((f) => f.key === 'title')?.required)
+    : false
+  const body_required = hasBody
+    ? Boolean(fields.find((f) => f.key === 'body')?.required)
+    : false
 
   return {
     fields: fields.filter((f) => f.key !== 'title' && f.key !== 'body'),
-    test_mode_compatible:
-      options?.testModeCompatible === undefined
-        ? null
-        : options.testModeCompatible,
-    title_required: hasTitle ? title_required : false,
-    body_required: hasBody ? body_required : false,
+    test_mode_compatible: testMode,
+    title_required,
+    body_required,
+    schema_available: true,
+    title_supported: hasTitle,
+    body_supported: hasBody,
   }
 }
 
