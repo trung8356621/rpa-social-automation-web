@@ -76,14 +76,15 @@ export function ShortcodeMappingFields({
           Loading published Script release variables…
         </p>
       ) : !schema.schema_available ? (
-        <p className="text-xs text-danger">
-          {schemaError
-            ? `Script schema unavailable: ${schemaError}`
-            : 'Script schema unavailable — published release variables could not be resolved for this Script/version. Fail-closed; variables are not invented.'}
+        <p className="text-xs text-danger whitespace-pre-wrap">
+          {schemaError ||
+            schema.unavailable_reason ||
+            'Script schema unavailable — published release variables could not be resolved for this Script/version. Fail-closed; variables are not invented.'}
         </p>
       ) : variables.length === 0 ? (
         <p className="text-xs text-warning">
-          Published Script release exposes no mappable variables.
+          Published Script release projects an empty variables list (no mappable
+          keys after credential filters).
         </p>
       ) : null}
 

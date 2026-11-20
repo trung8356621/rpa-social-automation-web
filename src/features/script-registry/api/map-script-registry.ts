@@ -107,6 +107,12 @@ function mapLiveRelease(release: LiveScriptRelease): ScriptReleaseDetail {
       ? release.thumbnail_media_url.trim()
       : null
 
+  const variableCountRaw = release.variable_count
+  const variable_count =
+    typeof variableCountRaw === 'number' && Number.isFinite(variableCountRaw)
+      ? Number(variableCountRaw)
+      : null
+
   return {
     id: Number(release.id ?? 0),
     version: String(release.version ?? ''),
@@ -114,7 +120,9 @@ function mapLiveRelease(release: LiveScriptRelease): ScriptReleaseDetail {
     status: asReleaseStatus(release.status),
     published_at:
       typeof release.published_at === 'string' ? release.published_at : null,
-    variables: Array.isArray(release.variables) ? release.variables : [],
+    // Do not coerce omitted `variables` to [] — that hides Staff projection gaps.
+    variables: Array.isArray(release.variables) ? release.variables : null,
+    variable_count,
     steps: Array.isArray(release.steps) ? release.steps : [],
     assets: Array.isArray(release.assets) ? release.assets : [],
     runtime_requirements: Array.isArray(release.runtime_requirements)

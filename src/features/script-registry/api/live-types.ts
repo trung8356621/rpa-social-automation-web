@@ -42,7 +42,12 @@ export type LiveScriptRelease = {
   content_digest?: string
   status?: string
   published_at?: string | null
+  /** Present only if Staff projects full variable rows (often omitted). */
   variables?: unknown[]
+  /** Count survives Staff sanitization even when `variables` is stripped. */
+  variable_count?: number
+  step_count?: number
+  asset_count?: number
   steps?: unknown[]
   assets?: unknown[]
   runtime_requirements?: unknown[]

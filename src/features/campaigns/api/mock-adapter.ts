@@ -546,6 +546,7 @@ export const mockCampaignAdapter = {
         schema_available: false,
         title_supported: false,
         body_supported: false,
+        unavailable_reason: 'Mock Script schema seed missing for package.',
       }
     }
     const fakeDetail = {
@@ -562,6 +563,7 @@ export const mockCampaignAdapter = {
           status: 'published' as const,
           published_at: null,
           variables: seed.variables,
+          variable_count: seed.variables.length,
           steps: [],
           assets: [],
           runtime_requirements: [],

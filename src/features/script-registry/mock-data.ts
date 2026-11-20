@@ -15,13 +15,18 @@ function release(
   },
   extras?: Partial<ScriptDetail['releases'][number]>,
 ): ScriptDetail['releases'][number] {
+  const variables =
+    extras?.variables !== undefined
+      ? extras.variables
+      : ([{ key: 'account_id', type: 'string' }] as unknown[])
   return {
     id,
     version,
     content_digest: `sha256:mock_${id}_${version}`,
     status,
     published_at: publishedAt,
-    variables: extras?.variables ?? [{ key: 'account_id', type: 'string' }],
+    variables,
+    variable_count: Array.isArray(variables) ? variables.length : 0,
     steps: extras?.steps ?? [{ action: 'checkpoint', name: 'main' }],
     assets: extras?.assets ?? [{ path: 'main.js', kind: 'script' }],
     runtime_requirements: extras?.runtime_requirements ?? [],

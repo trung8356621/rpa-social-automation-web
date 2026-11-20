@@ -117,5 +117,9 @@ export function usePublishedScriptSchema(options: Options): {
     options.mockSchema,
   ])
 
-  return { schema, detail, loading, error }
+  const combinedError =
+    error ??
+    (!loading && !schema.schema_available ? schema.unavailable_reason : null)
+
+  return { schema, detail, loading, error: combinedError }
 }

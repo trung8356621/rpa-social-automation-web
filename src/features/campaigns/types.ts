@@ -202,6 +202,11 @@ export type ScriptInputSchema = {
   title_supported: boolean
   /** body is listed in Script variables — never invent */
   body_supported: boolean
+  /**
+   * When schema_available=false, precise fail-closed reason.
+   * Used for Staff projection gaps (variable_count>0 but variables omitted).
+   */
+  unavailable_reason: string | null
 }
 
 export type SiteContentPolicy = {

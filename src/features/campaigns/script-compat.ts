@@ -8,7 +8,7 @@ import type { ScriptInputField, ScriptInputSchema } from './types.ts'
 
 /**
  * Filter Script Registry items compatible with a Site Registry key.
- * Uses package_key / script_id / action_tag_key prefixes — does not invent IDs.
+ * Uses package_key / script_id / action_tag_key prefixes — do not invent IDs.
  */
 export function filterScriptsForSite(
   scripts: ScriptListItem[],
@@ -36,12 +36,15 @@ function asFieldType(raw: unknown): ScriptInputField['type'] {
   if (t === 'secret' || t === 'password') return 'secret'
   if (t === 'number' || t === 'int' || t === 'integer') return 'number'
   if (t === 'boolean' || t === 'bool') return 'boolean'
+  if (t === 'enum' || t === 'select') return 'string'
+  if (t === 'url') return 'string'
   return 'string'
 }
 
 /** Fail-closed placeholder when Script Registry variables cannot be read. */
 export function unavailableScriptInputSchema(
   testModeCompatible: boolean | null = null,
+  reason: string | null = null,
 ): ScriptInputSchema {
   return {
     fields: [],
@@ -51,6 +54,7 @@ export function unavailableScriptInputSchema(
     schema_available: false,
     title_supported: false,
     body_supported: false,
+    unavailable_reason: reason,
   }
 }
 
@@ -72,26 +76,74 @@ export function selectPublishedRelease(
       (r) => r.version === version && r.status === 'published',
     )
     if (exactPublished) return exactPublished
-    // Pinned version exists but is not published — do not fall back to another release.
+    // Pinned version exists but is not published — do not fall back.
     const exactAny = detail.releases.find((r) => r.version === version)
     if (exactAny) return null
     return null
   }
-  return (
-    detail.releases.find((r) => r.status === 'published') ?? null
-  )
+  return detail.releases.find((r) => r.status === 'published') ?? null
 }
 
-function variableKeyFromRow(row: Record<string, unknown>): string {
-  if (typeof row.key === 'string' && row.key.trim()) return row.key.trim()
-  // Some release manifests use `name` as the variable identity.
-  if (typeof row.name === 'string' && row.name.trim()) return row.name.trim()
+/**
+ * Align with Backend CampaignScriptVariableSchema::fromManifest:
+ * key from `key` | `name`, or bare string entries.
+ */
+export function variableKeyFromRow(row: unknown): string {
+  if (typeof row === 'string') return row.trim()
+  if (!row || typeof row !== 'object') return ''
+  const obj = row as Record<string, unknown>
+  if (typeof obj.key === 'string' && obj.key.trim()) return obj.key.trim()
+  if (typeof obj.name === 'string' && obj.name.trim()) return obj.name.trim()
   return ''
 }
 
 /**
+ * Staff Script Registry detail (addon af4a652) strips `releases[].variables`
+ * and only projects `variable_count`. Detect that gap — do not treat as empty.
+ */
+export function diagnoseReleaseVariableProjection(
+  release: ScriptReleaseDetail,
+):
+  | { ok: true; variables: unknown[] }
+  | { ok: false; reason: string } {
+  if (Array.isArray(release.variables)) {
+    return { ok: true, variables: release.variables }
+  }
+
+  const count = release.variable_count
+  if (typeof count === 'number' && count > 0) {
+    return {
+      ok: false,
+      reason: [
+        'CONTRACT GAP: Staff Script Registry detail omits releases[].variables',
+        `but reports variable_count=${count} for published release v${release.version}.`,
+        'Endpoint: GET /social-automation/api/script-registry/{package_key}.',
+        'Backend StaffScriptRegistryController::mapRelease projects variable_count only.',
+        'Campaign mapping requires the same manifest variables used by CampaignScriptVariableSchema::fromManifest.',
+        'Do not invent client-side variables.',
+      ].join(' '),
+    }
+  }
+
+  if (typeof count === 'number' && count === 0) {
+    return { ok: true, variables: [] }
+  }
+
+  return {
+    ok: false,
+    reason: [
+      'CONTRACT GAP: Staff Script Registry detail did not project releases[].variables',
+      `(release v${release.version}; variable_count missing).`,
+      'Endpoint: GET /social-automation/api/script-registry/{package_key}.',
+      'Fail-closed — variables are not invented.',
+    ].join(' '),
+  }
+}
+
+/**
  * Parse Script release variables into an input schema.
- * Unknown variable shapes are skipped — never invent keys.
+ * Mirrors Backend CampaignScriptVariableSchema key/required defaults.
+ * Never invents keys.
  */
 export function parseScriptInputSchema(
   detail: ScriptDetail | null | undefined,
@@ -105,29 +157,62 @@ export function parseScriptInputSchema(
       ? null
       : options.testModeCompatible
 
-  if (!detail) return unavailableScriptInputSchema(testMode)
+  if (!detail) {
+    return unavailableScriptInputSchema(
+      testMode,
+      'Script detail unavailable.',
+    )
+  }
   const release = selectPublishedRelease(detail, options?.scriptVersion)
-  if (!release || !Array.isArray(release.variables)) {
-    return unavailableScriptInputSchema(testMode)
+  if (!release) {
+    return unavailableScriptInputSchema(
+      testMode,
+      options?.scriptVersion?.trim()
+        ? `Published release v${options.scriptVersion.trim()} not found for package ${detail.package_key}.`
+        : `No published release found for package ${detail.package_key}.`,
+    )
   }
 
-  // Empty array is still an authoritative schema (Script may have zero vars).
-  const variables = release.variables
+  const projected = diagnoseReleaseVariableProjection(release)
+  if (!projected.ok) {
+    return unavailableScriptInputSchema(testMode, projected.reason)
+  }
+
+  const variables = projected.variables
   const fields: ScriptInputField[] = []
 
   for (const raw of variables) {
+    // Bare string entries — Backend fromManifest accepts these as required string.
+    if (typeof raw === 'string') {
+      const key = raw.trim()
+      if (!key) continue
+      if (key === 'password' || key === 'account_id' || key === 'username') {
+        continue
+      }
+      fields.push({
+        key,
+        type: 'string',
+        required: true,
+        label: key,
+      })
+      continue
+    }
     if (!raw || typeof raw !== 'object') continue
     const row = raw as Record<string, unknown>
     const key = variableKeyFromRow(row)
     if (!key) continue
-    // Credentials must never be collected as Campaign Content
     if (key === 'password' || asFieldType(row.type) === 'secret') continue
     if (key === 'account_id' || key === 'username') continue
+
+    // Backend defaults required=true when key absent.
+    const required = Object.prototype.hasOwnProperty.call(row, 'required')
+      ? Boolean(row.required)
+      : true
 
     fields.push({
       key,
       type: asFieldType(row.type),
-      required: Boolean(row.required),
+      required,
       label: typeof row.label === 'string' ? row.label : key,
     })
   }
@@ -150,6 +235,7 @@ export function parseScriptInputSchema(
     schema_available: true,
     title_supported: hasTitle,
     body_supported: hasBody,
+    unavailable_reason: null,
   }
 }
 
@@ -161,11 +247,9 @@ export function resolveTestModeCompatibility(
   mockFlag: boolean | null | undefined,
 ): boolean | null {
   if (mockFlag !== undefined && mockFlag !== null) return mockFlag
-  const release = detail?.releases?.[0] as
-    | (ScriptDetail['releases'][number] & {
-        test_mode_compatible?: boolean
-      })
-    | undefined
+  const release = selectPublishedRelease(detail, null) as
+    | (ScriptReleaseDetail & { test_mode_compatible?: boolean })
+    | null
   if (
     release &&
     typeof (release as { test_mode_compatible?: unknown })

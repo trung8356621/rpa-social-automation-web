@@ -77,6 +77,7 @@ const EMPTY_SCHEMA: ScriptInputSchema = {
   schema_available: false,
   title_supported: false,
   body_supported: false,
+  unavailable_reason: null,
 }
 
 export function ArticlesScreen({

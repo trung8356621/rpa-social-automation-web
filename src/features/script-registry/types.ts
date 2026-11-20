@@ -42,7 +42,16 @@ export type ScriptReleaseDetail = {
   content_digest: string
   status: ScriptReleaseStatus
   published_at: string | null
-  variables: unknown[]
+  /**
+   * Manifest variables when Staff API projects them.
+   * `null` = field omitted by Staff projection (see variable_count).
+   */
+  variables: unknown[] | null
+  /**
+   * Staff `variable_count` — present even when `variables` array is stripped
+   * by StaffScriptRegistryController::mapRelease (addon af4a652).
+   */
+  variable_count: number | null
   steps: unknown[]
   assets: unknown[]
   runtime_requirements: unknown[]

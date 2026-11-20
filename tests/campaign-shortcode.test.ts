@@ -28,7 +28,9 @@ import {
   serializeShortcodeSegments,
   tipTapDocToRawSource,
 } from '../src/features/campaigns/shortcode-source.ts'
+import { mapLiveScriptDetail } from '../src/features/script-registry/api/map-script-registry.ts'
 import {
+  diagnoseReleaseVariableProjection,
   parseScriptInputSchema,
   selectPublishedRelease,
 } from '../src/features/campaigns/script-compat.ts'
@@ -44,9 +46,67 @@ const titleOnlySchema: ScriptInputSchema = {
   schema_available: true,
   title_supported: true,
   body_supported: false,
+  unavailable_reason: null,
 }
 
 describe('Campaign Shortcode V2', () => {
+  it('detects Staff detail projection gap: variable_count without variables[]', () => {
+    const mapped = mapLiveScriptDetail({
+      package_key: 'mayhopphat.create_post',
+      script_id: 'mayhopphat.create_post',
+      name: 'create_post',
+      releases: [
+        {
+          id: 1,
+          version: '1',
+          status: 'published',
+          content_digest: 'abc',
+          // StaffScriptRegistryController::mapRelease strips variables:
+          variable_count: 1,
+          step_count: 0,
+          asset_count: 0,
+          runtime_requirements: [],
+        },
+      ],
+    })
+    const release = selectPublishedRelease(mapped, '1')
+    assert.ok(release)
+    assert.equal(release!.variables, null)
+    assert.equal(release!.variable_count, 1)
+    const diag = diagnoseReleaseVariableProjection(release!)
+    assert.equal(diag.ok, false)
+    if (!diag.ok) {
+      assert.match(diag.reason, /CONTRACT GAP/)
+      assert.match(diag.reason, /releases\[\]\.variables/)
+      assert.match(diag.reason, /variable_count=1/)
+    }
+    const schema = parseScriptInputSchema(mapped, { scriptVersion: '1' })
+    assert.equal(schema.schema_available, false)
+    assert.match(String(schema.unavailable_reason), /CONTRACT GAP/)
+  })
+
+  it('extracts title when Staff projects variables[] (Backend fromManifest shape)', () => {
+    const mapped = mapLiveScriptDetail({
+      package_key: 'mayhopphat.create_post',
+      name: 'create_post',
+      releases: [
+        {
+          id: 1,
+          version: '1',
+          status: 'published',
+          variable_count: 1,
+          variables: [
+            { key: 'title', type: 'string', required: true, label: 'Title' },
+          ],
+        },
+      ],
+    })
+    const schema = parseScriptInputSchema(mapped, { scriptVersion: '1' })
+    assert.equal(schema.schema_available, true)
+    assert.equal(schema.title_supported, true)
+    assert.equal(preferredDefaultVariable(schema), 'title')
+  })
+
   it('selects published release by pinned version for variables', () => {
     const detail: ScriptDetail = {
       package_key: 'mayhopphat.create_post',
@@ -62,6 +122,7 @@ describe('Campaign Shortcode V2', () => {
           status: 'draft',
           published_at: null,
           variables: [{ key: 'wrong', type: 'string', required: true }],
+          variable_count: 1,
           steps: [],
           assets: [],
           runtime_requirements: [],
@@ -81,6 +142,7 @@ describe('Campaign Shortcode V2', () => {
           variables: [
             { key: 'title', type: 'string', required: true, label: 'Title' },
           ],
+          variable_count: 1,
           steps: [],
           assets: [],
           runtime_requirements: [],
