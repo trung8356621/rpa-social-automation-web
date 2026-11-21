@@ -209,6 +209,14 @@ export function ArticlesPage() {
     scripts.data.details,
   ])
 
+  const v2SchemaError = useMemo(() => {
+    if (!isV2) return null
+    const errs = Object.values(v2SchemaLookup)
+      .map((e) => e.error)
+      .filter((e): e is string => Boolean(e))
+    return errs.length > 0 ? errs.join(' · ') : null
+  }, [isV2, v2SchemaLookup])
+
   if (registry.loading) {
     return (
       <div className="rounded-[var(--radius-card)] border border-border bg-surface p-6">
@@ -228,14 +236,6 @@ export function ArticlesPage() {
       </div>
     )
   }
-
-  const v2SchemaError = useMemo(() => {
-    if (!isV2) return null
-    const errs = Object.values(v2SchemaLookup)
-      .map((e) => e.error)
-      .filter((e): e is string => Boolean(e))
-    return errs.length > 0 ? errs.join(' · ') : null
-  }, [isV2, v2SchemaLookup])
 
   return (
     <>
