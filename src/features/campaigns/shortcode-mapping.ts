@@ -75,9 +75,49 @@ export function allScriptVariables(
   return out
 }
 
+/**
+ * Returns `'body'` only if the published Script schema actually declares a `body`
+ * variable. Never fabricates `body` for schemas that do not support it.
+ */
+export function findCompatibleBodyVariable(
+  schema: ScriptInputSchema,
+): string | null {
+  if (!schema.schema_available) return null
+  const vars = allScriptVariables(schema)
+  return vars.some((v) => v.key === 'body') ? 'body' : null
+}
+
+export function validateBodyShortcodeSupport(
+  schema: ScriptInputSchema,
+): { supported: true; variable: 'body' } | { supported: false; reason: string } {
+  if (!schema.schema_available) {
+    return {
+      supported: false,
+      reason:
+        schema.unavailable_reason ||
+        'Script input schema unavailable — cannot verify whether [body] is supported.',
+    }
+  }
+  const bodyVar = findCompatibleBodyVariable(schema)
+  if (!bodyVar) {
+    const available = allScriptVariables(schema)
+      .map((v) => v.key)
+      .join(', ')
+    return {
+      supported: false,
+      reason: available
+        ? `This Script schema does not declare a "body" variable (available: ${available}). Map [body] to an actual variable or use another shortcode.`
+        : 'This Script schema declares no input variables.',
+    }
+  }
+  return { supported: true, variable: 'body' }
+}
+
 export function preferredDefaultVariable(
   schema: ScriptInputSchema,
 ): string | null {
+  const bodyVar = findCompatibleBodyVariable(schema)
+  if (bodyVar) return bodyVar
   const vars = allScriptVariables(schema)
   const required = vars.find((v) => v.required)
   if (required) return required.key

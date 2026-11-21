@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
 import { useAccountSites } from '@/features/accounts/use-account-sites'
 import { CampaignFormFields } from '@/features/campaigns/components/CampaignFormFields'
+import { CampaignV2Wizard } from '@/features/campaigns/components/CampaignV2Wizard'
 import { scheduleApiToForm } from '@/features/campaigns/schedule'
 import {
   emptyShortcodeMappingEntry,
@@ -14,10 +15,12 @@ import {
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import { usePublishedScriptSchema } from '@/features/campaigns/use-published-script-schema'
 import {
+  isCampaignV2,
   validateCampaignForm,
   type CampaignFormValues,
 } from '@/features/campaigns/validation'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
+import { toSafeApiMessage } from '@/lib/api/errors'
 
 export function CampaignEditPage() {
   const { id = '' } = useParams()
@@ -27,12 +30,58 @@ export function CampaignEditPage() {
   const scripts = useScriptRegistry()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(registry.mode === 'live')
+  const [detailError, setDetailError] = useState<string | null>(null)
   const [form, setForm] = useState<CampaignFormValues | null>(null)
 
+  useEffect(() => {
+    if (!id) return
+    if (registry.mode !== 'live') {
+      setDetailLoading(false)
+      setDetailError(null)
+      return
+    }
+    if (registry.loading) {
+      setDetailLoading(true)
+      return
+    }
+    let cancelled = false
+    setDetailLoading(true)
+    setDetailError(null)
+    void (async () => {
+      try {
+        await registry.loadCampaignDetail(id)
+        if (cancelled) return
+        try {
+          await registry.loadContentsForCampaign(id)
+        } catch {
+          /* non-fatal for edit prepopulation */
+        }
+        if (!cancelled) setDetailLoading(false)
+      } catch (err: unknown) {
+        if (cancelled) return
+        setDetailError(toSafeApiMessage(err))
+        setDetailLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, registry.mode, registry.loading])
+
   const campaign = registry.campaigns.find((c) => c.id === id) ?? null
+  const isV2 = campaign ? isCampaignV2(campaign) : false
+  const campaignContents = useMemo(() => {
+    if (!campaign) return []
+    if (Array.isArray(campaign.contents) && campaign.contents.length > 0) {
+      return campaign.contents
+    }
+    return registry.contents.filter((c) => c.campaign_id === id)
+  }, [campaign, registry.contents, id])
 
   useEffect(() => {
-    if (!campaign) return
+    if (!campaign || isV2) return
     const mappingEntries = campaign.shortcode_mapping?.entries?.length
       ? campaign.shortcode_mapping.entries.map((e) =>
           emptyShortcodeMappingEntry({
@@ -52,7 +101,7 @@ export function CampaignEditPage() {
       account_id: campaign.account_id ?? '',
       shortcode_mapping: mappingEntries,
     })
-  }, [campaign])
+  }, [campaign, isV2])
 
   const cachedDetail = form?.script_package_key
     ? (scripts.data.details[form.script_package_key] ?? null)
@@ -77,10 +126,24 @@ export function CampaignEditPage() {
     return scriptSchema.test_mode_compatible
   }, [form?.script_package_key, scriptSchema.test_mode_compatible])
 
-  if (registry.loading || !form) {
+  if (registry.loading || detailLoading) {
     return (
       <div className="rounded-[var(--radius-card)] border border-border bg-surface p-6">
         <p className="text-sm">Loading…</p>
+      </div>
+    )
+  }
+
+  if (detailError) {
+    return (
+      <div className="rounded-[var(--radius-card)] border border-border bg-surface p-6">
+        <p className="text-sm text-danger">{detailError}</p>
+        <Button
+          className="mt-3"
+          onClick={() => navigate('/social-automation/campaigns')}
+        >
+          Back
+        </Button>
       </div>
     )
   }
@@ -95,6 +158,24 @@ export function CampaignEditPage() {
         >
           Back
         </Button>
+      </div>
+    )
+  }
+
+  if (isV2) {
+    return (
+      <CampaignV2Wizard
+        wizardMode="edit"
+        initialCampaign={campaign}
+        initialContents={campaignContents}
+      />
+    )
+  }
+
+  if (!form) {
+    return (
+      <div className="rounded-[var(--radius-card)] border border-border bg-surface p-6">
+        <p className="text-sm">Loading…</p>
       </div>
     )
   }

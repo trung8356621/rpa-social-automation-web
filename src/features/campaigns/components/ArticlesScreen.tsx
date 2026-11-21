@@ -19,6 +19,7 @@ import { checkContentLength, siteContentPolicy } from '../content-limit'
 import { contentListPreview } from '../shortcode-source'
 import { contentStatusBadge } from '../status-labels'
 import {
+  isCampaignV2,
   isContentEditable,
   validateManualContent,
   validateShortcodeContent,
@@ -67,6 +68,7 @@ type Props = {
   contentsLoading?: boolean
   contentsError?: string | null
   schemaLoading?: boolean
+  schemaError?: string | null
 }
 
 const EMPTY_SCHEMA: ScriptInputSchema = {
@@ -96,6 +98,7 @@ export function ArticlesScreen({
   contentsLoading = false,
   contentsError = null,
   schemaLoading = false,
+  schemaError = null,
 }: Props) {
   const [siteFilter, setSiteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -112,6 +115,7 @@ export function ArticlesScreen({
   const [busy, setBusy] = useState(false)
 
   const campaign = campaigns.find((c) => c.id === campaignId) ?? null
+  const isV2Campaign = campaign ? isCampaignV2(campaign) : false
   const site = sites.find((s) => s.key === campaign?.site_key) ?? null
   const schema = campaign
     ? getSchema(campaign.script_package_key)
@@ -324,12 +328,35 @@ export function ArticlesScreen({
             : 'Campaign Content — LIVE Staff API (raw_source shortcode / legacy input).'
         }
         actions={
-          <Button size="sm" disabled={!campaignId} onClick={openCreate}>
+          <Button
+            size="sm"
+            disabled={!campaignId || isV2Campaign}
+            title={
+              isV2Campaign
+                ? 'V2 multi-tag Content is managed in the Campaign Plan.'
+                : undefined
+            }
+            onClick={openCreate}
+          >
             <Plus className="size-3.5" />
             Add Article
           </Button>
         }
       />
+
+      {schemaError ? (
+        <div className="rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          <span className="font-medium">Script schema warning:</span>{' '}
+          {schemaError}. Existing Content rows are still shown below.
+        </div>
+      ) : null}
+
+      {isV2Campaign ? (
+        <div className="rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
+          Plan V2 Campaign: displaying persisted Content items and per-Tag
+          assignments. Single-script V1 Article creation is disabled for V2.
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-end gap-2">
         <div className="space-y-1">

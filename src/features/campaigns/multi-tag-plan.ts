@@ -10,11 +10,15 @@ import { findCmsGlobalScriptForActionTag } from '../script-registry/sharing.ts'
 import type { ScriptListItem } from '../script-registry/types.ts'
 import {
   allScriptVariables,
+  emptyShortcodeMappingEntry,
   validateShortcodeMappingForm,
   type ShortcodeMappingFormEntry,
 } from './shortcode-mapping.ts'
 import { assertPlainShortcodeSource } from './shortcode-source.ts'
 import type {
+  Campaign,
+  CampaignActionTagPlan,
+  CampaignContent,
   CampaignRunMode,
   CampaignShortcodeMapping,
   CreateCampaignV2Input,
@@ -725,6 +729,129 @@ export function formatCampaignV2ApiError(
     isStaleReleaseConflict: false,
     conflictTags: [],
     validationErrors: [],
+  }
+}
+
+export type CampaignV2WizardInitialState = {
+  campaignId: string
+  name: string
+  runMode: CampaignRunMode
+  selectedTagKeys: string[]
+  pinnedTagsByKey: Record<string, CampaignActionTagPlan>
+  contents: PlannedContentItem[]
+  initialMappingsByTagKey: Record<string, ShortcodeMappingFormEntry[]>
+}
+
+/**
+ * Hydrate shared V2 wizard state from canonical GET Campaign Detail.
+ * Preserves existing Tag IDs, Content IDs, assignments, Release pins, and mappings.
+ */
+export function campaignToV2WizardState(
+  campaign: Campaign,
+  contents: CampaignContent[] = [],
+): CampaignV2WizardInitialState {
+  const actionTags = campaign.action_tags ?? []
+  const selectedTagKeys = actionTags.map((t) => t.action_tag_key)
+  const pinnedTagsByKey: Record<string, CampaignActionTagPlan> = {}
+  const initialMappingsByTagKey: Record<string, ShortcodeMappingFormEntry[]> =
+    {}
+
+  for (const t of actionTags) {
+    pinnedTagsByKey[t.action_tag_key] = t
+    if (t.shortcode_mapping?.entries?.length) {
+      initialMappingsByTagKey[t.action_tag_key] =
+        t.shortcode_mapping.entries.map((e) =>
+          emptyShortcodeMappingEntry({
+            shortcode: e.shortcode,
+            variable: e.variable,
+          }),
+        )
+    }
+  }
+
+  const effectiveContents =
+    contents.length > 0 ? contents : (campaign.contents ?? [])
+  const plannedContents: PlannedContentItem[] = effectiveContents.map((c) => ({
+    id: c.id,
+    external_ref: c.external_ref,
+    target_tag_keys: (c.assignments ?? []).map((a) => a.action_tag_key),
+    raw_source: c.raw_source ?? '',
+  }))
+
+  return {
+    campaignId: campaign.id,
+    name: campaign.name,
+    runMode: campaign.run_mode,
+    selectedTagKeys,
+    pinnedTagsByKey,
+    contents: plannedContents,
+    initialMappingsByTagKey,
+  }
+}
+
+/**
+ * Resolve a Campaign V2 Tag preserving any existing pinned Release from Edit mode.
+ * Never silently upgrades a pinned Tag to a newer Script version during Edit.
+ */
+export function resolveActionTagWithPin(
+  tag: ActionTagItem | undefined,
+  pinned: CampaignActionTagPlan | undefined,
+  site: Site | undefined,
+  scripts: ScriptListItem[],
+  context?: TagResolutionContext,
+): ResolvedActionTagPlan | null {
+  if (pinned) {
+    return {
+      tag_id: pinned.action_tag_id ?? (tag && tag.id > 0 ? tag.id : null),
+      tag_key: pinned.action_tag_key,
+      tag_name: tag?.name ?? pinned.action_tag_key,
+      tag_enabled: tag ? tag.enabled : true,
+      site_key: pinned.site_key,
+      site_name: pinned.site_name,
+      cms_type: pinned.cms_type,
+      path_key: tag?.path_key ?? '',
+      path_name: tag?.path_name ?? '',
+      effective_script: pinned.script_package_key
+        ? {
+            package_key: pinned.script_package_key,
+            script_id: pinned.script_package_key,
+            name: pinned.script_name || pinned.script_package_key,
+            version: pinned.script_version,
+            release_id: pinned.release_id ?? 0,
+          }
+        : null,
+      resolution_source: pinned.resolution_source,
+      is_system_auth: false,
+      is_runnable: Boolean(
+        pinned.script_package_key && pinned.resolution_source !== 'missing',
+      ),
+      status_reason: null,
+    }
+  }
+  if (!tag) return null
+  return resolveActionTagScript(tag, site, scripts, context)
+}
+
+/**
+ * Honest compatibility gate for V2 Draft Update (`PUT/PATCH /campaigns/{id}`).
+ * Currently blocked in LIVE mode until Backend V2 Edit contract is deployed.
+ */
+export function inspectV2UpdateSupport(
+  mode: 'mock' | 'live',
+): BackendPersistenceSupport {
+  if (mode === 'live') {
+    return {
+      supported: false,
+      blockers: [
+        'Backend V2 Draft update (PUT/PATCH /social-automation/api/campaigns/{id} with plan_version: 2) is not implemented yet. Legacy V1 PUT only updates name/platform/execution_mode/recheck and would not persist V2 action_tags[], release pins, or content assignments.',
+      ],
+    }
+  }
+  return {
+    supported: false,
+    blockers: [
+      'Campaign V2 Draft editing is read-only until Backend V2 Draft update contract is implemented.',
+    ],
   }
 }
 

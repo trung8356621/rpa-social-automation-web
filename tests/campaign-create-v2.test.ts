@@ -7,19 +7,23 @@ import type {
   PathItem,
   Site,
 } from '../src/features/action-tags/types.ts'
+import { resolveArticlesListState } from '../src/features/campaigns/articles-list-state.ts'
 import { buildLiveCampaignV2CreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
 import { mapLiveCampaign } from '../src/features/campaigns/api/mappers.ts'
 import { mockCampaignAdapter, resetMockCampaignStore } from '../src/features/campaigns/api/mock-adapter.ts'
 import {
   buildCreateCampaignV2Input,
   buildV2DraftPlanPayload,
+  campaignToV2WizardState,
   createPlannedContentItem,
   filterSelectableCampaignTags,
   formatCampaignV2ApiError,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
+  inspectV2UpdateSupport,
   isSystemAuthenticationTag,
   resolveActionTagScript,
+  resolveActionTagWithPin,
   scriptTargetKey,
   validateStep1Plan,
   validateStep2Plan,
@@ -28,7 +32,12 @@ import { canStartCampaign, isCampaignV2 } from '../src/features/campaigns/valida
 import { ApiError } from '../src/lib/api/errors.ts'
 import { emptyScheduleForm, scheduleFormToApi } from '../src/features/campaigns/schedule.ts'
 import { unavailableScriptInputSchema } from '../src/features/campaigns/script-compat.ts'
-import { emptyShortcodeMappingEntry } from '../src/features/campaigns/shortcode-mapping.ts'
+import {
+  emptyShortcodeMappingEntry,
+  findCompatibleBodyVariable,
+  preferredDefaultVariable,
+  validateBodyShortcodeSupport,
+} from '../src/features/campaigns/shortcode-mapping.ts'
 import type { ScriptInputSchema } from '../src/features/campaigns/types.ts'
 import type { ScriptListItem } from '../src/features/script-registry/types.ts'
 
@@ -826,5 +835,96 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     })
     assert.equal(historical.script_package_key, 'baloquatang.login')
     assert.equal(historical.status, 'completed')
+  })
+
+  it('prepopulates V2 Edit wizard with unchanged Release pins, blocks unsupported V2 update, decouples Articles from schema 404, and validates [body] shortcode', () => {
+    const v2Campaign = mapLiveCampaign({
+      id: 'camp_v2_edit_1',
+      plan_version: 2,
+      name: 'Editable V2 Draft',
+      status: 'draft',
+      run_mode: 'live',
+      action_tags: [
+        {
+          action_tag_id: 1,
+          action_tag_key: 'mayhopphat.create_post',
+          site_key: 'mayhopphat',
+          site_name: 'MayHopPhat',
+          cms_type: 'wordpress',
+          script_package_key: 'mayhopphat.create_post',
+          script_name: 'WP Create Post',
+          script_version: '1.0.0',
+          release_id: 99,
+          resolution_source: 'site_specific',
+          shortcode_mapping: {
+            entries: [{ shortcode: 'body', variable: 'body' }],
+          },
+        },
+      ],
+      contents: [
+        {
+          id: 'cnt_edit_1',
+          external_ref: 'post-1',
+          status: 'pending',
+          source_format: 'shortcode',
+          raw_source: '[body]Hello[/body]',
+          assignments: [
+            {
+              id: 'asgn_1',
+              action_tag_key: 'mayhopphat.create_post',
+              script_package_key: 'mayhopphat.create_post',
+              script_version: '1.0.0',
+              release_id: 99,
+            },
+          ],
+        },
+      ],
+    })
+
+    // 1. V2 Edit prepopulation preserves IDs, Release pins, mappings, and assignments
+    const hydrated = campaignToV2WizardState(v2Campaign)
+    assert.equal(hydrated.name, 'Editable V2 Draft')
+    assert.deepEqual(hydrated.selectedTagKeys, ['mayhopphat.create_post'])
+    assert.equal(hydrated.contents.length, 1)
+    assert.equal(hydrated.contents[0]!.id, 'cnt_edit_1')
+    assert.deepEqual(hydrated.contents[0]!.target_tag_keys, [
+      'mayhopphat.create_post',
+    ])
+    assert.equal(
+      hydrated.initialMappingsByTagKey['mayhopphat.create_post']?.[0]?.variable,
+      'body',
+    )
+
+    // 2. Release pin is preserved even when newer version (1.2.0 / #101) exists in SCRIPTS
+    const resolvedWithPin = resolveActionTagWithPin(
+      TAGS[0],
+      hydrated.pinnedTagsByKey['mayhopphat.create_post'],
+      SITES[0],
+      SCRIPTS,
+    )
+    assert.equal(resolvedWithPin?.effective_script?.version, '1.0.0')
+    assert.equal(resolvedWithPin?.effective_script?.release_id, 99)
+
+    // 3. Unsupported V2 Update remains blocked (never calls V1 PUT)
+    assert.equal(inspectV2UpdateSupport('live').supported, false)
+    assert.equal(inspectV2UpdateSupport('mock').supported, false)
+
+    // 4. Articles list remains 'ready' when Content GET succeeded even if Script schema returned 404
+    const articlesListState = resolveArticlesListState({
+      loading: false,
+      error: null, // schemaError is kept separate from contentsError
+      rowCount: 2,
+    })
+    assert.equal(articlesListState, 'ready')
+
+    // 5. Default [body] shortcode prefers 'body' when schema supports it, and rejects when unsupported
+    assert.equal(findCompatibleBodyVariable(WP_SCHEMA), 'body')
+    assert.equal(preferredDefaultVariable(WP_SCHEMA), 'body')
+    assert.equal(validateBodyShortcodeSupport(WP_SCHEMA).supported, true)
+
+    assert.equal(findCompatibleBodyVariable(FB_SCHEMA), null)
+    assert.equal(preferredDefaultVariable(FB_SCHEMA), 'caption')
+    const unsupportedBody = validateBodyShortcodeSupport(FB_SCHEMA)
+    assert.equal(unsupportedBody.supported, false)
   })
 })

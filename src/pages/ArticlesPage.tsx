@@ -13,6 +13,8 @@ import {
 } from '@/features/campaigns/script-compat'
 import type { ScriptInputSchema } from '@/features/campaigns/types'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
+import { useMultiScriptSchemas } from '@/features/campaigns/use-multi-script-schemas'
+import { isCampaignV2 } from '@/features/campaigns/validation'
 import { fetchLiveScriptRegistryDetail } from '@/features/script-registry/api/fetch-script-registry'
 import type { ScriptDetail } from '@/features/script-registry/types'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
@@ -100,8 +102,35 @@ export function ArticlesPage() {
     () => registry.campaigns.find((c) => c.id === activeCampaignId) ?? null,
     [activeCampaignId, registry.campaigns],
   )
-  const activePackageKey = activeCampaign?.script_package_key?.trim() || ''
+  const isV2 = activeCampaign ? isCampaignV2(activeCampaign) : false
+
+  useEffect(() => {
+    if (registry.mode !== 'live' || registry.loading || !activeCampaignId) return
+    if (isV2 && !activeCampaign?.action_tags?.length) {
+      void registry.loadCampaignDetail(activeCampaignId).catch(() => {})
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCampaignId, isV2, registry.mode, registry.loading])
+  const activePackageKey = isV2
+    ? ''
+    : activeCampaign?.script_package_key?.trim() || ''
   const activeScriptVersion = activeCampaign?.script_version?.trim() || ''
+
+  const v2SchemaTargets = useMemo(() => {
+    if (!isV2 || !activeCampaign?.action_tags?.length) return []
+    return activeCampaign.action_tags
+      .filter((t) => t.script_package_key)
+      .map((t) => ({
+        packageKey: t.script_package_key,
+        scriptVersion: t.script_version,
+      }))
+  }, [isV2, activeCampaign])
+
+  const v2SchemaLookup = useMultiScriptSchemas({
+    targets: v2SchemaTargets,
+    cachedDetails: scripts.data.details,
+    getMockSchema: registry.getScriptInputSchema,
+  })
 
   useEffect(() => {
     if (!activePackageKey) {
@@ -200,6 +229,14 @@ export function ArticlesPage() {
     )
   }
 
+  const v2SchemaError = useMemo(() => {
+    if (!isV2) return null
+    const errs = Object.values(v2SchemaLookup)
+      .map((e) => e.error)
+      .filter((e): e is string => Boolean(e))
+    return errs.length > 0 ? errs.join(' · ') : null
+  }, [isV2, v2SchemaLookup])
+
   return (
     <>
       <ArticlesScreen
@@ -210,11 +247,12 @@ export function ArticlesPage() {
         onCampaignChange={setActiveCampaignId}
         getSchema={getSchema}
         contentsLoading={contentsLoading}
-        contentsError={
-          contentsError ??
-          (schemaError ? `Script schema: ${schemaError}` : null)
+        contentsError={contentsError}
+        schemaLoading={
+          schemaLoading ||
+          (isV2 && Object.values(v2SchemaLookup).some((e) => e.loading))
         }
-        schemaLoading={schemaLoading}
+        schemaError={isV2 ? v2SchemaError : schemaError}
         onCreate={async (draft, opts) => {
           await registry.createManualContent(draft, opts)
         }}
