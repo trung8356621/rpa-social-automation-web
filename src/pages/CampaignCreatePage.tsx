@@ -71,9 +71,32 @@ export function CampaignCreatePage() {
           tag,
           siteByKey.get(tag.site_key),
           scriptRegistry.data.scripts,
+          {
+            paths: actionRegistry.data.paths,
+            cmsTypes: actionRegistry.data.cms_types,
+          },
         ),
       )
-  }, [selectedTagKeys, tagByKey, siteByKey, scriptRegistry.data.scripts])
+  }, [
+    selectedTagKeys,
+    tagByKey,
+    siteByKey,
+    scriptRegistry.data.scripts,
+    actionRegistry.data.paths,
+    actionRegistry.data.cms_types,
+  ])
+
+  useEffect(() => {
+    const authTags = resolvedTags.filter((t) => t.is_system_auth)
+    if (authTags.length === 0) return
+    const authKeys = new Set(authTags.map((t) => t.tag_key))
+    setSelectedTagKeys((prev) => prev.filter((k) => !authKeys.has(k)))
+    setError(
+      `Removed system authentication tag(s) from plan: ${authTags
+        .map((t) => t.tag_key)
+        .join(', ')}. Login is managed automatically by CMS Authentication.`,
+    )
+  }, [resolvedTags])
 
   const schemaTargets = useMemo(
     () =>
@@ -303,6 +326,8 @@ export function CampaignCreatePage() {
           onSelectedTagKeysChange={setSelectedTagKeys}
           tags={actionRegistry.data.tags}
           sites={actionRegistry.data.sites}
+          paths={actionRegistry.data.paths}
+          cmsTypes={actionRegistry.data.cms_types}
           scripts={scriptRegistry.data.scripts}
           resolvedTags={resolvedTags}
           loading={actionRegistry.loading || scriptRegistry.loading}

@@ -148,6 +148,8 @@ export type ActionTagItem = {
   effective_auth_script?: ActionTagAuthScript
   /** Backend-confirmed Auth resolution source; never inferred from frontend data alone */
   auth_resolution_source?: AuthResolutionSource | null
+  /** Optional authoritative system authentication flag on Tag */
+  is_authentication?: boolean
 }
 
 export type ScriptRequestItem = {

@@ -6,11 +6,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
-import type { ActionTagItem, Site } from '@/features/action-tags/types'
+import type {
+  ActionTagItem,
+  CmsTypeItem,
+  PathItem,
+  Site,
+} from '@/features/action-tags/types'
 import type { ScriptListItem } from '@/features/script-registry/types'
 
 import {
-  resolveActionTagScript,
+  filterSelectableCampaignTags,
   type ResolvedActionTagPlan,
 } from '../multi-tag-plan'
 import type { CampaignRunMode } from '../types'
@@ -24,6 +29,8 @@ type Props = {
   onSelectedTagKeysChange: (keys: string[]) => void
   tags: ActionTagItem[]
   sites: Site[]
+  paths: PathItem[]
+  cmsTypes: CmsTypeItem[]
   scripts: ScriptListItem[]
   resolvedTags: ResolvedActionTagPlan[]
   loading?: boolean
@@ -50,6 +57,8 @@ export function CampaignPlanStep1({
   onSelectedTagKeysChange,
   tags,
   sites,
+  paths,
+  cmsTypes,
   scripts,
   resolvedTags,
   loading = false,
@@ -58,47 +67,24 @@ export function CampaignPlanStep1({
   const [search, setSearch] = useState('')
   const [siteFilter, setSiteFilter] = useState('')
 
-  const siteByKey = useMemo(() => {
-    const map = new Map<string, Site>()
-    for (const s of sites) map.set(s.key, s)
-    return map
-  }, [sites])
-
   const selectedSet = useMemo(
     () => new Set(selectedTagKeys),
     [selectedTagKeys],
   )
 
-  const catalogRows = useMemo(() => {
-    return tags.map((tag) => ({
-      tag,
-      resolved: resolveActionTagScript(
-        tag,
-        siteByKey.get(tag.site_key),
+  const filteredCatalog = useMemo(
+    () =>
+      filterSelectableCampaignTags({
+        tags,
+        sites,
+        paths,
+        cmsTypes,
         scripts,
-      ),
-    }))
-  }, [tags, siteByKey, scripts])
-
-  const filteredCatalog = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return catalogRows.filter(({ tag, resolved }) => {
-      if (siteFilter && tag.site_key !== siteFilter) return false
-      if (!q) return true
-      const hay = [
-        tag.tag_key,
-        tag.name,
-        tag.site_key,
-        tag.site_name,
-        resolved.cms_type ?? '',
-        resolved.effective_script?.name ?? '',
-        resolved.effective_script?.package_key ?? '',
-      ]
-        .join(' ')
-        .toLowerCase()
-      return hay.includes(q)
-    })
-  }, [catalogRows, search, siteFilter])
+        search,
+        siteFilter,
+      }),
+    [tags, sites, paths, cmsTypes, scripts, search, siteFilter],
+  )
 
   const toggleTag = (tagKey: string) => {
     if (selectedSet.has(tagKey)) {

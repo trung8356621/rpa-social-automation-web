@@ -1,6 +1,11 @@
 import { ApiError, toSafeApiMessage } from '../../lib/api/errors.ts'
 import { resolveTagPublishedScriptStatus } from '../action-tags/auto-tag-lifecycle.ts'
-import type { ActionTagItem, Site } from '../action-tags/types.ts'
+import type {
+  ActionTagItem,
+  CmsTypeItem,
+  PathItem,
+  Site,
+} from '../action-tags/types.ts'
 import { findCmsGlobalScriptForActionTag } from '../script-registry/sharing.ts'
 import type { ScriptListItem } from '../script-registry/types.ts'
 import {
@@ -41,8 +46,53 @@ export type ResolvedActionTagPlan = {
   path_name: string
   effective_script: ResolvedScriptRef | null
   resolution_source: TagScriptResolutionSource
+  is_system_auth: boolean
   is_runnable: boolean
   status_reason: string | null
+}
+
+export type TagResolutionContext = {
+  paths?: PathItem[]
+  cmsTypes?: CmsTypeItem[]
+}
+
+/**
+ * Authoritative classification of system authentication tags.
+ * Uses explicit backend/registry metadata (`is_authentication` on Tag, Path,
+ * CMS Path Template, or resolved Script) — never filters by `.login` suffix alone.
+ */
+export function isSystemAuthenticationTag(
+  tag: ActionTagItem,
+  context: {
+    site?: Site
+    paths?: PathItem[]
+    cmsTypes?: CmsTypeItem[]
+    resolvedScript?: ScriptListItem | null
+  },
+): boolean {
+  if (tag.is_authentication === true) return true
+
+  const matchedPath = context.paths?.find(
+    (p) =>
+      (tag.path_id != null && p.id === tag.path_id) ||
+      (p.site_key === tag.site_key && p.key === tag.path_key),
+  )
+  if (matchedPath?.is_authentication === true) return true
+
+  const cmsKey = (context.site?.cms_type ?? '').trim().toLowerCase()
+  if (cmsKey && context.cmsTypes?.length) {
+    const cms = context.cmsTypes.find(
+      (c) => c.key.trim().toLowerCase() === cmsKey,
+    )
+    const matchedTpl = cms?.path_templates?.find(
+      (tpl) => tpl.key === tag.path_key,
+    )
+    if (matchedTpl?.is_authentication === true) return true
+  }
+
+  if (context.resolvedScript?.is_authentication === true) return true
+
+  return false
 }
 
 /**
@@ -54,14 +104,17 @@ export function resolveActionTagScript(
   tag: ActionTagItem,
   site: Site | undefined,
   scripts: ScriptListItem[],
+  context?: TagResolutionContext,
 ): ResolvedActionTagPlan {
   const cmsType = site?.cms_type?.trim() || null
   const { matchedScript } = resolveTagPublishedScriptStatus(tag, scripts)
 
   let effective_script: ResolvedScriptRef | null = null
   let resolution_source: TagScriptResolutionSource = 'missing'
+  let resolvedScriptItem: ScriptListItem | null = null
 
   if (matchedScript) {
+    resolvedScriptItem = matchedScript
     effective_script = {
       package_key: matchedScript.package_key,
       script_id: matchedScript.script_id,
@@ -77,6 +130,7 @@ export function resolveActionTagScript(
       scripts,
     )
     if (globalScript) {
+      resolvedScriptItem = globalScript
       effective_script = {
         package_key: globalScript.package_key,
         script_id: globalScript.script_id,
@@ -88,8 +142,18 @@ export function resolveActionTagScript(
     }
   }
 
+  const is_system_auth = isSystemAuthenticationTag(tag, {
+    site,
+    paths: context?.paths,
+    cmsTypes: context?.cmsTypes,
+    resolvedScript: resolvedScriptItem,
+  })
+
   let status_reason: string | null = null
-  if (!tag.enabled) {
+  if (is_system_auth) {
+    status_reason =
+      'System authentication tag (managed automatically by CMS Authentication).'
+  } else if (!tag.enabled) {
     status_reason = 'Action Tag is disabled.'
   } else if (resolution_source === 'missing' || !effective_script) {
     status_reason = 'No published Script found (site-specific or CMS global).'
@@ -107,11 +171,57 @@ export function resolveActionTagScript(
     path_name: tag.path_name,
     effective_script,
     resolution_source,
+    is_system_auth,
     is_runnable: Boolean(
-      tag.enabled && resolution_source !== 'missing' && effective_script,
+      !is_system_auth &&
+        tag.enabled &&
+        resolution_source !== 'missing' &&
+        effective_script,
     ),
     status_reason,
   }
+}
+
+export function filterSelectableCampaignTags(params: {
+  tags: ActionTagItem[]
+  sites: Site[]
+  paths?: PathItem[]
+  cmsTypes?: CmsTypeItem[]
+  scripts: ScriptListItem[]
+  search?: string
+  siteFilter?: string
+}): Array<{ tag: ActionTagItem; resolved: ResolvedActionTagPlan }> {
+  const siteByKey = new Map(params.sites.map((s) => [s.key, s]))
+  const q = (params.search ?? '').trim().toLowerCase()
+  const siteFilter = (params.siteFilter ?? '').trim()
+
+  return params.tags
+    .map((tag) => ({
+      tag,
+      resolved: resolveActionTagScript(
+        tag,
+        siteByKey.get(tag.site_key),
+        params.scripts,
+        { paths: params.paths, cmsTypes: params.cmsTypes },
+      ),
+    }))
+    .filter(({ tag, resolved }) => {
+      if (resolved.is_system_auth) return false
+      if (siteFilter && tag.site_key !== siteFilter) return false
+      if (!q) return true
+      const hay = [
+        tag.tag_key,
+        tag.name,
+        tag.site_key,
+        tag.site_name,
+        resolved.cms_type ?? '',
+        resolved.effective_script?.name ?? '',
+        resolved.effective_script?.package_key ?? '',
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
 }
 
 export function scriptTargetKey(packageKey: string, version: string): string {
@@ -478,6 +588,7 @@ export function buildCreateCampaignV2Input(params: {
     action_tags: params.resolvedTags
       .filter(
         (t): t is ResolvedActionTagPlan & { effective_script: ResolvedScriptRef } =>
+          !t.is_system_auth &&
           t.is_runnable &&
           t.effective_script !== null &&
           t.resolution_source !== 'missing',
@@ -502,18 +613,20 @@ export function buildCreateCampaignV2Input(params: {
     contents: params.validatedContents.map((c) => ({
       external_ref: c.external_ref,
       raw_source: c.raw_source,
-      assignments: c.targets.map((target) => {
-        const tag = tagByKey.get(target.action_tag_key)
-        return {
-          action_tag_id: tag?.tag_id ?? null,
-          action_tag_key: target.action_tag_key,
-          script_package_key: target.script_package_key,
-          script_version: target.script_version,
-          release_id: target.release_id > 0 ? target.release_id : null,
-          raw_source: c.raw_source,
-          shortcode_mapping: target.shortcode_mapping,
-        }
-      }),
+      assignments: c.targets
+        .filter((target) => !tagByKey.get(target.action_tag_key)?.is_system_auth)
+        .map((target) => {
+          const tag = tagByKey.get(target.action_tag_key)
+          return {
+            action_tag_id: tag?.tag_id ?? null,
+            action_tag_key: target.action_tag_key,
+            script_package_key: target.script_package_key,
+            script_version: target.script_version,
+            release_id: target.release_id > 0 ? target.release_id : null,
+            raw_source: c.raw_source,
+            shortcode_mapping: target.shortcode_mapping,
+          }
+        }),
     })),
   }
 }

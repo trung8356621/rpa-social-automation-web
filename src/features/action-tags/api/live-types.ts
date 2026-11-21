@@ -78,6 +78,7 @@ export type LiveTag = {
   published_script_available?: boolean
   latest_request_status?: string | null
   latest_request_id?: string | null
+  is_authentication?: boolean
 }
 
 export type LiveScriptRequest = {

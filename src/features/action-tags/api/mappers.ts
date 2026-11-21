@@ -275,6 +275,9 @@ function mapTag(
     auth_resolution_source: asAuthResolutionSource(
       tag.auth_resolution_source ?? tag.auth_source,
     ),
+    ...(tag.is_authentication != null
+      ? { is_authentication: Boolean(tag.is_authentication) }
+      : {}),
   }
 }
 

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import type { ActionTagItem, Site } from '../src/features/action-tags/types.ts'
+import type {
+  ActionTagItem,
+  CmsTypeItem,
+  PathItem,
+  Site,
+} from '../src/features/action-tags/types.ts'
 import { buildLiveCampaignV2CreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
 import { mapLiveCampaign } from '../src/features/campaigns/api/mappers.ts'
 import { mockCampaignAdapter, resetMockCampaignStore } from '../src/features/campaigns/api/mock-adapter.ts'
@@ -9,9 +14,11 @@ import {
   buildCreateCampaignV2Input,
   buildV2DraftPlanPayload,
   createPlannedContentItem,
+  filterSelectableCampaignTags,
   formatCampaignV2ApiError,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
+  isSystemAuthenticationTag,
   resolveActionTagScript,
   scriptTargetKey,
   validateStep1Plan,
@@ -546,5 +553,278 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.deepEqual(formatted422.validationErrors, [
       'name: The name field is required.',
     ])
+  })
+
+  it('excludes system authentication tags using authoritative is_authentication metadata without hiding custom .login tags', () => {
+    const authSites: Site[] = [
+      {
+        id: 10,
+        key: 'baloquatang',
+        name: 'Balo Qua Tang',
+        base_url: 'https://baloquatang.example',
+        cms_type: 'wordpress',
+      },
+      {
+        id: 11,
+        key: 'customsite',
+        name: 'Custom Site',
+        base_url: 'https://custom.example',
+        cms_type: null,
+      },
+    ]
+
+    const authPaths: PathItem[] = [
+      {
+        id: 100,
+        site_id: 10,
+        site_key: 'baloquatang',
+        key: 'login',
+        name: 'Login',
+        url_pattern: '/wp-login.php',
+        path_inputs: [],
+        is_authentication: true,
+      },
+      {
+        id: 101,
+        site_id: 10,
+        site_key: 'baloquatang',
+        key: 'create_post',
+        name: 'Create Post',
+        url_pattern: '/wp-admin/post-new.php',
+        path_inputs: [],
+        is_authentication: false,
+      },
+      {
+        id: 102,
+        site_id: 11,
+        site_key: 'customsite',
+        key: 'login',
+        name: 'Custom Action Named Login',
+        url_pattern: '/custom-action',
+        path_inputs: [],
+        is_authentication: false,
+      },
+    ]
+
+    const cmsTypes: CmsTypeItem[] = [
+      {
+        id: 1,
+        key: 'wordpress',
+        name: 'WordPress',
+        is_enabled: true,
+        path_templates: [
+          {
+            cms_type: 'wordpress',
+            key: 'login',
+            name: 'Login',
+            url_pattern: '/wp-login.php',
+            path_inputs: [],
+            is_authentication: true,
+          },
+        ],
+      },
+    ]
+
+    const authTags: ActionTagItem[] = [
+      {
+        id: 201,
+        tag_key: 'baloquatang.login',
+        site_key: 'baloquatang',
+        site_name: 'Balo Qua Tang',
+        path_id: 100,
+        path_key: 'login',
+        path_name: 'Login',
+        name: 'baloquatang.login',
+        scripts_count: 1,
+        ready: true,
+        enabled: true,
+      },
+      {
+        id: 202,
+        tag_key: 'baloquatang.create_post',
+        site_key: 'baloquatang',
+        site_name: 'Balo Qua Tang',
+        path_id: 101,
+        path_key: 'create_post',
+        path_name: 'Create Post',
+        name: 'baloquatang.create_post',
+        scripts_count: 1,
+        ready: true,
+        enabled: true,
+      },
+      {
+        id: 203,
+        tag_key: 'customsite.login',
+        site_key: 'customsite',
+        site_name: 'Custom Site',
+        path_id: 102,
+        path_key: 'login',
+        path_name: 'Custom Action Named Login',
+        name: 'customsite.login',
+        scripts_count: 1,
+        ready: true,
+        enabled: true,
+      },
+    ]
+
+    const authScripts: ScriptListItem[] = [
+      ...SCRIPTS,
+      {
+        package_key: 'baloquatang.create_post',
+        script_id: 'baloquatang.create_post',
+        name: 'Balo Create Post',
+        action_tag_key: 'baloquatang.create_post',
+        version: '1.0.0',
+        release_id: 301,
+        status: 'published',
+        assets_complete: true,
+        video_demo_status: 'ready',
+        has_playable_video: true,
+        has_thumbnail: true,
+        video_media_id: 1,
+        thumbnail_media_id: 2,
+        thumbnail_url: null,
+        video_url: null,
+        last_sync_label: 'now',
+        updated_by_label: 'staff',
+        is_authentication: false,
+      },
+      {
+        package_key: 'customsite.login',
+        script_id: 'customsite.login',
+        name: 'Custom Non-Auth Script',
+        action_tag_key: 'customsite.login',
+        version: '1.0.0',
+        release_id: 302,
+        status: 'published',
+        assets_complete: true,
+        video_demo_status: 'ready',
+        has_playable_video: true,
+        has_thumbnail: true,
+        video_media_id: 1,
+        thumbnail_media_id: 2,
+        thumbnail_url: null,
+        video_url: null,
+        last_sync_label: 'now',
+        updated_by_label: 'staff',
+        is_authentication: false,
+      },
+    ]
+
+    // 1. WordPress auth tag is classified as system auth; create_post and custom .login are not
+    assert.equal(
+      isSystemAuthenticationTag(authTags[0]!, {
+        site: authSites[0],
+        paths: authPaths,
+        cmsTypes,
+      }),
+      true,
+    )
+    assert.equal(
+      isSystemAuthenticationTag(authTags[1]!, {
+        site: authSites[0],
+        paths: authPaths,
+        cmsTypes,
+      }),
+      false,
+    )
+    assert.equal(
+      isSystemAuthenticationTag(authTags[2]!, {
+        site: authSites[1],
+        paths: authPaths,
+        cmsTypes,
+      }),
+      false,
+    )
+
+    // 2. Picker, Search, and Site filter exclude WordPress auth tag but preserve create_post and custom .login
+    const allSelectable = filterSelectableCampaignTags({
+      tags: authTags,
+      sites: authSites,
+      paths: authPaths,
+      cmsTypes,
+      scripts: authScripts,
+    })
+    assert.deepEqual(
+      allSelectable.map((r) => r.tag.tag_key),
+      ['baloquatang.create_post', 'customsite.login'],
+    )
+
+    const searchLogin = filterSelectableCampaignTags({
+      tags: authTags,
+      sites: authSites,
+      paths: authPaths,
+      cmsTypes,
+      scripts: authScripts,
+      search: 'login',
+    })
+    assert.deepEqual(
+      searchLogin.map((r) => r.tag.tag_key),
+      ['customsite.login'],
+    )
+
+    const siteFiltered = filterSelectableCampaignTags({
+      tags: authTags,
+      sites: authSites,
+      paths: authPaths,
+      cmsTypes,
+      scripts: authScripts,
+      siteFilter: 'baloquatang',
+    })
+    assert.deepEqual(
+      siteFiltered.map((r) => r.tag.tag_key),
+      ['baloquatang.create_post'],
+    )
+
+    // 3. Selected Tag validation rejects system authentication tag
+    const resolvedAuth = resolveActionTagScript(
+      authTags[0]!,
+      authSites[0],
+      authScripts,
+      { paths: authPaths, cmsTypes },
+    )
+    const resolvedPost = resolveActionTagScript(
+      authTags[1]!,
+      authSites[0],
+      authScripts,
+      { paths: authPaths, cmsTypes },
+    )
+    assert.equal(resolvedAuth.is_system_auth, true)
+    assert.equal(resolvedAuth.is_runnable, false)
+    assert.equal(
+      validateStep1Plan({
+        name: 'Test Plan',
+        resolvedTags: [resolvedAuth, resolvedPost],
+      }).ok,
+      false,
+    )
+
+    // 4. Payload builder never includes system authentication tags
+    const v2Input = buildCreateCampaignV2Input({
+      name: 'Safe Plan',
+      run_mode: 'live',
+      resolvedTags: [resolvedAuth, resolvedPost],
+      groups: [],
+      groupMappings: {},
+      validatedContents: [],
+    })
+    const body = buildLiveCampaignV2CreateBody(v2Input)
+    assert.deepEqual(
+      body.action_tags.map((t) => t.action_tag_key),
+      ['baloquatang.create_post'],
+    )
+
+    // 5. Historical Campaign Details referencing an auth tag still map normally
+    const historical = mapLiveCampaign({
+      id: 'camp_hist_auth',
+      name: 'Historical Auth Campaign',
+      platform: 'baloquatang',
+      script_id: 'baloquatang.login',
+      script_version: '1.0.0',
+      status: 'completed',
+      run_mode: 'live',
+    })
+    assert.equal(historical.script_package_key, 'baloquatang.login')
+    assert.equal(historical.status, 'completed')
   })
 })
