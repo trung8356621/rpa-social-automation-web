@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { FolderTree, Layers, Pencil, Search } from 'lucide-react'
+import { Fragment, useMemo, useState } from 'react'
+import { ChevronDown, ChevronRight, FolderTree, Layers, Pencil, Search } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -11,6 +11,7 @@ import type { ScriptListItem } from '@/features/script-registry/types'
 import type { RpaApiMode } from '@/lib/api/config'
 
 import { resolveTagPublishedScriptStatus } from '../auto-tag-lifecycle'
+import { groupActionTagsBySite, isSiteGroupExpanded } from '../group-tags'
 import type {
   ActionItem,
   ActionTagItem,
@@ -59,6 +60,9 @@ export function ActionTagsScreen({
   const [siteFilter, setSiteFilter] = useState('all')
   const [pathFilter, setPathFilter] = useState('all')
   const [togglingTagId, setTogglingTagId] = useState<number | null>(null)
+  const [collapsedGroups, setCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({})
   const drawerParam = searchParams.get('drawer')
   const editTagId = Number(searchParams.get('tagId') || 0)
   const isEditAuthDrawer = drawerParam === 'edit-auth'
@@ -115,6 +119,18 @@ export function ActionTagsScreen({
       return true
     })
   }, [tags, search, siteFilter, pathFilter])
+
+  const groupedTags = useMemo(
+    () => groupActionTagsBySite(filteredTags, sites),
+    [filteredTags, sites],
+  )
+
+  const toggleGroupExpanded = (groupKey: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }))
+  }
 
   const handleCopyTagKey = async (key: string) => {
     try {
@@ -263,106 +279,163 @@ export function ActionTagsScreen({
                   </td>
                 </tr>
               ) : (
-                filteredTags.map((tag) => {
-                  const isCopied = copiedKey === tag.tag_key
-                  const isEnabled = tag.enabled ?? true
-                  const scriptStatus = resolveTagPublishedScriptStatus(tag, scripts)
-                  const isToggling = togglingTagId === tag.id
+                groupedTags.map((group) => {
+                  const isExpanded = isSiteGroupExpanded(
+                    group.groupKey,
+                    collapsedGroups,
+                    hasActiveFilters,
+                  )
                   return (
-                    <tr
-                      key={tag.id}
-                      className={
-                        isEnabled
-                          ? 'border-b border-border last:border-b-0'
-                          : 'border-b border-border bg-surface-muted/40 opacity-75 last:border-b-0'
-                      }
-                    >
-                      <td className="px-3 py-2.5 text-foreground">
-                        {tag.site_name}
-                      </td>
-                      <td className="px-3 py-2.5 text-foreground">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span>{tag.path_name}</span>
-                          {tag.action_name ? (
-                            <Badge variant="neutral">{tag.action_name}</Badge>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <code className="font-mono text-xs text-foreground">
-                          {tag.tag_key}
-                        </code>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={isEnabled}
-                          aria-label={`Toggle ${tag.tag_key}`}
-                          disabled={!mutationsEnabled || isToggling}
-                          onClick={() => {
-                            setTogglingTagId(tag.id)
-                            void onToggleTagEnabled(tag.id, !isEnabled).finally(
-                              () => setTogglingTagId(null),
+                    <Fragment key={group.groupKey}>
+                      <tr className="border-b border-border bg-surface-muted/60">
+                        <td colSpan={7} className="px-3 py-2">
+                          <button
+                            type="button"
+                            aria-expanded={isExpanded}
+                            onClick={() => toggleGroupExpanded(group.groupKey)}
+                            className="flex w-full items-center justify-between gap-2 text-left"
+                          >
+                            <span className="flex items-center gap-2">
+                              {isExpanded ? (
+                                <ChevronDown className="size-4 text-muted" />
+                              ) : (
+                                <ChevronRight className="size-4 text-muted" />
+                              )}
+                              <span className="font-semibold text-foreground">
+                                {group.siteName}
+                              </span>
+                              <code className="font-mono text-xs text-muted">
+                                {group.siteKey}
+                              </code>
+                            </span>
+                            <Badge variant="neutral">
+                              {group.tags.length} tag
+                              {group.tags.length === 1 ? '' : 's'}
+                            </Badge>
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded
+                        ? group.tags.map((tag) => {
+                            const isCopied = copiedKey === tag.tag_key
+                            const isEnabled = tag.enabled ?? true
+                            const scriptStatus = resolveTagPublishedScriptStatus(
+                              tag,
+                              scripts,
                             )
-                          }}
-                          className="inline-flex items-center gap-2 text-xs font-medium disabled:opacity-50"
-                        >
-                          <Badge variant={isEnabled ? 'success' : 'neutral'}>
-                            {isEnabled ? 'Enabled' : 'Disabled'}
-                          </Badge>
-                        </button>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {scriptStatus.hasPublishedScript ? (
-                          <Badge variant="primary">
-                            Published
-                            {scriptStatus.matchedScript?.version
-                              ? ` · v${scriptStatus.matchedScript.version}`
-                              : ''}
-                          </Badge>
-                        ) : (
-                          <Badge variant="warning">Missing Script</Badge>
-                        )}
-                      </td>
-                      <td className="max-w-[14rem] px-3 py-2.5">
-                        {tag.auth_script ? (
-                          <span
-                            className="block truncate text-xs text-foreground"
-                            title={formatAuthScriptLabel(tag.auth_script)}
-                          >
-                            {formatAuthScriptLabel(tag.auth_script)}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void handleCopyTagKey(tag.tag_key)}
-                          >
-                            {isCopied ? 'Copied' : 'Copy Key'}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setDrawerOpen(true, tag.id)}
-                            disabled={!mutationsEnabled}
-                            aria-label={`Edit Auth Script for ${tag.tag_key}`}
-                            title={
-                              mutationsEnabled
-                                ? 'Edit Auth Script'
-                                : 'Live editing not enabled yet'
-                            }
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
+                            const isToggling = togglingTagId === tag.id
+                            return (
+                              <tr
+                                key={tag.id}
+                                className={
+                                  isEnabled
+                                    ? 'border-b border-border last:border-b-0'
+                                    : 'border-b border-border bg-surface-muted/40 opacity-75 last:border-b-0'
+                                }
+                              >
+                                <td className="px-3 py-2.5 pl-8 text-muted">
+                                  {tag.site_name}
+                                </td>
+                                <td className="px-3 py-2.5 text-foreground">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span>{tag.path_name}</span>
+                                    {tag.action_name ? (
+                                      <Badge variant="neutral">
+                                        {tag.action_name}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <code className="font-mono text-xs text-foreground">
+                                    {tag.tag_key}
+                                  </code>
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={isEnabled}
+                                    aria-label={`Toggle ${tag.tag_key}`}
+                                    disabled={!mutationsEnabled || isToggling}
+                                    onClick={() => {
+                                      setTogglingTagId(tag.id)
+                                      void onToggleTagEnabled(
+                                        tag.id,
+                                        !isEnabled,
+                                      ).finally(() => setTogglingTagId(null))
+                                    }}
+                                    className="inline-flex items-center gap-2 text-xs font-medium disabled:opacity-50"
+                                  >
+                                    <Badge
+                                      variant={isEnabled ? 'success' : 'neutral'}
+                                    >
+                                      {isEnabled ? 'Enabled' : 'Disabled'}
+                                    </Badge>
+                                  </button>
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  {scriptStatus.hasPublishedScript ? (
+                                    <Badge variant="primary">
+                                      Published
+                                      {scriptStatus.matchedScript?.version
+                                        ? ` · v${scriptStatus.matchedScript.version}`
+                                        : ''}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="warning">
+                                      Missing Script
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="max-w-[14rem] px-3 py-2.5">
+                                  {tag.auth_script ? (
+                                    <span
+                                      className="block truncate text-xs text-foreground"
+                                      title={formatAuthScriptLabel(
+                                        tag.auth_script,
+                                      )}
+                                    >
+                                      {formatAuthScriptLabel(tag.auth_script)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-muted">
+                                      —
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2.5">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        void handleCopyTagKey(tag.tag_key)
+                                      }
+                                    >
+                                      {isCopied ? 'Copied' : 'Copy Key'}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setDrawerOpen(true, tag.id)}
+                                      disabled={!mutationsEnabled}
+                                      aria-label={`Edit Auth Script for ${tag.tag_key}`}
+                                      title={
+                                        mutationsEnabled
+                                          ? 'Edit Auth Script'
+                                          : 'Live editing not enabled yet'
+                                      }
+                                    >
+                                      <Pencil className="size-3.5" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })
+                        : null}
+                    </Fragment>
                   )
                 })
               )}

@@ -15,6 +15,10 @@ import {
   validateSitePathUniqueness,
 } from '../src/features/action-tags/cms-templates.ts'
 import { mapLiveActionRegistry } from '../src/features/action-tags/api/mappers.ts'
+import {
+  groupActionTagsBySite,
+  isSiteGroupExpanded,
+} from '../src/features/action-tags/group-tags.ts'
 import { ACTION_REGISTRY_PATHS } from '../src/lib/api/config.ts'
 import type {
   ActionTagItem,
@@ -639,5 +643,87 @@ describe('Dynamic CMS Path Reuse & Automatic Action Tag Lifecycle', () => {
       publishedScriptsCount: 1,
       authPinsCount: 1,
     })
+  })
+
+  it('10. Groups Action Tags by Site alphabetically and auto-expands during search/filter', () => {
+    const sites: Site[] = [
+      { id: 1, key: 'wordpress', name: 'WordPress', base_url: 'https://wp.test' },
+      { id: 2, key: 'bepxinh', name: 'Bepxinh', base_url: 'https://bepxinh.test' },
+      { id: 3, key: 'mayhopphat', name: 'Mayhopphat', base_url: 'https://mhp.test' },
+    ]
+    const mixedTags: ActionTagItem[] = [
+      {
+        id: 1,
+        tag_key: 'wordpress.create_post',
+        site_id: 1,
+        site_key: 'wordpress',
+        site_name: 'WordPress',
+        path_key: 'create_post',
+        path_name: 'Create Post',
+        name: 'wordpress.create_post',
+        scripts_count: 1,
+        ready: true,
+        enabled: true,
+      },
+      {
+        id: 2,
+        tag_key: 'mayhopphat.login',
+        site_id: 3,
+        site_key: 'mayhopphat',
+        site_name: 'Mayhopphat',
+        path_key: 'login',
+        path_name: 'Login',
+        name: 'mayhopphat.login',
+        scripts_count: 1,
+        ready: true,
+        enabled: true,
+      },
+      {
+        id: 3,
+        tag_key: 'bepxinh.create_post',
+        site_id: 2,
+        site_key: 'bepxinh',
+        site_name: 'Bepxinh',
+        path_key: 'create_post',
+        path_name: 'Create Post',
+        name: 'bepxinh.create_post',
+        scripts_count: 0,
+        ready: false,
+        enabled: false,
+      },
+      {
+        id: 4,
+        tag_key: 'mayhopphat.create_post',
+        site_id: 3,
+        site_key: 'mayhopphat',
+        site_name: 'Mayhopphat',
+        path_key: 'create_post',
+        path_name: 'Create Post',
+        name: 'mayhopphat.create_post',
+        scripts_count: 1,
+        ready: true,
+        enabled: true,
+      },
+    ]
+
+    const groups = groupActionTagsBySite(mixedTags, sites)
+    assert.deepEqual(
+      groups.map((g) => [g.siteName, g.tags.length, g.enabledCount]),
+      [
+        ['Bepxinh', 1, 0],
+        ['Mayhopphat', 2, 2],
+        ['WordPress', 1, 1],
+      ],
+    )
+    assert.deepEqual(
+      groups[1].tags.map((t) => t.tag_key),
+      ['mayhopphat.create_post', 'mayhopphat.login'],
+    )
+
+    // Expand/collapse state & auto-expand when search/filter is active
+    const collapsed = { mayhopphat: true }
+    assert.equal(isSiteGroupExpanded('mayhopphat', collapsed, false), false)
+    assert.equal(isSiteGroupExpanded('bepxinh', collapsed, false), true)
+    assert.equal(isSiteGroupExpanded('mayhopphat', collapsed, true), true)
   })
 })
