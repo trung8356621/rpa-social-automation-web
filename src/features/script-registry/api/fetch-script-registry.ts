@@ -1,10 +1,15 @@
 import { SCRIPT_REGISTRY_PATHS } from '@/lib/api/config'
 import { staffApiRequest } from '@/lib/api/http'
 
-import type { ScriptDetail, ScriptListItem } from '../types'
+import type {
+  ScriptDetail,
+  ScriptListItem,
+  ScriptSharingMode,
+} from '../types'
 import type {
   LiveScriptRegistryDetailResponse,
   LiveScriptRegistryListResponse,
+  LiveScriptSharingResponse,
 } from './live-types'
 import { mapLiveScriptDetail, mapLiveScriptListItem } from './map-script-registry'
 
@@ -34,4 +39,21 @@ export async function fetchLiveScriptRegistryDetail(
     throw new Error('Script detail response missing script object.')
   }
   return mapLiveScriptDetail(payload.script)
+}
+
+/**
+ * PATCH /social-automation/api/script-registry/{id}/sharing
+ * Updates sharing_mode ("cms_global" | "site_specific") via Staff Session + CSRF.
+ */
+export async function updateLiveScriptSharing(
+  packageKey: string,
+  sharingMode: ScriptSharingMode,
+): Promise<LiveScriptSharingResponse> {
+  return staffApiRequest<LiveScriptSharingResponse>(
+    SCRIPT_REGISTRY_PATHS.sharing(packageKey),
+    {
+      method: 'PATCH',
+      body: { sharing_mode: sharingMode },
+    },
+  )
 }

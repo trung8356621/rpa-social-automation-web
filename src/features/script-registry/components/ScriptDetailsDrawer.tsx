@@ -4,8 +4,13 @@ import { Play, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-import type { ScriptDetail, ScriptReleaseDetail } from '../types'
+import type {
+  ScriptDetail,
+  ScriptReleaseDetail,
+  ScriptSharingMode,
+} from '../types'
 import { displayScriptTitle } from '../types'
+import { ScriptSharingPanel } from './ScriptSharingPanel'
 import type { VideoPlayerTarget } from './VideoPlayerModal'
 
 type ScriptDetailsDrawerProps = {
@@ -13,6 +18,10 @@ type ScriptDetailsDrawerProps = {
   detail: ScriptDetail | null
   onClose: () => void
   onPlayRelease: (target: VideoPlayerTarget) => void
+  onUpdateSharing?: (
+    packageKey: string,
+    sharingMode: ScriptSharingMode,
+  ) => Promise<void>
 }
 
 function videoLabel(release: ScriptReleaseDetail): string {
@@ -37,6 +46,7 @@ export function ScriptDetailsDrawer({
   detail,
   onClose,
   onPlayRelease,
+  onUpdateSharing,
 }: ScriptDetailsDrawerProps) {
   useEffect(() => {
     if (!open) return
@@ -50,6 +60,7 @@ export function ScriptDetailsDrawer({
   if (!open || !detail) return null
 
   const title = displayScriptTitle(detail)
+  const hasPublishedRelease = detail.releases.some((r) => r.status === 'published')
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
@@ -102,6 +113,19 @@ export function ScriptDetailsDrawer({
               {detail.description?.trim() || '—'}
             </p>
           </div>
+
+          {hasPublishedRelease ? (
+            <ScriptSharingPanel
+              packageKey={detail.package_key}
+              sharingMode={detail.sharing_mode}
+              globalScope={detail.global_scope}
+              globalEligible={detail.global_eligible}
+              globalIneligibleReason={detail.global_ineligible_reason}
+              eligibleGlobalScope={detail.eligible_global_scope}
+              globalConflict={detail.global_conflict}
+              onUpdateSharing={onUpdateSharing}
+            />
+          ) : null}
 
           <div>
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted">

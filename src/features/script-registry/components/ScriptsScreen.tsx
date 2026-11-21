@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
-import type { ScriptDetail, ScriptListItem } from '../types'
+import type { ScriptDetail, ScriptListItem, ScriptSharingMode } from '../types'
 import { RemoveScriptDialog } from './RemoveScriptDialog'
 import { ScriptCard } from './ScriptCard'
 import { ScriptDetailsDrawer } from './ScriptDetailsDrawer'
@@ -25,6 +25,10 @@ type ScriptsScreenProps = {
   mutationsEnabled?: boolean
   mode?: 'mock' | 'live'
   onRemoveScript: (packageKey: string) => Promise<void>
+  onUpdateSharing?: (
+    packageKey: string,
+    sharingMode: ScriptSharingMode,
+  ) => Promise<void>
 }
 
 export function ScriptsScreen({
@@ -35,6 +39,7 @@ export function ScriptsScreen({
   mutationsEnabled = true,
   mode = 'mock',
   onRemoveScript,
+  onUpdateSharing,
 }: ScriptsScreenProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
@@ -170,6 +175,7 @@ export function ScriptsScreen({
               onOpenDetails={setDetail}
               onPlayVideo={openVideo}
               onRemove={setConfirmKey}
+              onUpdateSharing={onUpdateSharing}
             />
           ))}
         </div>
@@ -213,6 +219,7 @@ export function ScriptsScreen({
         onPlayRelease={(target) =>
           setVideoTarget({ ...target, playbackMode: isLive ? 'live' : 'mock' })
         }
+        onUpdateSharing={onUpdateSharing}
       />
 
       <VideoPlayerModal

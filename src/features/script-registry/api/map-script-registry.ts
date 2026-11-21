@@ -1,3 +1,8 @@
+import {
+  asSharingMode,
+  mapGlobalConflict,
+  parseSharingScope,
+} from '../sharing.ts'
 import type {
   ScriptDetail,
   ScriptListItem,
@@ -93,6 +98,23 @@ export function mapLiveScriptListItem(item: LiveScriptListItem): ScriptListItem 
       item.is_authentication == null
         ? undefined
         : Boolean(item.is_authentication),
+    sharing_mode: asSharingMode(item.sharing_mode),
+    global_scope:
+      typeof item.global_scope === 'string' && item.global_scope.trim()
+        ? item.global_scope.trim()
+        : null,
+    global_eligible:
+      item.global_eligible == null ? undefined : Boolean(item.global_eligible),
+    global_ineligible_reason:
+      typeof item.global_ineligible_reason === 'string' &&
+      item.global_ineligible_reason.trim()
+        ? item.global_ineligible_reason.trim()
+        : null,
+    eligible_global_scope: parseSharingScope(
+      item.global_scope,
+      item.eligible_global_scope,
+    ),
+    global_conflict: mapGlobalConflict(item.global_conflict),
   }
 }
 
@@ -163,6 +185,25 @@ export function mapLiveScriptDetail(script: LiveScriptDetail): ScriptDetail {
       script.is_authentication == null
         ? undefined
         : Boolean(script.is_authentication),
+    sharing_mode: asSharingMode(script.sharing_mode),
+    global_scope:
+      typeof script.global_scope === 'string' && script.global_scope.trim()
+        ? script.global_scope.trim()
+        : null,
+    global_eligible:
+      script.global_eligible == null
+        ? undefined
+        : Boolean(script.global_eligible),
+    global_ineligible_reason:
+      typeof script.global_ineligible_reason === 'string' &&
+      script.global_ineligible_reason.trim()
+        ? script.global_ineligible_reason.trim()
+        : null,
+    eligible_global_scope: parseSharingScope(
+      script.global_scope,
+      script.eligible_global_scope,
+    ),
+    global_conflict: mapGlobalConflict(script.global_conflict),
     releases,
   }
 }

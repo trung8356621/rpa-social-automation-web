@@ -12,6 +12,22 @@ export type VideoDemoStatus =
 
 export type ScriptReleaseStatus = 'published' | 'yanked' | 'draft'
 
+export type ScriptSharingMode = 'cms_global' | 'site_specific'
+
+export type ScriptSharingScope = {
+  scope: string | null
+  cms_type: string | null
+  path_template: string | null
+}
+
+export type ScriptGlobalConflict = {
+  package_key?: string | null
+  script_id?: string | null
+  name?: string | null
+  global_scope?: string | null
+  message?: string | null
+} | null
+
 export type ScriptListItem = {
   package_key: string
   script_id: string
@@ -34,6 +50,12 @@ export type ScriptListItem = {
   updated_by_label: string
   /** From Staff `is_authentication` (LIVE) or mock seed */
   is_authentication?: boolean
+  sharing_mode?: ScriptSharingMode
+  global_scope?: string | null
+  global_eligible?: boolean
+  global_ineligible_reason?: string | null
+  eligible_global_scope?: ScriptSharingScope | null
+  global_conflict?: ScriptGlobalConflict
 }
 
 export type ScriptReleaseDetail = {
@@ -70,6 +92,12 @@ export type ScriptDetail = {
   description: string | null
   updated_by_label: string
   is_authentication?: boolean
+  sharing_mode?: ScriptSharingMode
+  global_scope?: string | null
+  global_eligible?: boolean
+  global_ineligible_reason?: string | null
+  eligible_global_scope?: ScriptSharingScope | null
+  global_conflict?: ScriptGlobalConflict
   releases: ScriptReleaseDetail[]
 }
 

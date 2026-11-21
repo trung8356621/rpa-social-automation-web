@@ -7,8 +7,15 @@ import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 import {
   fetchLiveScriptRegistryDetail,
   fetchLiveScriptRegistryList,
+  updateLiveScriptSharing,
 } from './api/fetch-script-registry'
-import type { DemoScenario, ScriptDetail, ScriptListItem } from './types'
+import { formatSharingErrorMessage } from './sharing'
+import type {
+  DemoScenario,
+  ScriptDetail,
+  ScriptListItem,
+  ScriptSharingMode,
+} from './types'
 import { useScriptRegistryMock } from './use-script-registry-mock'
 
 function useScriptRegistryLive(enabled: boolean) {
@@ -159,6 +166,30 @@ function useScriptRegistryLive(enabled: boolean) {
     )
   }, [showToast])
 
+  const updateScriptSharing = useCallback(
+    async (packageKey: string, sharingMode: ScriptSharingMode) => {
+      try {
+        await updateLiveScriptSharing(packageKey, sharingMode)
+        const [freshList, freshDetail] = await Promise.all([
+          fetchLiveScriptRegistryList(),
+          fetchLiveScriptRegistryDetail(packageKey),
+        ])
+        setScripts(freshList)
+        setDetails((prev) => ({ ...prev, [packageKey]: freshDetail }))
+        showToast(
+          freshDetail.sharing_mode === 'cms_global'
+            ? `Đã bật chia sẻ CMS Global (${freshDetail.global_scope ?? 'global'}).`
+            : 'Đã chuyển về Site-specific.',
+        )
+      } catch (err: unknown) {
+        const msg = formatSharingErrorMessage(err)
+        showToast(msg, 'error')
+        throw new Error(msg)
+      }
+    },
+    [showToast],
+  )
+
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
@@ -177,6 +208,7 @@ function useScriptRegistryLive(enabled: boolean) {
       reload,
       getDetail,
       removeScript,
+      updateScriptSharing,
     }),
     [
       authRequired,
@@ -191,6 +223,7 @@ function useScriptRegistryLive(enabled: boolean) {
       scripts,
       showToast,
       toast,
+      updateScriptSharing,
     ],
   )
 }

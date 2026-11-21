@@ -75,8 +75,8 @@ export function ScriptsPage() {
     <>
       {isLive ? (
         <p className="mb-3 rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
-          LIVE — Staff session Script Registry (read-only). Media via Staff
-          session URLs. Remove/publish/sync disabled.
+          LIVE — Staff session Script Registry. CMS Global sharing enabled;
+          remove/publish/sync disabled.
         </p>
       ) : null}
       <ScriptsScreen
@@ -87,6 +87,7 @@ export function ScriptsPage() {
         mutationsEnabled={registry.mutationsEnabled}
         mode={registry.mode}
         onRemoveScript={registry.removeScript}
+        onUpdateSharing={registry.updateScriptSharing}
       />
       <Toast toast={registry.toast} />
     </>

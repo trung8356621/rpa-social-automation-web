@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { Film, Play, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-import type { ScriptListItem } from '../types'
+import { formatGlobalConflictLabel } from '../sharing'
+import type { ScriptListItem, ScriptSharingMode } from '../types'
 import { displayScriptTitle, scriptStatusBadge } from '../types'
 
 type ScriptCardProps = {
@@ -13,6 +15,10 @@ type ScriptCardProps = {
   onOpenDetails: (packageKey: string) => void
   onPlayVideo: (script: ScriptListItem) => void
   onRemove: (packageKey: string) => void
+  onUpdateSharing?: (
+    packageKey: string,
+    sharingMode: ScriptSharingMode,
+  ) => Promise<void>
 }
 
 export function ScriptCard({
@@ -21,11 +27,39 @@ export function ScriptCard({
   onOpenDetails,
   onPlayVideo,
   onRemove,
+  onUpdateSharing,
 }: ScriptCardProps) {
+  const [updatingSharing, setUpdatingSharing] = useState(false)
+  const [sharingError, setSharingError] = useState<string | null>(null)
+
   const badge = scriptStatusBadge(script)
   const title = displayScriptTitle(script)
   const canPlay =
     script.has_playable_video && script.video_demo_status === 'ready'
+  const isPublished = script.status === 'published'
+  const isGlobal = script.sharing_mode === 'cms_global'
+  const isIneligible = script.global_eligible === false
+  const scopeLabel =
+    script.global_scope || script.eligible_global_scope?.scope || null
+  const conflictLabel = formatGlobalConflictLabel(script.global_conflict)
+
+  const handleToggleSharing = async (checked: boolean) => {
+    if (!onUpdateSharing) return
+    setSharingError(null)
+    setUpdatingSharing(true)
+    try {
+      await onUpdateSharing(
+        script.package_key,
+        checked ? 'cms_global' : 'site_specific',
+      )
+    } catch (err) {
+      setSharingError(
+        err instanceof Error ? err.message : 'Failed to update sharing mode.',
+      )
+    } finally {
+      setUpdatingSharing(false)
+    }
+  }
 
   return (
     <article className="flex h-full flex-col overflow-hidden rounded-[var(--radius-card)] border border-border bg-surface">
@@ -70,6 +104,7 @@ export function ScriptCard({
           </h3>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Badge variant={badge.variant}>{badge.label}</Badge>
+            {isGlobal ? <Badge variant="primary">CMS Global</Badge> : null}
             {script.is_authentication ? (
               <Badge variant="primary">Authentication</Badge>
             ) : null}
@@ -96,6 +131,48 @@ export function ScriptCard({
             </div>
           ) : null}
         </dl>
+
+        {isPublished && onUpdateSharing ? (
+          <div className="rounded-[var(--radius-control)] border border-border bg-surface-muted/40 px-2.5 py-2 text-xs">
+            <label
+              htmlFor={`card-share-${script.package_key}`}
+              className="flex cursor-pointer items-center gap-2"
+            >
+              <input
+                id={`card-share-${script.package_key}`}
+                type="checkbox"
+                className="size-3.5 rounded border-border"
+                checked={isGlobal}
+                disabled={updatingSharing || isIneligible}
+                onChange={(e) => void handleToggleSharing(e.target.checked)}
+              />
+              <span className="font-medium text-foreground">
+                Share across CMS Sites
+              </span>
+            </label>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted">
+              <span className="font-mono">
+                {script.sharing_mode ?? 'site_specific'}
+              </span>
+              {scopeLabel ? (
+                <span className="font-mono text-foreground">{scopeLabel}</span>
+              ) : null}
+            </div>
+            {isIneligible && script.global_ineligible_reason ? (
+              <p className="mt-1 text-[11px] text-danger">
+                {script.global_ineligible_reason}
+              </p>
+            ) : null}
+            {conflictLabel ? (
+              <p className="mt-1 text-[11px] text-danger">
+                Conflict: {conflictLabel}
+              </p>
+            ) : null}
+            {sharingError ? (
+              <p className="mt-1 text-[11px] text-danger">{sharingError}</p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-2">
           <span className="text-[11px] text-muted">{script.last_sync_label}</span>

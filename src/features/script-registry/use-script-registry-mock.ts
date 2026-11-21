@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { EMPTY_SCRIPT_REGISTRY, MOCK_SCRIPT_REGISTRY } from './mock-data'
-import type { DemoScenario, ScriptRegistryData } from './types'
+import type {
+  DemoScenario,
+  ScriptRegistryData,
+  ScriptSharingMode,
+} from './types'
 
 function delay(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -100,6 +104,59 @@ export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
     [showToast],
   )
 
+  const updateScriptSharing = useCallback(
+    async (packageKey: string, sharingMode: ScriptSharingMode) => {
+      await delay(200)
+      const target = data.scripts.find((s) => s.package_key === packageKey)
+      if (!target) throw new Error('Script không tồn tại.')
+      if (sharingMode === 'cms_global' && target.global_eligible === false) {
+        const msg =
+          target.global_ineligible_reason ||
+          'Script không đủ điều kiện chia sẻ CMS Global.'
+        showToast(msg, 'error')
+        throw new Error(msg)
+      }
+      const targetScope =
+        target.eligible_global_scope?.scope ?? target.global_scope ?? null
+      if (sharingMode === 'cms_global' && targetScope) {
+        const conflict = data.scripts.find(
+          (s) =>
+            s.package_key !== packageKey &&
+            s.sharing_mode === 'cms_global' &&
+            (s.global_scope === targetScope ||
+              s.eligible_global_scope?.scope === targetScope),
+        )
+        if (conflict) {
+          const msg = `Xung đột CMS Global (409): [${conflict.name}] đã chia sẻ scope ${targetScope}.`
+          showToast(msg, 'error')
+          throw new Error(msg)
+        }
+      }
+
+      const nextScope = sharingMode === 'cms_global' ? targetScope : null
+      setData((prev) => ({
+        scripts: prev.scripts.map((s) =>
+          s.package_key === packageKey
+            ? { ...s, sharing_mode: sharingMode, global_scope: nextScope }
+            : s,
+        ),
+        details: Object.fromEntries(
+          Object.entries(prev.details).map(([k, d]) =>
+            k === packageKey
+              ? [k, { ...d, sharing_mode: sharingMode, global_scope: nextScope }]
+              : [k, d],
+          ),
+        ),
+      }))
+      showToast(
+        sharingMode === 'cms_global'
+          ? 'Đã bật chia sẻ CMS Global (MOCK local).'
+          : 'Đã chuyển về Site-specific (MOCK local).',
+      )
+    },
+    [data.scripts, showToast],
+  )
+
   return {
     loading,
     error,
@@ -108,5 +165,6 @@ export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
     reload,
     getDetail,
     removeScript,
+    updateScriptSharing,
   }
 }

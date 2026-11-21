@@ -29,6 +29,12 @@ export type LiveScriptListItem = {
   updated_by_label?: string
   widget_dependency_count?: number
   last_sync_label?: string
+  sharing_mode?: string | null
+  global_scope?: string | null
+  global_eligible?: boolean
+  global_ineligible_reason?: string | null
+  eligible_global_scope?: unknown
+  global_conflict?: unknown
 }
 
 export type LiveScriptRegistryDetailResponse = {
@@ -76,6 +82,21 @@ export type LiveScriptDetail = {
   video_media_url?: string | null
   thumbnail_media_url?: string | null
   updated_by_label?: string
+  sharing_mode?: string | null
+  global_scope?: string | null
+  global_eligible?: boolean
+  global_ineligible_reason?: string | null
+  eligible_global_scope?: unknown
+  global_conflict?: unknown
   releases?: LiveScriptRelease[]
   [key: string]: unknown
+}
+
+export type LiveScriptSharingResponse = {
+  ok?: boolean
+  sharing_mode?: string
+  global_scope?: string | null
+  script?: LiveScriptDetail | LiveScriptListItem
+  error?: string
+  message?: string
 }

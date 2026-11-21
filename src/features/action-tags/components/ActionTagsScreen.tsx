@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { findCmsGlobalScriptForActionTag } from '@/features/script-registry/sharing'
 import type { ScriptListItem } from '@/features/script-registry/types'
 import type { RpaApiMode } from '@/lib/api/config'
 
@@ -323,6 +324,15 @@ export function ActionTagsScreen({
                               tag,
                               scripts,
                             )
+                            const tagSite = sites.find(
+                              (s) =>
+                                s.id === tag.site_id || s.key === tag.site_key,
+                            )
+                            const globalScript = findCmsGlobalScriptForActionTag(
+                              tag,
+                              tagSite?.cms_type,
+                              scripts,
+                            )
                             const isToggling = togglingTagId === tag.id
                             return (
                               <tr
@@ -376,12 +386,29 @@ export function ActionTagsScreen({
                                 </td>
                                 <td className="px-3 py-2.5">
                                   {scriptStatus.hasPublishedScript ? (
-                                    <Badge variant="primary">
-                                      Published
-                                      {scriptStatus.matchedScript?.version
-                                        ? ` · v${scriptStatus.matchedScript.version}`
-                                        : ''}
-                                    </Badge>
+                                    <div className="flex flex-wrap items-center gap-1">
+                                      <Badge variant="primary">
+                                        Published
+                                        {scriptStatus.matchedScript?.version
+                                          ? ` · v${scriptStatus.matchedScript.version}`
+                                          : ''}
+                                      </Badge>
+                                      {scriptStatus.matchedScript
+                                        ?.sharing_mode === 'cms_global' ? (
+                                        <Badge variant="success">
+                                          CMS Global
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  ) : globalScript ? (
+                                    <div
+                                      className="flex flex-wrap items-center gap-1"
+                                      title={`Resolves via CMS Global Script: ${globalScript.name} (${globalScript.global_scope ?? 'cms_global'})`}
+                                    >
+                                      <Badge variant="success">
+                                        via CMS Global
+                                      </Badge>
+                                    </div>
                                   ) : (
                                     <Badge variant="warning">
                                       Missing Script
