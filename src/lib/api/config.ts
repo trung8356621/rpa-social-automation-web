@@ -39,6 +39,13 @@ export const ACTION_REGISTRY_PATHS = {
   tagEnabled: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/enabled`,
   tagAuthPin: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/auth-pin`,
   tagRequests: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/requests`,
+  cmsTypes: `${ACTION_REGISTRY_BASE}/cms-types`,
+  cmsType: (id: number) => `${ACTION_REGISTRY_BASE}/cms-types/${id}`,
+  cmsTypeEnabled: (id: number) => `${ACTION_REGISTRY_BASE}/cms-types/${id}/enabled`,
+  cmsTypeTemplates: (cmsTypeId: number) =>
+    `${ACTION_REGISTRY_BASE}/cms-types/${cmsTypeId}/templates`,
+  cmsTypeTemplate: (cmsTypeId: number, templateId: number) =>
+    `${ACTION_REGISTRY_BASE}/cms-types/${cmsTypeId}/templates/${templateId}`,
 } as const
 
 const SCRIPT_REGISTRY_BASE = '/social-automation/api/script-registry'

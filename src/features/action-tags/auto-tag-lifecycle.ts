@@ -1,12 +1,11 @@
 import type { ScriptListItem } from '../script-registry/types.ts'
 import {
   DEFAULT_CMS_PATH_TEMPLATES,
+  type CmsTemplateSource,
   resolveEffectivePathsForSite,
 } from './cms-templates.ts'
 import type {
   ActionTagItem,
-  CmsPathTemplate,
-  CmsType,
   PathItem,
   ScriptRequestItem,
   Site,
@@ -39,7 +38,7 @@ export function syncActionTagsForSites(
   paths: PathItem[],
   existingTags: ActionTagItem[],
   existingRequests: ScriptRequestItem[],
-  templates: Record<CmsType, CmsPathTemplate[]> = DEFAULT_CMS_PATH_TEMPLATES,
+  templates: CmsTemplateSource = DEFAULT_CMS_PATH_TEMPLATES,
 ): {
   tags: ActionTagItem[]
   requests: ScriptRequestItem[]

@@ -1,4 +1,19 @@
-import type { ActionRegistryData, AuthScriptOption } from './types'
+import { DEFAULT_CMS_PATH_TEMPLATES } from './cms-templates.ts'
+import type { ActionRegistryData, AuthScriptOption, CmsTypeItem } from './types'
+
+export const MOCK_CMS_TYPES: CmsTypeItem[] = [
+  {
+    id: 1,
+    key: 'wordpress',
+    name: 'WordPress',
+    description: 'WordPress CMS (shared create_post & login templates)',
+    is_enabled: true,
+    path_templates: DEFAULT_CMS_PATH_TEMPLATES.wordpress.map((t, idx) => ({
+      ...t,
+      id: idx + 1,
+    })),
+  },
+]
 
 /**
  * MOCK Auth Script catalog — not live API.
@@ -209,6 +224,7 @@ export const MOCK_ACTION_REGISTRY: ActionRegistryData = {
     },
   ],
   auth_scripts: MOCK_AUTH_SCRIPTS,
+  cms_types: MOCK_CMS_TYPES,
 }
 
 export const EMPTY_REGISTRY: ActionRegistryData = {
@@ -218,4 +234,5 @@ export const EMPTY_REGISTRY: ActionRegistryData = {
   tags: [],
   requests: [],
   auth_scripts: MOCK_AUTH_SCRIPTS,
+  cms_types: MOCK_CMS_TYPES,
 }

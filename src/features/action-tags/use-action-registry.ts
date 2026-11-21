@@ -7,12 +7,18 @@ import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 import { assertPathAuthenticationPersisted } from './api/assert-path-auth'
 import { fetchLiveActionRegistry } from './api/fetch-action-registry'
 import {
+  liveDestroyCmsPathTemplate,
   liveDestroySite,
   liveDestroyTag,
+  liveStoreCmsPathTemplate,
+  liveStoreCmsType,
   liveStorePath,
   liveStoreSite,
   liveStoreTag,
   liveUpdateAuthPin,
+  liveUpdateCmsPathTemplate,
+  liveUpdateCmsType,
+  liveUpdateCmsTypeEnabled,
   liveUpdatePath,
   liveUpdateSite,
   liveUpdateTagEnabled,
@@ -307,6 +313,115 @@ function useActionRegistryLive(enabled: boolean) {
     [reload, showToast],
   )
 
+  const saveCmsType = useCallback(
+    async (cmsData: {
+      id?: number
+      key?: string
+      name: string
+      description?: string | null
+      is_enabled?: boolean
+    }): Promise<{ id: number; key: string }> => {
+      if (cmsData.id) {
+        await liveUpdateCmsType(cmsData.id, {
+          name: cmsData.name,
+          description: cmsData.description ?? null,
+          is_enabled: cmsData.is_enabled,
+        })
+        showToast(`Đã cập nhật CMS Type [${cmsData.name}] (live).`)
+        const registry = await reload()
+        const updated = registry.cms_types.find((c) => c.id === cmsData.id)
+        return {
+          id: cmsData.id,
+          key: updated?.key ?? cmsData.key ?? '',
+        }
+      }
+
+      const key = (cmsData.key || cmsData.name)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+      const res = await liveStoreCmsType({
+        key,
+        name: cmsData.name,
+        description: cmsData.description ?? null,
+        is_enabled: cmsData.is_enabled ?? true,
+      })
+      showToast(`Đã thêm CMS Type [${cmsData.name}] (live).`)
+      const registry = await reload()
+      const created =
+        (res.cms_type?.id
+          ? registry.cms_types.find((c) => c.id === res.cms_type!.id)
+          : undefined) ?? registry.cms_types.find((c) => c.key === key)
+      return {
+        id: created?.id ?? Number(res.cms_type?.id ?? 0),
+        key: created?.key ?? key,
+      }
+    },
+    [reload, showToast],
+  )
+
+  const toggleCmsTypeEnabled = useCallback(
+    async (cmsId: number, enabled: boolean) => {
+      await liveUpdateCmsTypeEnabled(cmsId, enabled)
+      showToast(
+        enabled
+          ? 'Đã bật CMS Type (live).'
+          : 'Đã tắt CMS Type (live).',
+      )
+      await reload()
+    },
+    [reload, showToast],
+  )
+
+  const saveCmsPathTemplate = useCallback(
+    async (
+      cmsTypeId: number,
+      tplData: {
+        id?: number
+        key?: string
+        name: string
+        url_pattern: string
+        description?: string | null
+        is_authentication?: boolean
+      },
+    ) => {
+      if (tplData.id) {
+        await liveUpdateCmsPathTemplate(cmsTypeId, tplData.id, {
+          name: tplData.name,
+          url_pattern: tplData.url_pattern,
+          description: tplData.description ?? null,
+          is_authentication: Boolean(tplData.is_authentication),
+        })
+      } else {
+        const key = (tplData.key || tplData.name)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, '_')
+          .replace(/^_+|_+$/g, '')
+        await liveStoreCmsPathTemplate(cmsTypeId, {
+          key,
+          name: tplData.name,
+          url_pattern: tplData.url_pattern,
+          description: tplData.description ?? null,
+          is_authentication: Boolean(tplData.is_authentication),
+        })
+      }
+      showToast(`Đã lưu Path Template [${tplData.name}] (live).`)
+      await reload()
+    },
+    [reload, showToast],
+  )
+
+  const deleteCmsPathTemplate = useCallback(
+    async (cmsTypeId: number, templateId: number) => {
+      await liveDestroyCmsPathTemplate(cmsTypeId, templateId)
+      showToast('Đã xóa Path Template (live).')
+      await reload()
+    },
+    [reload, showToast],
+  )
+
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
@@ -325,22 +440,30 @@ function useActionRegistryLive(enabled: boolean) {
       saveSite,
       deleteSite,
       savePath,
+      saveCmsType,
+      toggleCmsTypeEnabled,
+      saveCmsPathTemplate,
+      deleteCmsPathTemplate,
       reload,
     }),
     [
       authRequired,
       createTag,
       data,
+      deleteCmsPathTemplate,
       deleteSite,
       deleteTag,
       demo,
       error,
       loading,
       reload,
+      saveCmsPathTemplate,
+      saveCmsType,
       savePath,
       saveSite,
       showToast,
       toast,
+      toggleCmsTypeEnabled,
       toggleTagEnabled,
       updateTagAuthScript,
     ],

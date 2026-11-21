@@ -1,12 +1,22 @@
-import type { CmsPathTemplate, CmsType, PathItem, Site } from './types.ts'
+import type {
+  CmsPathTemplate,
+  CmsType,
+  CmsTypeItem,
+  PathItem,
+  Site,
+} from './types.ts'
 import { normalizeTagSegment, parseInputsFromPattern } from './utils.ts'
 
-export const CMS_TYPE_LABELS: Record<CmsType, string> = {
+export type CmsTemplateSource =
+  | Record<string, CmsPathTemplate[]>
+  | CmsTypeItem[]
+
+export const CMS_TYPE_LABELS: Record<string, string> = {
   wordpress: 'WordPress',
   custom: 'Custom / None',
 }
 
-export const DEFAULT_CMS_PATH_TEMPLATES: Record<CmsType, CmsPathTemplate[]> = {
+export const DEFAULT_CMS_PATH_TEMPLATES: Record<string, CmsPathTemplate[]> = {
   wordpress: [
     {
       cms_type: 'wordpress',
@@ -32,9 +42,20 @@ export const DEFAULT_CMS_PATH_TEMPLATES: Record<CmsType, CmsPathTemplate[]> = {
 
 export function asCmsType(value: string | null | undefined): CmsType | null {
   const normalized = (value ?? '').trim().toLowerCase()
-  if (normalized === 'wordpress') return 'wordpress'
-  if (normalized === 'custom') return 'custom'
-  return null
+  if (!normalized || normalized === 'custom' || normalized === 'none') {
+    return null
+  }
+  return normalized
+}
+
+export function formatCmsTypeLabel(
+  cmsType: string | null | undefined,
+  cmsTypes?: CmsTypeItem[],
+): string {
+  if (!cmsType) return 'Custom / None'
+  const match = cmsTypes?.find((c) => c.key === cmsType)
+  if (match) return match.name
+  return CMS_TYPE_LABELS[cmsType] ?? cmsType
 }
 
 /**
@@ -56,9 +77,13 @@ export function normalizeUrlPattern(pattern: string): string {
  */
 export function getCmsPathTemplates(
   cmsType: CmsType | null | undefined,
-  templates: Record<CmsType, CmsPathTemplate[]> = DEFAULT_CMS_PATH_TEMPLATES,
+  templates: CmsTemplateSource = DEFAULT_CMS_PATH_TEMPLATES,
 ): CmsPathTemplate[] {
   if (!cmsType) return []
+  if (Array.isArray(templates)) {
+    const found = templates.find((c) => c.key === cmsType)
+    return found ? found.path_templates : []
+  }
   return templates[cmsType] ?? []
 }
 
@@ -82,7 +107,7 @@ export function virtualTemplatePathId(siteId: number, templateIndex: number): nu
 export function resolveEffectivePathsForSite(
   site: Site,
   allPaths: PathItem[],
-  templates: Record<CmsType, CmsPathTemplate[]> = DEFAULT_CMS_PATH_TEMPLATES,
+  templates: CmsTemplateSource = DEFAULT_CMS_PATH_TEMPLATES,
 ): PathItem[] {
   const sitePaths = allPaths.filter((p) => p.site_id === site.id)
   const cmsTemplates = getCmsPathTemplates(site.cms_type, templates)
@@ -217,4 +242,28 @@ export function validateSitePathUniqueness(
   }
 
   return { ok: true }
+}
+
+export type SiteDeleteSummary = {
+  sitePathsCount: number
+  tagsCount: number
+  publishedScriptsCount: number
+  authPinsCount: number
+}
+
+export function computeSiteDeleteSummary(
+  siteId: number,
+  paths: PathItem[],
+  tags: { site_id?: number | null; scripts_count: number; published_script_available?: boolean; auth_script?: unknown }[],
+): SiteDeleteSummary {
+  const sitePaths = paths.filter((p) => p.site_id === siteId)
+  const siteTags = tags.filter((t) => t.site_id === siteId)
+  return {
+    sitePathsCount: sitePaths.length,
+    tagsCount: siteTags.length,
+    publishedScriptsCount: siteTags.filter(
+      (t) => t.scripts_count > 0 || t.published_script_available,
+    ).length,
+    authPinsCount: siteTags.filter((t) => t.auth_script != null).length,
+  }
 }

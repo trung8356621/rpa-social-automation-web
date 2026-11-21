@@ -81,6 +81,29 @@ export type LiveScriptRequest = {
   created_at?: string | null
 }
 
+export type LiveCmsPathTemplate = {
+  id?: number
+  cms_type?: string
+  key: string
+  name: string
+  url_pattern: string
+  path_inputs?: LivePathInput[]
+  description?: string | null
+  is_authentication?: boolean
+}
+
+export type LiveCmsType = {
+  id: number
+  key: string
+  name: string
+  description?: string | null
+  is_enabled?: boolean
+  enabled?: boolean
+  path_templates?: LiveCmsPathTemplate[]
+  templates?: LiveCmsPathTemplate[]
+  sites_count?: number
+}
+
 export type LiveActionRegistryDataResponse = {
   ok: boolean
   sites: LiveSite[]
@@ -88,6 +111,12 @@ export type LiveActionRegistryDataResponse = {
   actions: LiveAction[]
   tags: LiveTag[]
   requests: LiveScriptRequest[]
+  cms_types?: LiveCmsType[]
+}
+
+export type LiveCmsTypesResponse = {
+  ok: boolean
+  cms_types: LiveCmsType[]
 }
 
 /** Live GET /action-registry/authentication-scripts */

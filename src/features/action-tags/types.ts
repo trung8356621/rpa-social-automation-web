@@ -6,9 +6,10 @@ export type PathInput = {
 
 export type BaseUrlMode = 'fixed' | 'dynamic'
 
-export type CmsType = 'wordpress' | 'custom'
+export type CmsType = string
 
 export type CmsPathTemplate = {
+  id?: number
   cms_type: CmsType
   key: string
   name: string
@@ -16,6 +17,16 @@ export type CmsPathTemplate = {
   path_inputs: PathInput[]
   description?: string | null
   is_authentication?: boolean
+}
+
+export type CmsTypeItem = {
+  id: number
+  key: string
+  name: string
+  description?: string | null
+  is_enabled: boolean
+  path_templates: CmsPathTemplate[]
+  sites_count?: number
 }
 
 export type Site = {
@@ -149,9 +160,11 @@ export type ActionRegistryData = {
   requests: ScriptRequestItem[]
   /** Candidate Auth Scripts for the select (mock catalog) */
   auth_scripts: AuthScriptOption[]
+  /** CMS Types & shared Path Templates (loaded from backend or mock seed) */
+  cms_types: CmsTypeItem[]
 }
 
-export type ActionTagsView = 'tags' | 'sites_paths'
+export type ActionTagsView = 'tags' | 'sites_paths' | 'cms_manager'
 
 export type DemoScenario =
   | 'default'

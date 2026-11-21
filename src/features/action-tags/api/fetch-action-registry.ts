@@ -6,6 +6,8 @@ import type { ActionRegistryData } from '../types'
 import type {
   LiveActionRegistryDataResponse,
   LiveAuthScriptsCatalogResponse,
+  LiveCmsType,
+  LiveCmsTypesResponse,
 } from './live-types'
 import { mapLiveActionRegistry } from './mappers'
 
@@ -50,5 +52,27 @@ export async function fetchLiveActionRegistry(
     throw error
   }
 
-  return mapLiveActionRegistry(data, packages)
+  let cmsTypes: LiveCmsType[] | undefined = Array.isArray(data.cms_types)
+    ? data.cms_types
+    : undefined
+
+  if (!cmsTypes) {
+    try {
+      const cmsRes = await staffApiRequest<LiveCmsTypesResponse>(
+        ACTION_REGISTRY_PATHS.cmsTypes,
+        { method: 'GET', signal: options.signal },
+      )
+      if (cmsRes.ok && Array.isArray(cmsRes.cms_types)) {
+        cmsTypes = cmsRes.cms_types
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.kind === 'not_found') {
+        cmsTypes = []
+      } else {
+        throw error
+      }
+    }
+  }
+
+  return mapLiveActionRegistry(data, packages, cmsTypes)
 }

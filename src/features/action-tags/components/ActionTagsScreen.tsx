@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FolderTree, Pencil, Search } from 'lucide-react'
+import { FolderTree, Layers, Pencil, Search } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -33,6 +33,7 @@ type ActionTagsScreenProps = {
   /** False when live mutations are intentionally gated */
   mutationsEnabled?: boolean
   onOpenSitesPaths: () => void
+  onOpenCmsManager?: () => void
   onToggleTagEnabled: (tagId: number, enabled: boolean) => Promise<void>
   onUpdateTagAuthScript: (
     tagId: number,
@@ -49,6 +50,7 @@ export function ActionTagsScreen({
   dataMode = 'mock',
   mutationsEnabled = true,
   onOpenSitesPaths,
+  onOpenCmsManager,
   onToggleTagEnabled,
   onUpdateTagAuthScript,
 }: ActionTagsScreenProps) {
@@ -130,10 +132,18 @@ export function ActionTagsScreen({
         title="Action Tags"
         description="Action Tags được tự động tạo từ Site & Path (kèm trạng thái bật/tắt và Published Script)"
         actions={
-          <Button variant="outline" onClick={onOpenSitesPaths}>
-            <FolderTree className="size-3.5" />
-            Manage Sites & Paths
-          </Button>
+          <>
+            {onOpenCmsManager ? (
+              <Button variant="outline" onClick={onOpenCmsManager}>
+                <Layers className="size-3.5" />
+                CMS Manager
+              </Button>
+            ) : null}
+            <Button variant="outline" onClick={onOpenSitesPaths}>
+              <FolderTree className="size-3.5" />
+              Manage Sites & Paths
+            </Button>
+          </>
         }
       />
 

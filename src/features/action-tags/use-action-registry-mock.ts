@@ -13,7 +13,9 @@ import { EMPTY_REGISTRY, MOCK_ACTION_REGISTRY } from './mock-data'
 import type {
   ActionRegistryData,
   ActionTagAuthScript,
+  CmsPathTemplate,
   CmsType,
+  CmsTypeItem,
   DemoScenario,
   PathItem,
   Site,
@@ -22,6 +24,7 @@ import {
   buildTagKey,
   delay,
   findExistingSitePathTag,
+  normalizeTagSegment,
   parseInputsFromPattern,
   slugifyKey,
 } from './utils'
@@ -45,6 +48,7 @@ function cloneSeed(scenario: DemoScenario): ActionRegistryData {
       data.paths,
       data.tags,
       data.requests,
+      data.cms_types,
     )
     data.tags = synced.tags
     data.requests = synced.requests
@@ -56,6 +60,7 @@ function cloneSeed(scenario: DemoScenario): ActionRegistryData {
     data.paths,
     data.tags,
     data.requests,
+    data.cms_types,
   )
   data.tags = synced.tags
   data.requests = synced.requests
@@ -347,6 +352,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
           prev.paths,
           prev.tags,
           prev.requests,
+          prev.cms_types,
         )
 
         return {
@@ -405,7 +411,11 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       const site = data.sites.find((s) => s.id === pathData.site_id)
       if (!site) throw new Error('Site không tồn tại.')
 
-      const effectivePaths = resolveEffectivePathsForSite(site, data.paths)
+      const effectivePaths = resolveEffectivePathsForSite(
+        site,
+        data.paths,
+        data.cms_types,
+      )
       const isExistingPersistedPath =
         pathData.id != null && pathData.id > 0
       const existingPath = isExistingPersistedPath
@@ -479,6 +489,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
           nextPaths,
           prev.tags,
           prev.requests,
+          prev.cms_types,
         )
 
         return {
@@ -494,6 +505,188 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       return { id: savedId, is_authentication: isAuth }
     },
     [data.sites, data.paths, showToast],
+  )
+
+  const saveCmsType = useCallback(
+    async (cmsData: {
+      id?: number
+      key?: string
+      name: string
+      description?: string | null
+      is_enabled?: boolean
+    }): Promise<{ id: number; key: string }> => {
+      await delay(200)
+      const trimmedName = cmsData.name.trim()
+      if (!trimmedName) throw new Error('Tên CMS Type không được để trống.')
+
+      if (cmsData.id) {
+        const existing = data.cms_types.find((c) => c.id === cmsData.id)
+        if (!existing) throw new Error('CMS Type không tồn tại.')
+        setData((prev) => ({
+          ...prev,
+          cms_types: prev.cms_types.map((c) =>
+            c.id === cmsData.id
+              ? {
+                  ...c,
+                  name: trimmedName,
+                  description: cmsData.description ?? null,
+                  is_enabled: cmsData.is_enabled ?? c.is_enabled,
+                }
+              : c,
+          ),
+        }))
+        showToast(`Đã cập nhật CMS Type [${trimmedName}] (MOCK local).`)
+        return { id: existing.id, key: existing.key }
+      }
+
+      const key = normalizeTagSegment(cmsData.key || trimmedName)
+      if (!key || key === 'custom' || key === 'none') {
+        throw new Error('CMS Type key không hợp lệ.')
+      }
+      if (data.cms_types.some((c) => c.key === key)) {
+        throw new Error(`CMS Type key [${key}] đã tồn tại.`)
+      }
+
+      const id = nextId(data.cms_types)
+      const created: CmsTypeItem = {
+        id,
+        key,
+        name: trimmedName,
+        description: cmsData.description ?? null,
+        is_enabled: cmsData.is_enabled ?? true,
+        path_templates: [],
+      }
+      setData((prev) => ({
+        ...prev,
+        cms_types: [...prev.cms_types, created],
+      }))
+      showToast(`Đã thêm CMS Type [${trimmedName}] (MOCK local).`)
+      return { id, key }
+    },
+    [data.cms_types, showToast],
+  )
+
+  const toggleCmsTypeEnabled = useCallback(
+    async (cmsId: number, enabled: boolean) => {
+      await delay(140)
+      const target = data.cms_types.find((c) => c.id === cmsId)
+      if (!target) throw new Error('CMS Type không tồn tại.')
+      setData((prev) => ({
+        ...prev,
+        cms_types: prev.cms_types.map((c) =>
+          c.id === cmsId ? { ...c, is_enabled: enabled } : c,
+        ),
+      }))
+      showToast(
+        enabled
+          ? `Đã bật CMS Type [${target.name}] (MOCK local).`
+          : `Đã tắt CMS Type [${target.name}] (MOCK local).`,
+      )
+    },
+    [data.cms_types, showToast],
+  )
+
+  const saveCmsPathTemplate = useCallback(
+    async (
+      cmsTypeId: number,
+      tplData: {
+        id?: number
+        key?: string
+        name: string
+        url_pattern: string
+        description?: string | null
+        is_authentication?: boolean
+      },
+    ) => {
+      await delay(200)
+      const cms = data.cms_types.find((c) => c.id === cmsTypeId)
+      if (!cms) throw new Error('CMS Type không tồn tại.')
+
+      const trimmedName = tplData.name.trim()
+      const trimmedPattern = tplData.url_pattern.trim()
+      if (!trimmedName || !trimmedPattern) {
+        throw new Error('Vui lòng nhập đầy đủ Tên và URL Pattern cho Path Template.')
+      }
+
+      const tplKey = normalizeTagSegment(tplData.key || trimmedName)
+      if (!tplKey) throw new Error('Template key không hợp lệ.')
+
+      const duplicate = cms.path_templates.find(
+        (t) =>
+          t.id !== tplData.id &&
+          (normalizeTagSegment(t.key) === tplKey ||
+            t.url_pattern.trim() === trimmedPattern),
+      )
+      if (duplicate) {
+        throw new Error(
+          `Path Template [${tplKey}] hoặc URL Pattern [${trimmedPattern}] đã tồn tại trong ${cms.name}.`,
+        )
+      }
+
+      const nextTpl: CmsPathTemplate = {
+        id:
+          tplData.id ??
+          cms.path_templates.reduce((m, t) => Math.max(m, t.id ?? 0), 0) + 1,
+        cms_type: cms.key,
+        key: tplKey,
+        name: trimmedName,
+        url_pattern: trimmedPattern,
+        path_inputs: parseInputsFromPattern(trimmedPattern),
+        description: tplData.description ?? null,
+        is_authentication: Boolean(tplData.is_authentication),
+      }
+
+      setData((prev) => {
+        const nextCmsTypes = prev.cms_types.map((c) => {
+          if (c.id !== cmsTypeId) return c
+          const nextTemplates = tplData.id
+            ? c.path_templates.map((t) => (t.id === tplData.id ? nextTpl : t))
+            : [...c.path_templates, nextTpl]
+          return { ...c, path_templates: nextTemplates }
+        })
+
+        const synced = syncActionTagsForSites(
+          prev.sites,
+          prev.paths,
+          prev.tags,
+          prev.requests,
+          nextCmsTypes,
+        )
+
+        return {
+          ...prev,
+          cms_types: nextCmsTypes,
+          tags: synced.tags,
+          requests: synced.requests,
+        }
+      })
+
+      showToast(`Đã lưu Path Template [${trimmedName}] cho ${cms.name}.`)
+    },
+    [data.cms_types, showToast],
+  )
+
+  const deleteCmsPathTemplate = useCallback(
+    async (cmsTypeId: number, templateId: number) => {
+      await delay(160)
+      const cms = data.cms_types.find((c) => c.id === cmsTypeId)
+      if (!cms) throw new Error('CMS Type không tồn tại.')
+      setData((prev) => ({
+        ...prev,
+        cms_types: prev.cms_types.map((c) =>
+          c.id === cmsTypeId
+            ? {
+                ...c,
+                path_templates: c.path_templates.filter(
+                  (t) => t.id !== templateId,
+                ),
+              }
+            : c,
+        ),
+      }))
+      showToast(`Đã xóa Path Template khỏi ${cms.name}.`)
+    },
+    [data.cms_types, showToast],
   )
 
   const reload = useCallback(async () => {
@@ -519,21 +712,29 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       saveSite,
       deleteSite,
       savePath,
+      saveCmsType,
+      toggleCmsTypeEnabled,
+      saveCmsPathTemplate,
+      deleteCmsPathTemplate,
       reload,
     }),
     [
       createTag,
       data,
+      deleteCmsPathTemplate,
       deleteSite,
       deleteTag,
       demo,
       error,
       loading,
       reload,
+      saveCmsPathTemplate,
+      saveCmsType,
       savePath,
       saveSite,
       showToast,
       toast,
+      toggleCmsTypeEnabled,
       toggleTagEnabled,
       updateTagAuthScript,
     ],

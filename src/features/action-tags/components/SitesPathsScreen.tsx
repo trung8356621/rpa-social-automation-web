@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ArrowLeft, Layers, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
@@ -12,19 +12,23 @@ import { toSafeApiMessage } from '@/lib/api/errors'
 import { cn } from '@/lib/utils'
 
 import {
-  CMS_TYPE_LABELS,
+  computeSiteDeleteSummary,
+  formatCmsTypeLabel,
   getCmsPathTemplates,
   resolveEffectivePathsForSite,
 } from '../cms-templates'
-import type { CmsType, PathItem, Site } from '../types'
+import type { ActionTagItem, CmsType, CmsTypeItem, PathItem, Site } from '../types'
 import { parseInputsFromPattern, resolveUrl } from '../utils'
 
 type SitesPathsScreenProps = {
   sites: Site[]
   paths: PathItem[]
+  tags?: ActionTagItem[]
+  cmsTypes?: CmsTypeItem[]
   /** False when live mutations are intentionally gated */
   mutationsEnabled?: boolean
   onBackToTags: () => void
+  onOpenCmsManager?: () => void
   onSaveSite: (siteData: {
     id?: number
     name: string
@@ -49,8 +53,11 @@ type SitesPathsScreenProps = {
 export function SitesPathsScreen({
   sites,
   paths,
+  tags = [],
+  cmsTypes = [],
   mutationsEnabled = true,
   onBackToTags,
+  onOpenCmsManager,
   onSaveSite,
   onDeleteSite,
   onSavePath,
@@ -86,8 +93,38 @@ export function SitesPathsScreen({
   const prevSiteIdRef = useRef<number | null>(null)
 
   const modalTemplatePreview = useMemo(
-    () => getCmsPathTemplates(siteCmsType || null),
-    [siteCmsType],
+    () => getCmsPathTemplates(siteCmsType || null, cmsTypes),
+    [siteCmsType, cmsTypes],
+  )
+
+  const selectableCmsTypes = useMemo(() => {
+    const enabled = cmsTypes.filter((c) => c.is_enabled)
+    if (
+      editingSite?.cms_type &&
+      !enabled.some((c) => c.key === editingSite.cms_type)
+    ) {
+      const existing = cmsTypes.find((c) => c.key === editingSite.cms_type)
+      if (existing) return [existing, ...enabled]
+      return [
+        {
+          id: -1,
+          key: editingSite.cms_type,
+          name: editingSite.cms_type,
+          is_enabled: false,
+          path_templates: [],
+        } satisfies CmsTypeItem,
+        ...enabled,
+      ]
+    }
+    return enabled
+  }, [cmsTypes, editingSite?.cms_type])
+
+  const editingSiteDeleteSummary = useMemo(
+    () =>
+      editingSite
+        ? computeSiteDeleteSummary(editingSite.id, paths, tags)
+        : null,
+    [editingSite, paths, tags],
   )
 
   const activeSite = useMemo(
@@ -97,8 +134,8 @@ export function SitesPathsScreen({
   const isDynamicSite = activeSite?.base_url_mode === 'dynamic'
   const activeSitePaths = useMemo(() => {
     if (!activeSite) return []
-    return resolveEffectivePathsForSite(activeSite, paths)
-  }, [paths, activeSite])
+    return resolveEffectivePathsForSite(activeSite, paths, cmsTypes)
+  }, [paths, activeSite, cmsTypes])
 
   const selectPath = (p: PathItem) => {
     setSelectedPathId(p.source === 'template' ? 'new' : p.id)
@@ -332,6 +369,12 @@ export function SitesPathsScreen({
               <ArrowLeft className="size-3.5" />
               Action Tags
             </Button>
+            {onOpenCmsManager ? (
+              <Button variant="outline" onClick={onOpenCmsManager}>
+                <Layers className="size-3.5" />
+                CMS Manager
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               onClick={openAddSiteModal}
@@ -428,7 +471,7 @@ export function SitesPathsScreen({
                         </span>
                         {site.cms_type && site.cms_type !== 'custom' ? (
                           <Badge variant="success">
-                            {CMS_TYPE_LABELS[site.cms_type]}
+                            {formatCmsTypeLabel(site.cms_type, cmsTypes)}
                           </Badge>
                         ) : null}
                         {isDynamic ? (
@@ -472,7 +515,7 @@ export function SitesPathsScreen({
               </h2>
               {activeSite?.cms_type && activeSite.cms_type !== 'custom' ? (
                 <Badge variant="success">
-                  CMS: {CMS_TYPE_LABELS[activeSite.cms_type]}
+                  CMS: {formatCmsTypeLabel(activeSite.cms_type, cmsTypes)}
                 </Badge>
               ) : null}
               {isDynamicSite ? <Badge variant="primary">Dynamic URL</Badge> : null}
@@ -811,16 +854,36 @@ export function SitesPathsScreen({
             </div>
 
             <div className="mb-3">
-              <Label htmlFor="site-cms-type">CMS Type (Optional)</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="site-cms-type">CMS Type (Optional)</Label>
+                {onOpenCmsManager ? (
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => {
+                      setSiteModalOpen(false)
+                      onOpenCmsManager()
+                    }}
+                  >
+                    Manage CMS Types
+                  </button>
+                ) : null}
+              </div>
               <Select
                 id="site-cms-type"
                 value={siteCmsType}
-                onChange={(e) =>
-                  setSiteCmsType((e.target.value as CmsType | '') || '')
-                }
+                onChange={(e) => setSiteCmsType(e.target.value || '')}
               >
                 <option value="">None / Custom</option>
-                <option value="wordpress">WordPress (kế thừa Path mẫu)</option>
+                {selectableCmsTypes.map((cms) => (
+                  <option key={cms.key} value={cms.key}>
+                    {cms.name}
+                    {!cms.is_enabled ? ' (Disabled)' : ''}
+                    {cms.path_templates.length > 0
+                      ? ` · ${cms.path_templates.length} template(s)`
+                      : ''}
+                  </option>
+                ))}
               </Select>
               <p className="mt-1 text-xs text-muted">
                 Các Site cùng CMS Type tự động kế thừa Path mẫu và tự tạo Action Tag.
@@ -828,7 +891,8 @@ export function SitesPathsScreen({
               {modalTemplatePreview.length > 0 ? (
                 <div className="mt-2 rounded-[var(--radius-control)] border border-border bg-surface-muted/50 p-2.5">
                   <div className="mb-1.5 text-xs font-medium text-foreground">
-                    Inherited Path Templates ({CMS_TYPE_LABELS[siteCmsType as CmsType]})
+                    Inherited Path Templates (
+                    {formatCmsTypeLabel(siteCmsType, cmsTypes)})
                   </div>
                   <ul className="space-y-1">
                     {modalTemplatePreview.map((tpl) => (
@@ -895,8 +959,36 @@ export function SitesPathsScreen({
                   Xác nhận xóa Site [{editingSite.name}]?
                 </p>
                 <p className="mt-1 text-xs text-muted">
-                  Thao tác này sẽ xóa Site và các Path/Action Tag chưa gắn Script xuất bản. Nếu Site đang có dữ liệu phụ thuộc, hệ thống sẽ từ chối xóa.
+                  Thao tác này sẽ xóa Site nếu không có dữ liệu chặn phụ thuộc.
                 </p>
+                {editingSiteDeleteSummary ? (
+                  <ul className="mt-2 space-y-0.5 text-xs text-foreground">
+                    <li>
+                      • Site-specific Paths:{' '}
+                      <span className="font-medium">
+                        {editingSiteDeleteSummary.sitePathsCount}
+                      </span>
+                    </li>
+                    <li>
+                      • Action Tags:{' '}
+                      <span className="font-medium">
+                        {editingSiteDeleteSummary.tagsCount}
+                      </span>
+                    </li>
+                    <li>
+                      • Published Scripts:{' '}
+                      <span className="font-medium">
+                        {editingSiteDeleteSummary.publishedScriptsCount}
+                      </span>
+                    </li>
+                    <li>
+                      • Auth Script Pins:{' '}
+                      <span className="font-medium">
+                        {editingSiteDeleteSummary.authPinsCount}
+                      </span>
+                    </li>
+                  </ul>
+                ) : null}
                 <div className="mt-2.5 flex justify-end gap-2">
                   <Button
                     type="button"

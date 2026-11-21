@@ -7,7 +7,9 @@ import {
   syncActionTagsForSites,
 } from '../src/features/action-tags/auto-tag-lifecycle.ts'
 import {
+  computeSiteDeleteSummary,
   DEFAULT_CMS_PATH_TEMPLATES,
+  formatCmsTypeLabel,
   getCmsPathTemplates,
   resolveEffectivePathsForSite,
   validateSitePathUniqueness,
@@ -512,5 +514,130 @@ describe('Dynamic CMS Path Reuse & Automatic Action Tag Lifecycle', () => {
     )
     assert.equal(effective.length, 2)
     assert.equal(effective[0].source, 'template')
+  })
+
+  it('9. Dynamic CMS Types from LIVE backend & Delete Site dependent-record summary', () => {
+    assert.equal(
+      ACTION_REGISTRY_PATHS.cmsTypes,
+      '/social-automation/api/action-registry/cms-types',
+    )
+    assert.equal(
+      ACTION_REGISTRY_PATHS.cmsTypeEnabled(5),
+      '/social-automation/api/action-registry/cms-types/5/enabled',
+    )
+    assert.equal(
+      ACTION_REGISTRY_PATHS.cmsTypeTemplate(5, 12),
+      '/social-automation/api/action-registry/cms-types/5/templates/12',
+    )
+
+    const mapped = mapLiveActionRegistry(
+      {
+        ok: true,
+        sites: [
+          {
+            id: 60,
+            key: 'myshop',
+            name: 'My Shop',
+            base_url: 'https://myshop.example.test',
+            cms_type: 'shopify',
+          },
+        ],
+        paths: [],
+        actions: [],
+        tags: [],
+        requests: [],
+        cms_types: [
+          {
+            id: 1,
+            key: 'wordpress',
+            name: 'WordPress',
+            is_enabled: true,
+            path_templates: [
+              {
+                id: 1,
+                key: 'create_post',
+                name: 'Create Post',
+                url_pattern: '/wp-admin/post-new.php',
+                is_authentication: false,
+              },
+            ],
+          },
+          {
+            id: 2,
+            key: 'shopify',
+            name: 'Shopify Store',
+            is_enabled: true,
+            path_templates: [
+              {
+                id: 10,
+                key: 'new_product',
+                name: 'New Product',
+                url_pattern: '/admin/products/new',
+                is_authentication: false,
+              },
+            ],
+          },
+        ],
+      },
+      [],
+    )
+
+    assert.equal(mapped.cms_types.length, 2)
+    assert.equal(
+      formatCmsTypeLabel('shopify', mapped.cms_types),
+      'Shopify Store',
+    )
+
+    const effective = resolveEffectivePathsForSite(
+      mapped.sites[0],
+      mapped.paths,
+      mapped.cms_types,
+    )
+    assert.equal(effective.length, 1)
+    assert.equal(effective[0].key, 'new_product')
+    assert.equal(effective[0].url_pattern, '/admin/products/new')
+
+    const synced = syncActionTagsForSites(
+      mapped.sites,
+      mapped.paths,
+      mapped.tags,
+      [],
+      mapped.cms_types,
+    )
+    assert.equal(synced.tags.length, 1)
+    assert.equal(synced.tags[0].tag_key, 'myshop.new_product')
+
+    const summary = computeSiteDeleteSummary(
+      60,
+      [
+        {
+          id: 901,
+          site_id: 60,
+          site_key: 'myshop',
+          key: 'custom',
+          name: 'Custom',
+          url_pattern: '/custom',
+          path_inputs: [],
+        },
+      ],
+      [
+        {
+          ...synced.tags[0],
+          scripts_count: 1,
+          published_script_available: true,
+          auth_script: {
+            script_id: 'auth.login',
+            name: 'Auth Login',
+            version: '1.0.0',
+          },
+        },
+      ],
+    )
+    assert.deepEqual(summary, {
+      sitePathsCount: 1,
+      tagsCount: 1,
+      publishedScriptsCount: 1,
+      authPinsCount: 1,
+    })
   })
 })

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
 import { ActionTagsScreen } from '@/features/action-tags/components/ActionTagsScreen'
+import { CmsManagerScreen } from '@/features/action-tags/components/CmsManagerScreen'
 import { SitesPathsScreen } from '@/features/action-tags/components/SitesPathsScreen'
 import { useActionRegistry } from '@/features/action-tags/use-action-registry'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
@@ -11,14 +12,26 @@ export function ActionTagsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const registry = useActionRegistry()
   const scriptRegistry = useScriptRegistry()
+  const viewParam = searchParams.get('view')
   const view =
-    searchParams.get('view') === 'sites_paths' ? 'sites_paths' : 'tags'
+    viewParam === 'sites_paths'
+      ? 'sites_paths'
+      : viewParam === 'cms_manager'
+        ? 'cms_manager'
+        : 'tags'
   const isLive = registry.mode === 'live'
   const mutationsEnabled = registry.mutationsEnabled
 
   const openSitesPaths = () => {
     const next = new URLSearchParams(searchParams)
     next.set('view', 'sites_paths')
+    next.delete('drawer')
+    setSearchParams(next, { replace: true })
+  }
+
+  const openCmsManager = () => {
+    const next = new URLSearchParams(searchParams)
+    next.set('view', 'cms_manager')
     next.delete('drawer')
     setSearchParams(next, { replace: true })
   }
@@ -99,18 +112,34 @@ export function ActionTagsPage() {
           dataMode={registry.mode}
           mutationsEnabled={mutationsEnabled}
           onOpenSitesPaths={openSitesPaths}
+          onOpenCmsManager={openCmsManager}
           onToggleTagEnabled={registry.toggleTagEnabled}
           onUpdateTagAuthScript={registry.updateTagAuthScript}
         />
-      ) : (
+      ) : view === 'sites_paths' ? (
         <SitesPathsScreen
           sites={registry.data.sites}
           paths={registry.data.paths}
+          tags={registry.data.tags}
+          cmsTypes={registry.data.cms_types}
           mutationsEnabled={mutationsEnabled}
           onBackToTags={backToTags}
+          onOpenCmsManager={openCmsManager}
           onSaveSite={registry.saveSite}
           onDeleteSite={registry.deleteSite}
           onSavePath={registry.savePath}
+        />
+      ) : (
+        <CmsManagerScreen
+          cmsTypes={registry.data.cms_types}
+          sites={registry.data.sites}
+          mutationsEnabled={mutationsEnabled}
+          onBackToTags={backToTags}
+          onOpenSitesPaths={openSitesPaths}
+          onSaveCmsType={registry.saveCmsType}
+          onToggleCmsTypeEnabled={registry.toggleCmsTypeEnabled}
+          onSaveCmsPathTemplate={registry.saveCmsPathTemplate}
+          onDeleteCmsPathTemplate={registry.deleteCmsPathTemplate}
         />
       )}
       <Toast toast={registry.toast} />

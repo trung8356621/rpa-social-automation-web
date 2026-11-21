@@ -5,6 +5,8 @@ import type {
   ActionTagAuthScript,
   ActionTagItem,
   AuthScriptOption,
+  CmsPathTemplate,
+  CmsTypeItem,
   PathItem,
   PathInput,
   ScriptRequestItem,
@@ -14,6 +16,8 @@ import type {
   LiveAction,
   LiveActionRegistryDataResponse,
   LiveAuthPackage,
+  LiveCmsPathTemplate,
+  LiveCmsType,
   LivePath,
   LivePathInput,
   LiveScriptRequest,
@@ -237,14 +241,57 @@ function mapTag(
   }
 }
 
+export function mapCmsPathTemplate(
+  tpl: LiveCmsPathTemplate,
+  cmsKey: string,
+): CmsPathTemplate {
+  return {
+    id: tpl.id != null ? Number(tpl.id) : undefined,
+    cms_type: String(tpl.cms_type ?? cmsKey),
+    key: String(tpl.key ?? ''),
+    name: String(tpl.name ?? tpl.key ?? ''),
+    url_pattern: String(tpl.url_pattern ?? '/'),
+    path_inputs: mapPathInputs(tpl.path_inputs),
+    description: tpl.description ?? null,
+    is_authentication: Boolean(tpl.is_authentication),
+  }
+}
+
+export function mapCmsType(cms: LiveCmsType): CmsTypeItem {
+  const key = String(cms.key ?? '').trim().toLowerCase()
+  const rawTemplates = Array.isArray(cms.path_templates)
+    ? cms.path_templates
+    : Array.isArray(cms.templates)
+      ? cms.templates
+      : []
+
+  return {
+    id: Number(cms.id),
+    key,
+    name: String(cms.name ?? key),
+    description: cms.description ?? null,
+    is_enabled:
+      cms.is_enabled != null
+        ? Boolean(cms.is_enabled)
+        : cms.enabled != null
+          ? Boolean(cms.enabled)
+          : true,
+    path_templates: rawTemplates.map((t) => mapCmsPathTemplate(t, key)),
+    sites_count: cms.sites_count != null ? Number(cms.sites_count) : undefined,
+  }
+}
+
 export function mapLiveActionRegistry(
   data: LiveActionRegistryDataResponse,
   packages: LiveAuthPackage[],
+  cmsTypesOverride?: LiveCmsType[],
 ): ActionRegistryData {
   const packagesById = new Map<number, LiveAuthPackage>()
   for (const pkg of packages) {
     packagesById.set(Number(pkg.package_id), pkg)
   }
+
+  const rawCmsTypes = cmsTypesOverride ?? data.cms_types ?? []
 
   return {
     sites: (data.sites ?? []).map(mapSite),
@@ -253,5 +300,6 @@ export function mapLiveActionRegistry(
     tags: (data.tags ?? []).map((t) => mapTag(t, packagesById)),
     requests: (data.requests ?? []).map(mapRequest),
     auth_scripts: packages.map(mapAuthPackage),
+    cms_types: rawCmsTypes.map(mapCmsType),
   }
 }
