@@ -5,6 +5,15 @@ import type { AuthPinPayload } from './resolve-auth-pin'
 
 type OkResponse = { ok?: boolean; error?: string }
 
+export type SiteMutationResponse = OkResponse & {
+  site?: {
+    id?: number
+    key?: string
+    name?: string
+    cms_type?: string | null
+  }
+}
+
 export type PathMutationResponse = OkResponse & {
   path?: {
     id?: number
@@ -65,8 +74,10 @@ export type StoreTagBody = {
 }
 
 /** POST /action-registry/sites */
-export async function liveStoreSite(body: StoreSiteBody): Promise<OkResponse> {
-  return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.sites, {
+export async function liveStoreSite(
+  body: StoreSiteBody,
+): Promise<SiteMutationResponse> {
+  return staffApiRequest<SiteMutationResponse>(ACTION_REGISTRY_PATHS.sites, {
     method: 'POST',
     body,
   })
@@ -76,10 +87,17 @@ export async function liveStoreSite(body: StoreSiteBody): Promise<OkResponse> {
 export async function liveUpdateSite(
   id: number,
   body: UpdateSiteBody,
-): Promise<OkResponse> {
-  return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.site(id), {
+): Promise<SiteMutationResponse> {
+  return staffApiRequest<SiteMutationResponse>(ACTION_REGISTRY_PATHS.site(id), {
     method: 'PUT',
     body,
+  })
+}
+
+/** DELETE /action-registry/sites/{id} */
+export async function liveDestroySite(siteId: number): Promise<OkResponse> {
+  return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.site(siteId), {
+    method: 'DELETE',
   })
 }
 

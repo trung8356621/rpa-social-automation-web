@@ -109,6 +109,7 @@ export function ActionTagsPage() {
           mutationsEnabled={mutationsEnabled}
           onBackToTags={backToTags}
           onSaveSite={registry.saveSite}
+          onDeleteSite={registry.deleteSite}
           onSavePath={registry.savePath}
         />
       )}

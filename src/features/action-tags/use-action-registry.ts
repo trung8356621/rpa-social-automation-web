@@ -7,6 +7,7 @@ import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 import { assertPathAuthenticationPersisted } from './api/assert-path-auth'
 import { fetchLiveActionRegistry } from './api/fetch-action-registry'
 import {
+  liveDestroySite,
   liveDestroyTag,
   liveStorePath,
   liveStoreSite,
@@ -206,29 +207,45 @@ function useActionRegistryLive(enabled: boolean) {
       base_url_mode?: 'fixed' | 'dynamic'
       cms_type?: CmsType | null
       description?: string
-    }) => {
+    }): Promise<{ id?: number }> => {
       const mode = siteData.base_url_mode ?? 'fixed'
       const cmsType = siteData.cms_type ?? null
       // Canonical field only — both Fixed and Dynamic use base_url.
       // Do not send test_base_url from the web editor (CP18D.3B).
-      if (siteData.id) {
-        await liveUpdateSite(siteData.id, {
-          name: siteData.name,
-          base_url_mode: mode,
-          cms_type: cmsType,
-          base_url: siteData.base_url ?? null,
-          description: siteData.description ?? null,
-        })
-      } else {
-        await liveStoreSite({
-          name: siteData.name,
-          base_url_mode: mode,
-          cms_type: cmsType,
-          base_url: siteData.base_url,
-          description: siteData.description ?? null,
-        })
-      }
+      const response = siteData.id
+        ? await liveUpdateSite(siteData.id, {
+            name: siteData.name,
+            base_url_mode: mode,
+            cms_type: cmsType,
+            base_url: siteData.base_url ?? null,
+            description: siteData.description ?? null,
+          })
+        : await liveStoreSite({
+            name: siteData.name,
+            base_url_mode: mode,
+            cms_type: cmsType,
+            base_url: siteData.base_url,
+            description: siteData.description ?? null,
+          })
       showToast(`Đã lưu Site [${siteData.name}] (live).`)
+      const registry = await reload()
+      const resolvedId =
+        siteData.id ??
+        (response.site?.id ? Number(response.site.id) : undefined) ??
+        registry.sites.find(
+          (s) =>
+            s.name === siteData.name &&
+            (siteData.base_url ? s.base_url === siteData.base_url : true),
+        )?.id
+      return { id: resolvedId }
+    },
+    [reload, showToast],
+  )
+
+  const deleteSite = useCallback(
+    async (siteId: number, siteName: string) => {
+      await liveDestroySite(siteId)
+      showToast(`Đã xóa Site [${siteName}] (live).`)
       await reload()
     },
     [reload, showToast],
@@ -306,6 +323,7 @@ function useActionRegistryLive(enabled: boolean) {
       updateTagAuthScript,
       deleteTag,
       saveSite,
+      deleteSite,
       savePath,
       reload,
     }),
@@ -313,6 +331,7 @@ function useActionRegistryLive(enabled: boolean) {
       authRequired,
       createTag,
       data,
+      deleteSite,
       deleteTag,
       demo,
       error,

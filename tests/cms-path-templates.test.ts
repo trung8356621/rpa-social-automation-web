@@ -8,10 +8,12 @@ import {
 } from '../src/features/action-tags/auto-tag-lifecycle.ts'
 import {
   DEFAULT_CMS_PATH_TEMPLATES,
+  getCmsPathTemplates,
   resolveEffectivePathsForSite,
   validateSitePathUniqueness,
 } from '../src/features/action-tags/cms-templates.ts'
 import { mapLiveActionRegistry } from '../src/features/action-tags/api/mappers.ts'
+import { ACTION_REGISTRY_PATHS } from '../src/lib/api/config.ts'
 import type {
   ActionTagItem,
   PathItem,
@@ -417,5 +419,98 @@ describe('Dynamic CMS Path Reuse & Automatic Action Tag Lifecycle', () => {
     )
     assert.equal(availableResult.hasPublishedScript, true)
     assert.equal(availableResult.matchedScript?.version, '1.0.0')
+  })
+
+  it('7. Selecting WordPress immediately provides inherited Path Templates and switching Sites preserves them', () => {
+    const wpTemplates = getCmsPathTemplates('wordpress')
+    assert.equal(wpTemplates.length, 2)
+    assert.deepEqual(
+      wpTemplates.map((t) => [t.key, t.url_pattern, Boolean(t.is_authentication)]),
+      [
+        ['create_post', '/wp-admin/post-new.php', false],
+        ['login', '/wp-login.php', true],
+      ],
+    )
+
+    const customSite: Site = {
+      id: 20,
+      key: 'facebook',
+      name: 'Facebook',
+      base_url: 'https://www.facebook.com',
+      cms_type: null,
+    }
+    const wpSite: Site = {
+      id: 21,
+      key: 'new_wp',
+      name: 'New WP',
+      base_url: 'https://newwp.example.test',
+      cms_type: 'wordpress',
+    }
+
+    // Switching from a custom site (0 paths) to a WordPress site immediately resolves its inherited paths
+    assert.equal(resolveEffectivePathsForSite(customSite, []).length, 0)
+    const wpEffective = resolveEffectivePathsForSite(wpSite, [])
+    assert.equal(wpEffective.length, 2)
+    assert.ok(wpEffective.every((p) => p.source === 'template'))
+  })
+
+  it('8. LIVE contract paths & mapper preserve disabled tags, cms_type, and site delete route', () => {
+    assert.equal(
+      ACTION_REGISTRY_PATHS.site(42),
+      '/social-automation/api/action-registry/sites/42',
+    )
+    assert.equal(
+      ACTION_REGISTRY_PATHS.tagEnabled(99),
+      '/social-automation/api/action-registry/tags/99/enabled',
+    )
+
+    const liveMapped = mapLiveActionRegistry(
+      {
+        ok: true,
+        sites: [
+          {
+            id: 50,
+            key: 'wp_live',
+            name: 'WP Live',
+            base_url: 'https://wplive.example.test',
+            base_url_mode: 'dynamic',
+            cms_type: 'wordpress',
+          },
+        ],
+        paths: [],
+        actions: [],
+        tags: [
+          {
+            id: 500,
+            tag_key: 'wp_live.create_post',
+            site_id: 50,
+            site_key: 'wp_live',
+            site_name: 'WP Live',
+            path_id: null,
+            path_key: 'create_post',
+            path_name: 'Create Post',
+            name: 'wp_live.create_post',
+            scripts_count: 0,
+            ready: false,
+            is_enabled: false,
+            published_script_available: false,
+          },
+        ],
+        requests: [],
+      },
+      [],
+    )
+
+    assert.equal(liveMapped.sites[0].cms_type, 'wordpress')
+    assert.equal(liveMapped.tags[0].enabled, false)
+    assert.equal(liveMapped.tags[0].published_script_available, false)
+
+    // Effective paths for the live WordPress site still resolve even when paths[] has no overrides
+    const effective = resolveEffectivePathsForSite(
+      liveMapped.sites[0],
+      liveMapped.paths,
+    )
+    assert.equal(effective.length, 2)
+    assert.equal(effective[0].source, 'template')
   })
 })

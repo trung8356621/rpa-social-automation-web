@@ -305,12 +305,13 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       base_url_mode?: 'fixed' | 'dynamic'
       cms_type?: CmsType | null
       description?: string
-    }) => {
+    }): Promise<{ id?: number }> => {
       await delay(280)
       const mode = siteData.base_url_mode ?? 'fixed'
       const cmsType = siteData.cms_type ?? null
       const key = slugifyKey(siteData.name)
       const baseUrl = siteData.base_url || ''
+      const savedId = siteData.id ?? nextId(data.sites)
 
       setData((prev) => {
         const nextSites = siteData.id
@@ -330,7 +331,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
           : [
               ...prev.sites,
               {
-                id: nextId(prev.sites),
+                id: savedId,
                 key,
                 name: siteData.name,
                 base_url: baseUrl,
@@ -357,8 +358,36 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       })
 
       showToast(`Đã lưu Site [${siteData.name}] thành công!`)
+      return { id: savedId }
     },
-    [showToast],
+    [data.sites, showToast],
+  )
+
+  const deleteSite = useCallback(
+    async (siteId: number, siteName: string) => {
+      await delay(200)
+      const siteTags = data.tags.filter((t) => t.site_id === siteId)
+      const hasPublishedScript = siteTags.some(
+        (t) => t.scripts_count > 0 || t.published_script_available,
+      )
+      if (hasPublishedScript) {
+        throw new Error(
+          `Không thể xóa Site [${siteName}] vì đang có Action Tag gắn Script đã xuất bản.`,
+        )
+      }
+      const removedTagKeys = new Set(siteTags.map((t) => t.tag_key))
+      setData((prev) => ({
+        ...prev,
+        sites: prev.sites.filter((s) => s.id !== siteId),
+        paths: prev.paths.filter((p) => p.site_id !== siteId),
+        tags: prev.tags.filter((t) => t.site_id !== siteId),
+        requests: prev.requests.filter(
+          (r) => !removedTagKeys.has(r.action_tag_key),
+        ),
+      }))
+      showToast(`Đã xóa Site [${siteName}] thành công!`)
+    },
+    [data.tags, showToast],
   )
 
   const savePath = useCallback(
@@ -488,12 +517,14 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       updateTagAuthScript,
       deleteTag,
       saveSite,
+      deleteSite,
       savePath,
       reload,
     }),
     [
       createTag,
       data,
+      deleteSite,
       deleteTag,
       demo,
       error,

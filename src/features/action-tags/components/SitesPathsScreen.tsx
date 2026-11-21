@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Pencil, Plus } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
@@ -8,10 +8,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { toSafeApiMessage } from '@/lib/api/errors'
 import { cn } from '@/lib/utils'
 
 import {
   CMS_TYPE_LABELS,
+  getCmsPathTemplates,
   resolveEffectivePathsForSite,
 } from '../cms-templates'
 import type { CmsType, PathItem, Site } from '../types'
@@ -30,7 +32,8 @@ type SitesPathsScreenProps = {
     base_url_mode?: 'fixed' | 'dynamic'
     cms_type?: CmsType | null
     description?: string
-  }) => Promise<void>
+  }) => Promise<{ id?: number } | void>
+  onDeleteSite: (siteId: number, siteName: string) => Promise<void>
   onSavePath: (pathData: {
     id?: number
     site_id: number
@@ -49,6 +52,7 @@ export function SitesPathsScreen({
   mutationsEnabled = true,
   onBackToTags,
   onSaveSite,
+  onDeleteSite,
   onSavePath,
 }: SitesPathsScreenProps) {
   const [selectedSiteId, setSelectedSiteId] = useState(sites[0]?.id ?? 0)
@@ -76,7 +80,15 @@ export function SitesPathsScreen({
   const [siteBaseUrlInput, setSiteBaseUrlInput] = useState('')
   const [siteDescInput, setSiteDescInput] = useState('')
   const [isSavingSite, setIsSavingSite] = useState(false)
+  const [isDeletingSite, setIsDeletingSite] = useState(false)
+  const [confirmDeleteSite, setConfirmDeleteSite] = useState(false)
   const [siteError, setSiteError] = useState('')
+  const prevSiteIdRef = useRef<number | null>(null)
+
+  const modalTemplatePreview = useMemo(
+    () => getCmsPathTemplates(siteCmsType || null),
+    [siteCmsType],
+  )
 
   const activeSite = useMemo(
     () => sites.find((s) => s.id === selectedSiteId) || sites[0] || null,
@@ -107,39 +119,50 @@ export function SitesPathsScreen({
   }
 
   useEffect(() => {
+    const currentSiteId = activeSite?.id ?? null
+    const siteChanged = prevSiteIdRef.current !== currentSiteId
+    prevSiteIdRef.current = currentSiteId
+
     if (activeSitePaths.length > 0) {
-      const current = activeSitePaths.find((p) => p.id === selectedPathId)
-      if (current) {
-        // Keep editor selection across soft registry reload; do not overwrite
-        // unsaved checkbox edits here — Save handler syncs from verified API.
-        return
-      }
-      if (selectedPathId !== 'new') {
-        const first = activeSitePaths[0]
-        setSelectedPathId(first.source === 'template' ? 'new' : first.id)
-        setPathNameInput(first.name)
-        setPathPatternInput(first.url_pattern)
-        setPathIsAuthentication(Boolean(first.is_authentication))
-        setPathTemplateKey(first.template_key ?? null)
-        setPathKeyInput(first.key)
-        setPathError('')
-        const initialTests: Record<string, string> = {}
-        for (const input of first.path_inputs ?? []) {
-          if (input.key === 'group_id') initialTests[input.key] = '123456789'
-          else if (input.key === 'post_id') initialTests[input.key] = '987654321'
-          else if (input.key === 'username') initialTests[input.key] = 'demo_user'
-          else initialTests[input.key] = 'sample_value'
+      if (!siteChanged) {
+        const current = activeSitePaths.find(
+          (p) =>
+            p.id === selectedPathId ||
+            (p.source === 'template' &&
+              selectedPathId === 'new' &&
+              pathTemplateKey === p.template_key),
+        )
+        if (current || selectedPathId === 'new') {
+          return
         }
-        setTestValues(initialTests)
       }
+      const first = activeSitePaths[0]
+      setSelectedPathId(first.source === 'template' ? 'new' : first.id)
+      setPathNameInput(first.name)
+      setPathPatternInput(first.url_pattern)
+      setPathIsAuthentication(Boolean(first.is_authentication))
+      setPathTemplateKey(first.template_key ?? null)
+      setPathKeyInput(first.key)
+      setPathError('')
+      const initialTests: Record<string, string> = {}
+      for (const input of first.path_inputs ?? []) {
+        if (input.key === 'group_id') initialTests[input.key] = '123456789'
+        else if (input.key === 'post_id') initialTests[input.key] = '987654321'
+        else if (input.key === 'username') initialTests[input.key] = 'demo_user'
+        else initialTests[input.key] = 'sample_value'
+      }
+      setTestValues(initialTests)
     } else {
       setSelectedPathId('new')
       setPathNameInput('')
       setPathPatternInput('/')
       setPathIsAuthentication(false)
+      setPathTemplateKey(null)
+      setPathKeyInput(undefined)
+      setPathError('')
       setTestValues({})
     }
-  }, [activeSite?.id, activeSitePaths, selectedPathId])
+  }, [activeSite?.id, activeSitePaths, pathTemplateKey, selectedPathId])
 
   const startAddPath = () => {
     if (!activeSite) {
@@ -148,7 +171,7 @@ export function SitesPathsScreen({
     }
     setSelectedPathId('new')
     setPathNameInput('')
-    setPathPatternInput('/wp-admin/post-new.php')
+    setPathPatternInput('/')
     setPathIsAuthentication(false)
     setPathTemplateKey(null)
     setPathKeyInput(undefined)
@@ -192,6 +215,7 @@ export function SitesPathsScreen({
     setSiteNameInput('')
     setSiteBaseUrlInput('https://')
     setSiteDescInput('')
+    setConfirmDeleteSite(false)
     setSiteError('')
     setSiteModalOpen(true)
   }
@@ -204,6 +228,7 @@ export function SitesPathsScreen({
     // Prefer canonical base_url; fall back to legacy test_base_url for edit prefill only
     setSiteBaseUrlInput(site.base_url || site.test_base_url || '')
     setSiteDescInput(site.description || '')
+    setConfirmDeleteSite(false)
     setSiteError('')
     setSiteModalOpen(true)
   }
@@ -249,7 +274,7 @@ export function SitesPathsScreen({
     setSiteError('')
     setIsSavingSite(true)
     try {
-      await onSaveSite({
+      const saved = await onSaveSite({
         id: editingSite?.id,
         name: siteNameInput.trim(),
         base_url: siteBaseUrlInput.trim(),
@@ -257,11 +282,35 @@ export function SitesPathsScreen({
         cms_type: siteCmsType || null,
         description: siteDescInput.trim() || undefined,
       })
+      if (saved && typeof saved === 'object' && saved.id) {
+        setSelectedSiteId(saved.id)
+      }
       setSiteModalOpen(false)
     } catch (err) {
-      setSiteError(err instanceof Error ? err.message : 'Lỗi khi lưu Site')
+      setSiteError(toSafeApiMessage(err))
     } finally {
       setIsSavingSite(false)
+    }
+  }
+
+  const handleDeleteSite = async () => {
+    if (!editingSite) return
+    setSiteError('')
+    setIsDeletingSite(true)
+    try {
+      const deletedId = editingSite.id
+      await onDeleteSite(deletedId, editingSite.name)
+      setConfirmDeleteSite(false)
+      setSiteModalOpen(false)
+      if (selectedSiteId === deletedId) {
+        const remaining = sites.find((s) => s.id !== deletedId)
+        setSelectedSiteId(remaining?.id ?? 0)
+      }
+    } catch (err) {
+      setSiteError(toSafeApiMessage(err))
+      setConfirmDeleteSite(false)
+    } finally {
+      setIsDeletingSite(false)
     }
   }
 
@@ -302,7 +351,7 @@ export function SitesPathsScreen({
               }
             >
               <Plus className="size-3.5" />
-              Add Path
+              Add Custom Path
             </Button>
           </>
         }
@@ -774,8 +823,35 @@ export function SitesPathsScreen({
                 <option value="wordpress">WordPress (kế thừa Path mẫu)</option>
               </Select>
               <p className="mt-1 text-xs text-muted">
-                Các Site cùng CMS Type tự động kế thừa Path mẫu (ví dụ: create_post, login) và tự tạo Action Tag.
+                Các Site cùng CMS Type tự động kế thừa Path mẫu và tự tạo Action Tag.
               </p>
+              {modalTemplatePreview.length > 0 ? (
+                <div className="mt-2 rounded-[var(--radius-control)] border border-border bg-surface-muted/50 p-2.5">
+                  <div className="mb-1.5 text-xs font-medium text-foreground">
+                    Inherited Path Templates ({CMS_TYPE_LABELS[siteCmsType as CmsType]})
+                  </div>
+                  <ul className="space-y-1">
+                    {modalTemplatePreview.map((tpl) => (
+                      <li
+                        key={tpl.key}
+                        className="flex items-center justify-between gap-2 text-xs"
+                      >
+                        <span className="flex items-center gap-1.5 font-medium text-foreground">
+                          {tpl.name}
+                          {tpl.is_authentication ? (
+                            <Badge variant="primary" className="text-[10px]">
+                              Auth Path
+                            </Badge>
+                          ) : null}
+                        </span>
+                        <code className="font-mono text-[11px] text-muted">
+                          {tpl.url_pattern}
+                        </code>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
 
             <div className="mb-3">
@@ -813,21 +889,73 @@ export function SitesPathsScreen({
               />
             </div>
 
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSiteModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void handleSaveSite()}
-                disabled={isSavingSite || !mutationsEnabled}
-                title={
-                  mutationsEnabled
-                    ? undefined
-                    : 'Live editing not enabled yet'
-                }
-              >
-                {isSavingSite ? 'Saving...' : 'Save Site'}
-              </Button>
+            {editingSite && confirmDeleteSite ? (
+              <div className="mb-3 rounded-[var(--radius-control)] border border-danger/30 bg-danger/5 p-3">
+                <p className="text-xs font-medium text-danger">
+                  Xác nhận xóa Site [{editingSite.name}]?
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Thao tác này sẽ xóa Site và các Path/Action Tag chưa gắn Script xuất bản. Nếu Site đang có dữ liệu phụ thuộc, hệ thống sẽ từ chối xóa.
+                </p>
+                <div className="mt-2.5 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setConfirmDeleteSite(false)}
+                    disabled={isDeletingSite}
+                  >
+                    Hủy
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="border-danger/40 text-danger hover:bg-danger/10"
+                    onClick={() => void handleDeleteSite()}
+                    disabled={isDeletingSite}
+                  >
+                    {isDeletingSite ? 'Deleting...' : 'Confirm Delete'}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                {editingSite && !confirmDeleteSite ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-danger/30 text-danger hover:bg-danger/5"
+                    onClick={() => setConfirmDeleteSite(true)}
+                    disabled={isSavingSite || isDeletingSite || !mutationsEnabled}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete Site
+                  </Button>
+                ) : null}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setSiteModalOpen(false)}
+                  disabled={isSavingSite || isDeletingSite}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void handleSaveSite()}
+                  disabled={isSavingSite || isDeletingSite || !mutationsEnabled}
+                  title={
+                    mutationsEnabled
+                      ? undefined
+                      : 'Live editing not enabled yet'
+                  }
+                >
+                  {isSavingSite ? 'Saving...' : 'Save Site'}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
