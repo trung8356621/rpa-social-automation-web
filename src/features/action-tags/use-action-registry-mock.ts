@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import {
+  setActionTagEnabled,
+  syncActionTagsForSites,
+} from './auto-tag-lifecycle'
+import {
+  resolveEffectivePathsForSite,
+  validateSitePathUniqueness,
+} from './cms-templates'
 import { EMPTY_REGISTRY, MOCK_ACTION_REGISTRY } from './mock-data'
 import type {
   ActionRegistryData,
   ActionTagAuthScript,
+  CmsType,
   DemoScenario,
   PathItem,
   Site,
@@ -31,9 +40,26 @@ function cloneSeed(scenario: DemoScenario): ActionRegistryData {
     const data = structuredClone(MOCK_ACTION_REGISTRY)
     data.auth_scripts = []
     data.tags = data.tags.map((t) => ({ ...t, auth_script: null }))
+    const synced = syncActionTagsForSites(
+      data.sites,
+      data.paths,
+      data.tags,
+      data.requests,
+    )
+    data.tags = synced.tags
+    data.requests = synced.requests
     return data
   }
-  return structuredClone(MOCK_ACTION_REGISTRY)
+  const data = structuredClone(MOCK_ACTION_REGISTRY)
+  const synced = syncActionTagsForSites(
+    data.sites,
+    data.paths,
+    data.tags,
+    data.requests,
+  )
+  data.tags = synced.tags
+  data.requests = synced.requests
+  return data
 }
 
 function nextId(items: { id: number }[]): number {
@@ -173,6 +199,8 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
             name: tagKey,
             scripts_count: 0,
             ready: false,
+            enabled: true,
+            published_script_available: false,
             latest_request_status: 'pending',
             latest_request_id: requestId,
             auth_script: authScript,
@@ -237,6 +265,23 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
     [data.auth_scripts, showToast],
   )
 
+  const toggleTagEnabled = useCallback(
+    async (tagId: number, enabled: boolean) => {
+      await delay(140)
+      const target = data.tags.find((t) => t.id === tagId)
+      setData((prev) => ({
+        ...prev,
+        tags: setActionTagEnabled(prev.tags, tagId, enabled),
+      }))
+      showToast(
+        enabled
+          ? `Đã bật Action Tag [${target?.tag_key ?? tagId}] (MOCK local).`
+          : `Đã tắt Action Tag [${target?.tag_key ?? tagId}] (MOCK local — giữ nguyên dữ liệu & Script).`,
+      )
+    },
+    [data.tags, showToast],
+  )
+
   const deleteTag = useCallback(
     async (tagId: number, tagKey: string) => {
       if (!window.confirm(`Bạn có chắc muốn xóa Action Tag [${tagKey}] không?`)) {
@@ -258,41 +303,57 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       name: string
       base_url?: string
       base_url_mode?: 'fixed' | 'dynamic'
+      cms_type?: CmsType | null
       description?: string
     }) => {
       await delay(280)
       const mode = siteData.base_url_mode ?? 'fixed'
+      const cmsType = siteData.cms_type ?? null
       const key = slugifyKey(siteData.name)
       const baseUrl = siteData.base_url || ''
 
       setData((prev) => {
-        if (siteData.id) {
-          const sites = prev.sites.map((s) =>
-            s.id === siteData.id
-              ? {
-                  ...s,
-                  name: siteData.name,
-                  key: s.key,
-                  base_url: baseUrl,
-                  base_url_mode: mode,
-                  description: siteData.description || null,
-                }
-              : s,
-          )
-          return { ...prev, sites }
-        }
+        const nextSites = siteData.id
+          ? prev.sites.map((s) =>
+              s.id === siteData.id
+                ? {
+                    ...s,
+                    name: siteData.name,
+                    key: s.key,
+                    base_url: baseUrl,
+                    base_url_mode: mode,
+                    cms_type: cmsType,
+                    description: siteData.description || null,
+                  }
+                : s,
+            )
+          : [
+              ...prev.sites,
+              {
+                id: nextId(prev.sites),
+                key,
+                name: siteData.name,
+                base_url: baseUrl,
+                base_url_mode: mode,
+                cms_type: cmsType,
+                description: siteData.description || null,
+                paths_count: 0,
+              } satisfies Site,
+            ]
 
-        const id = nextId(prev.sites)
-        const site: Site = {
-          id,
-          key,
-          name: siteData.name,
-          base_url: baseUrl,
-          base_url_mode: mode,
-          description: siteData.description || null,
-          paths_count: 0,
+        const synced = syncActionTagsForSites(
+          nextSites,
+          prev.paths,
+          prev.tags,
+          prev.requests,
+        )
+
+        return {
+          ...prev,
+          sites: nextSites,
+          tags: synced.tags,
+          requests: synced.requests,
         }
-        return { ...prev, sites: [...prev.sites, site] }
       })
 
       showToast(`Đã lưu Site [${siteData.name}] thành công!`)
@@ -304,58 +365,100 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
     async (pathData: {
       id?: number
       site_id: number
+      key?: string
       name: string
       url_pattern: string
       description?: string
       is_authentication?: boolean
+      template_key?: string | null
     }) => {
       await delay(280)
       const site = data.sites.find((s) => s.id === pathData.site_id)
       if (!site) throw new Error('Site không tồn tại.')
 
-      const key = slugifyKey(pathData.name)
+      const effectivePaths = resolveEffectivePathsForSite(site, data.paths)
+      const isExistingPersistedPath =
+        pathData.id != null && pathData.id > 0
+      const existingPath = isExistingPersistedPath
+        ? data.paths.find((p) => p.id === pathData.id)
+        : undefined
+      const key =
+        pathData.key?.trim() ||
+        existingPath?.key ||
+        pathData.template_key?.trim() ||
+        slugifyKey(pathData.name)
+
+      const uniqueness = validateSitePathUniqueness(effectivePaths, {
+        id: isExistingPersistedPath ? pathData.id : undefined,
+        key,
+        url_pattern: pathData.url_pattern,
+        template_key: pathData.template_key ?? existingPath?.template_key,
+      })
+      if (!uniqueness.ok) {
+        throw new Error(uniqueness.error)
+      }
+
       const pathInputs = parseInputsFromPattern(pathData.url_pattern)
       const isAuth = Boolean(pathData.is_authentication)
-      const savedId = pathData.id ?? nextId(data.paths)
+      const savedId = isExistingPersistedPath
+        ? pathData.id!
+        : nextId(data.paths)
 
       setData((prev) => {
-        if (pathData.id) {
-          const paths = prev.paths.map((p) =>
-            p.id === pathData.id
-              ? {
-                  ...p,
-                  name: pathData.name,
-                  url_pattern: pathData.url_pattern,
-                  path_inputs: pathInputs,
-                  description: pathData.description || null,
-                  is_authentication: isAuth,
-                }
-              : p,
-          )
-          return { ...prev, paths }
-        }
+        const nextPaths = isExistingPersistedPath
+          ? prev.paths.map((p) =>
+              p.id === savedId
+                ? {
+                    ...p,
+                    name: pathData.name,
+                    url_pattern: pathData.url_pattern,
+                    path_inputs: pathInputs,
+                    description: pathData.description || null,
+                    is_authentication: isAuth,
+                  }
+                : p,
+            )
+          : [
+              ...prev.paths,
+              {
+                id: savedId,
+                site_id: site.id,
+                site_key: site.key,
+                key,
+                name: pathData.name,
+                url_pattern: pathData.url_pattern,
+                path_inputs: pathInputs,
+                description: pathData.description || null,
+                is_authentication: isAuth,
+                source: 'site',
+                template_key: pathData.template_key ?? null,
+                is_override: Boolean(pathData.template_key),
+              } satisfies PathItem,
+            ]
 
-        const path: PathItem = {
-          id: savedId,
-          site_id: site.id,
-          site_key: site.key,
-          key,
-          name: pathData.name,
-          url_pattern: pathData.url_pattern,
-          path_inputs: pathInputs,
-          description: pathData.description || null,
-          is_authentication: isAuth,
-        }
-        const paths = [...prev.paths, path]
-        const sites = prev.sites.map((s) =>
+        const nextSites = prev.sites.map((s) =>
           s.id === site.id
             ? {
                 ...s,
-                paths_count: paths.filter((p) => p.site_id === s.id).length,
+                paths_count: nextPaths.filter((p) => p.site_id === s.id).length,
               }
             : s,
         )
-        return { ...prev, paths, sites }
+
+        const synced = syncActionTagsForSites(
+          nextSites,
+          nextPaths,
+          prev.tags,
+          prev.requests,
+        )
+
+        return {
+          ...prev,
+          paths: nextPaths,
+          sites: nextSites,
+          tags: synced.tags,
+          requests: synced.requests,
+        }
       })
 
       showToast(`Đã lưu Path [${pathData.name}] thành công!`)
@@ -381,6 +484,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       toast,
       showToast,
       createTag,
+      toggleTagEnabled,
       updateTagAuthScript,
       deleteTag,
       saveSite,
@@ -399,6 +503,7 @@ export function useActionRegistryMock(options: { enabled?: boolean } = {}) {
       saveSite,
       showToast,
       toast,
+      toggleTagEnabled,
       updateTagAuthScript,
     ],
   )

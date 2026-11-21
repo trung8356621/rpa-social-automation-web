@@ -6,10 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-import type { PathItem, Site } from '../types'
+import {
+  CMS_TYPE_LABELS,
+  resolveEffectivePathsForSite,
+} from '../cms-templates'
+import type { CmsType, PathItem, Site } from '../types'
 import { parseInputsFromPattern, resolveUrl } from '../utils'
 
 type SitesPathsScreenProps = {
@@ -23,15 +28,18 @@ type SitesPathsScreenProps = {
     name: string
     base_url?: string
     base_url_mode?: 'fixed' | 'dynamic'
+    cms_type?: CmsType | null
     description?: string
   }) => Promise<void>
   onSavePath: (pathData: {
     id?: number
     site_id: number
+    key?: string
     name: string
     url_pattern: string
     description?: string
     is_authentication?: boolean
+    template_key?: string | null
   }) => Promise<{ id: number; is_authentication: boolean } | void>
 }
 
@@ -51,6 +59,8 @@ export function SitesPathsScreen({
   const [pathNameInput, setPathNameInput] = useState('')
   const [pathPatternInput, setPathPatternInput] = useState('/')
   const [pathIsAuthentication, setPathIsAuthentication] = useState(false)
+  const [pathTemplateKey, setPathTemplateKey] = useState<string | null>(null)
+  const [pathKeyInput, setPathKeyInput] = useState<string | undefined>(undefined)
   const [testValues, setTestValues] = useState<Record<string, string>>({})
   const [isSavingPath, setIsSavingPath] = useState(false)
   const [pathError, setPathError] = useState('')
@@ -61,6 +71,7 @@ export function SitesPathsScreen({
   const [siteBaseUrlMode, setSiteBaseUrlMode] = useState<'fixed' | 'dynamic'>(
     'fixed',
   )
+  const [siteCmsType, setSiteCmsType] = useState<CmsType | ''>('')
   const [siteNameInput, setSiteNameInput] = useState('')
   const [siteBaseUrlInput, setSiteBaseUrlInput] = useState('')
   const [siteDescInput, setSiteDescInput] = useState('')
@@ -74,14 +85,16 @@ export function SitesPathsScreen({
   const isDynamicSite = activeSite?.base_url_mode === 'dynamic'
   const activeSitePaths = useMemo(() => {
     if (!activeSite) return []
-    return paths.filter((p) => p.site_id === activeSite.id)
+    return resolveEffectivePathsForSite(activeSite, paths)
   }, [paths, activeSite])
 
   const selectPath = (p: PathItem) => {
-    setSelectedPathId(p.id)
+    setSelectedPathId(p.source === 'template' ? 'new' : p.id)
     setPathNameInput(p.name)
     setPathPatternInput(p.url_pattern)
     setPathIsAuthentication(Boolean(p.is_authentication))
+    setPathTemplateKey(p.template_key ?? null)
+    setPathKeyInput(p.key)
     setPathError('')
     const initialTests: Record<string, string> = {}
     for (const input of p.path_inputs ?? []) {
@@ -103,10 +116,12 @@ export function SitesPathsScreen({
       }
       if (selectedPathId !== 'new') {
         const first = activeSitePaths[0]
-        setSelectedPathId(first.id)
+        setSelectedPathId(first.source === 'template' ? 'new' : first.id)
         setPathNameInput(first.name)
         setPathPatternInput(first.url_pattern)
         setPathIsAuthentication(Boolean(first.is_authentication))
+        setPathTemplateKey(first.template_key ?? null)
+        setPathKeyInput(first.key)
         setPathError('')
         const initialTests: Record<string, string> = {}
         for (const input of first.path_inputs ?? []) {
@@ -135,6 +150,8 @@ export function SitesPathsScreen({
     setPathNameInput('')
     setPathPatternInput('/wp-admin/post-new.php')
     setPathIsAuthentication(false)
+    setPathTemplateKey(null)
+    setPathKeyInput(undefined)
     setPathError('')
     setTestValues({})
   }
@@ -171,6 +188,7 @@ export function SitesPathsScreen({
   const openAddSiteModal = () => {
     setEditingSite(null)
     setSiteBaseUrlMode('fixed')
+    setSiteCmsType('')
     setSiteNameInput('')
     setSiteBaseUrlInput('https://')
     setSiteDescInput('')
@@ -181,6 +199,7 @@ export function SitesPathsScreen({
   const openEditSiteModal = (site: Site) => {
     setEditingSite(site)
     setSiteBaseUrlMode(site.base_url_mode ?? 'fixed')
+    setSiteCmsType(site.cms_type ?? '')
     setSiteNameInput(site.name)
     // Prefer canonical base_url; fall back to legacy test_base_url for edit prefill only
     setSiteBaseUrlInput(site.base_url || site.test_base_url || '')
@@ -201,9 +220,11 @@ export function SitesPathsScreen({
       const saved = await onSavePath({
         id: selectedPathId === 'new' ? undefined : (selectedPathId ?? undefined),
         site_id: activeSite.id,
+        key: pathKeyInput,
         name: pathNameInput.trim(),
         url_pattern: pathPatternInput.trim(),
         is_authentication: pathIsAuthentication,
+        template_key: pathTemplateKey,
       })
       if (saved) {
         setSelectedPathId(saved.id)
@@ -233,6 +254,7 @@ export function SitesPathsScreen({
         name: siteNameInput.trim(),
         base_url: siteBaseUrlInput.trim(),
         base_url_mode: siteBaseUrlMode,
+        cms_type: siteCmsType || null,
         description: siteDescInput.trim() || undefined,
       })
       setSiteModalOpen(false)
@@ -351,10 +373,15 @@ export function SitesPathsScreen({
                     )}
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="truncate text-sm font-medium">
                           {site.name}
                         </span>
+                        {site.cms_type && site.cms_type !== 'custom' ? (
+                          <Badge variant="success">
+                            {CMS_TYPE_LABELS[site.cms_type]}
+                          </Badge>
+                        ) : null}
                         {isDynamic ? (
                           <Badge variant="primary">Dynamic</Badge>
                         ) : null}
@@ -394,7 +421,12 @@ export function SitesPathsScreen({
               <h2 className="text-sm font-semibold">
                 Paths · {activeSite?.name || 'Chưa chọn'}
               </h2>
-              {isDynamicSite ? <Badge variant="primary">Dynamic CMS</Badge> : null}
+              {activeSite?.cms_type && activeSite.cms_type !== 'custom' ? (
+                <Badge variant="success">
+                  CMS: {CMS_TYPE_LABELS[activeSite.cms_type]}
+                </Badge>
+              ) : null}
+              {isDynamicSite ? <Badge variant="primary">Dynamic URL</Badge> : null}
               <span className="ml-auto text-xs text-muted">
                 {activeSitePaths.length} path(s)
               </span>
@@ -432,7 +464,12 @@ export function SitesPathsScreen({
                     </tr>
                   ) : (
                     activeSitePaths.map((path) => {
-                      const isSelected = selectedPathId === path.id
+                      const isInherited = path.source === 'template'
+                      const isSelected =
+                        selectedPathId === path.id ||
+                        (isInherited &&
+                          selectedPathId === 'new' &&
+                          pathTemplateKey === path.template_key)
                       return (
                         <tr
                           key={path.id}
@@ -445,6 +482,15 @@ export function SitesPathsScreen({
                           <td className="px-3 py-2.5">
                             <span className="inline-flex flex-wrap items-center gap-1.5">
                               {path.name}
+                              {isInherited ? (
+                                <Badge variant="neutral" className="text-[10px]">
+                                  Inherited
+                                </Badge>
+                              ) : path.is_override ? (
+                                <Badge variant="warning" className="text-[10px]">
+                                  Site Override
+                                </Badge>
+                              ) : null}
                               {path.is_authentication ? (
                                 <Badge variant="primary" className="text-[10px]">
                                   Auth Path
@@ -458,15 +504,23 @@ export function SitesPathsScreen({
                           <td className="px-3 py-2.5 text-right">
                             <Button
                               variant="ghost"
-                              size="icon"
-                              className="size-7"
+                              size={isInherited ? 'sm' : 'icon'}
+                              className={isInherited ? 'h-7 px-2 text-xs' : 'size-7'}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 selectPath(path)
                               }}
-                              aria-label={`Edit ${path.name}`}
+                              aria-label={
+                                isInherited
+                                  ? `Override ${path.name}`
+                                  : `Edit ${path.name}`
+                              }
                             >
-                              <Pencil className="size-3.5" />
+                              {isInherited ? (
+                                'Override'
+                              ) : (
+                                <Pencil className="size-3.5" />
+                              )}
                             </Button>
                           </td>
                         </tr>
@@ -480,9 +534,20 @@ export function SitesPathsScreen({
 
           <div className="rounded-[var(--radius-card)] border border-border bg-surface p-3">
             <h3 className="mb-3 text-sm font-semibold">
-              {selectedPathId === 'new' ? 'Add Path' : 'Edit Path'} ·{' '}
-              {pathNameInput || 'New Path'}
+              {pathTemplateKey && selectedPathId === 'new'
+                ? 'Override CMS Path'
+                : selectedPathId === 'new'
+                  ? 'Add Path'
+                  : 'Edit Path'}{' '}
+              · {pathNameInput || 'New Path'}
             </h3>
+
+            {pathTemplateKey ? (
+              <div className="mb-3 rounded-[var(--radius-control)] border border-border bg-surface-muted/50 px-3 py-2 text-xs text-muted">
+                Đang tùy chỉnh / ghi đè mẫu Path <code className="font-mono">{pathTemplateKey}</code> cho riêng Site{' '}
+                <span className="font-medium text-foreground">{activeSite?.name}</span>. Mẫu dùng chung của CMS không thay đổi.
+              </div>
+            ) : null}
 
             {pathError ? (
               <div className="mb-3 rounded-[var(--radius-control)] border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger">
@@ -675,7 +740,7 @@ export function SitesPathsScreen({
                 {(
                   [
                     ['fixed', 'Fixed', 'Facebook, Reddit, X…'],
-                    ['dynamic', 'Dynamic', 'WordPress / domain động'],
+                    ['dynamic', 'Dynamic', 'Domain động (tùy chọn CMS Type bên dưới)'],
                   ] as const
                 ).map(([mode, title, hint]) => (
                   <button
@@ -694,6 +759,23 @@ export function SitesPathsScreen({
                   </button>
                 ))}
               </div>
+            </div>
+
+            <div className="mb-3">
+              <Label htmlFor="site-cms-type">CMS Type (Optional)</Label>
+              <Select
+                id="site-cms-type"
+                value={siteCmsType}
+                onChange={(e) =>
+                  setSiteCmsType((e.target.value as CmsType | '') || '')
+                }
+              >
+                <option value="">None / Custom</option>
+                <option value="wordpress">WordPress (kế thừa Path mẫu)</option>
+              </Select>
+              <p className="mt-1 text-xs text-muted">
+                Các Site cùng CMS Type tự động kế thừa Path mẫu (ví dụ: create_post, login) và tự tạo Action Tag.
+              </p>
             </div>
 
             <div className="mb-3">

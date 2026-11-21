@@ -14,10 +14,11 @@ import {
   liveUpdateAuthPin,
   liveUpdatePath,
   liveUpdateSite,
+  liveUpdateTagEnabled,
 } from './api/mutations'
 import { resolveAuthPinPayload } from './api/resolve-auth-pin'
 import { EMPTY_REGISTRY } from './mock-data'
-import type { ActionRegistryData, DemoScenario } from './types'
+import type { ActionRegistryData, CmsType, DemoScenario } from './types'
 import { useActionRegistryMock } from './use-action-registry-mock'
 
 function useActionRegistryLive(enabled: boolean) {
@@ -172,6 +173,19 @@ function useActionRegistryLive(enabled: boolean) {
     [data.auth_scripts, reload, showToast],
   )
 
+  const toggleTagEnabled = useCallback(
+    async (tagId: number, enabled: boolean) => {
+      await liveUpdateTagEnabled(tagId, enabled)
+      showToast(
+        enabled
+          ? 'Đã bật Action Tag (live).'
+          : 'Đã tắt Action Tag (live — giữ nguyên dữ liệu & Script).',
+      )
+      await reload()
+    },
+    [reload, showToast],
+  )
+
   const deleteTag = useCallback(
     async (tagId: number, tagKey: string) => {
       if (!window.confirm(`Bạn có chắc muốn xóa Action Tag [${tagKey}] không?`)) {
@@ -190,15 +204,18 @@ function useActionRegistryLive(enabled: boolean) {
       name: string
       base_url?: string
       base_url_mode?: 'fixed' | 'dynamic'
+      cms_type?: CmsType | null
       description?: string
     }) => {
       const mode = siteData.base_url_mode ?? 'fixed'
+      const cmsType = siteData.cms_type ?? null
       // Canonical field only — both Fixed and Dynamic use base_url.
       // Do not send test_base_url from the web editor (CP18D.3B).
       if (siteData.id) {
         await liveUpdateSite(siteData.id, {
           name: siteData.name,
           base_url_mode: mode,
+          cms_type: cmsType,
           base_url: siteData.base_url ?? null,
           description: siteData.description ?? null,
         })
@@ -206,6 +223,7 @@ function useActionRegistryLive(enabled: boolean) {
         await liveStoreSite({
           name: siteData.name,
           base_url_mode: mode,
+          cms_type: cmsType,
           base_url: siteData.base_url,
           description: siteData.description ?? null,
         })
@@ -220,32 +238,38 @@ function useActionRegistryLive(enabled: boolean) {
     async (pathData: {
       id?: number
       site_id: number
+      key?: string
       name: string
       url_pattern: string
       description?: string
       is_authentication?: boolean
+      template_key?: string | null
     }) => {
       const isAuth = Boolean(pathData.is_authentication)
-      const response = pathData.id
-        ? await liveUpdatePath(pathData.id, {
+      const isExistingId = pathData.id != null && pathData.id > 0
+      const response = isExistingId
+        ? await liveUpdatePath(pathData.id!, {
             name: pathData.name,
             url_pattern: pathData.url_pattern,
             description: pathData.description ?? null,
             is_authentication: isAuth,
+            ...(pathData.template_key ? { template_key: pathData.template_key } : {}),
           })
         : await liveStorePath({
             site_id: pathData.site_id,
+            ...(pathData.key ? { key: pathData.key } : {}),
             name: pathData.name,
             url_pattern: pathData.url_pattern,
             description: pathData.description ?? null,
             is_authentication: isAuth,
+            ...(pathData.template_key ? { template_key: pathData.template_key } : {}),
           })
 
       // PUT/POST must echo persisted flag — do not toast success on silent ignore.
       assertPathAuthenticationPersisted(response.path, isAuth)
 
       const registry = await reload()
-      const pathId = pathData.id ?? Number(response.path?.id)
+      const pathId = isExistingId ? pathData.id! : Number(response.path?.id)
       const fromRegistry =
         Number.isFinite(pathId) && pathId > 0
           ? registry.paths.find((p) => p.id === pathId)
@@ -278,6 +302,7 @@ function useActionRegistryLive(enabled: boolean) {
       toast,
       showToast,
       createTag,
+      toggleTagEnabled,
       updateTagAuthScript,
       deleteTag,
       saveSite,
@@ -297,6 +322,7 @@ function useActionRegistryLive(enabled: boolean) {
       saveSite,
       showToast,
       toast,
+      toggleTagEnabled,
       updateTagAuthScript,
     ],
   )

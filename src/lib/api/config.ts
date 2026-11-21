@@ -36,6 +36,7 @@ export const ACTION_REGISTRY_PATHS = {
   path: (id: number) => `${ACTION_REGISTRY_BASE}/paths/${id}`,
   tags: `${ACTION_REGISTRY_BASE}/tags`,
   tag: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}`,
+  tagEnabled: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/enabled`,
   tagAuthPin: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/auth-pin`,
   tagRequests: (id: number) => `${ACTION_REGISTRY_BASE}/tags/${id}/requests`,
 } as const

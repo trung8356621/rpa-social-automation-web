@@ -23,6 +23,7 @@ export type StoreSiteBody = {
   key?: string
   base_url?: string
   base_url_mode?: 'fixed' | 'dynamic'
+  cms_type?: 'wordpress' | 'custom' | null
   test_base_url?: string | null
   description?: string | null
 }
@@ -31,6 +32,7 @@ export type UpdateSiteBody = {
   name?: string
   base_url?: string | null
   base_url_mode?: 'fixed' | 'dynamic'
+  cms_type?: 'wordpress' | 'custom' | null
   test_base_url?: string | null
   description?: string | null
 }
@@ -43,6 +45,7 @@ export type StorePathBody = {
   description?: string | null
   /** Authentication Path — persisted on sa_paths when schema ready */
   is_authentication?: boolean
+  template_key?: string | null
 }
 
 export type UpdatePathBody = {
@@ -50,6 +53,7 @@ export type UpdatePathBody = {
   url_pattern?: string
   description?: string | null
   is_authentication?: boolean
+  template_key?: string | null
 }
 
 export type StoreTagBody = {
@@ -119,6 +123,17 @@ export async function liveUpdateAuthPin(
   return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.tagAuthPin(tagId), {
     method: 'PUT',
     body: pin,
+  })
+}
+
+/** PATCH /action-registry/tags/{id}/enabled */
+export async function liveUpdateTagEnabled(
+  tagId: number,
+  enabled: boolean,
+): Promise<OkResponse> {
+  return staffApiRequest<OkResponse>(ACTION_REGISTRY_PATHS.tagEnabled(tagId), {
+    method: 'PATCH',
+    body: { is_enabled: enabled },
   })
 }
 

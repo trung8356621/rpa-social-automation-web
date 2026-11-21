@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FolderTree, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { FolderTree, Pencil, Search } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -7,9 +7,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-
+import type { ScriptListItem } from '@/features/script-registry/types'
 import type { RpaApiMode } from '@/lib/api/config'
 
+import { resolveTagPublishedScriptStatus } from '../auto-tag-lifecycle'
 import type {
   ActionItem,
   ActionTagItem,
@@ -26,22 +27,17 @@ type ActionTagsScreenProps = {
   actions?: ActionItem[]
   tags: ActionTagItem[]
   authScripts: AuthScriptOption[]
+  scripts?: ScriptListItem[]
   /** mock | live — drives Auth drawer labels and mutation copy */
   dataMode?: RpaApiMode
   /** False when live mutations are intentionally gated */
   mutationsEnabled?: boolean
   onOpenSitesPaths: () => void
-  onCreateTag: (data: {
-    site_id: number
-    path_id: number
-    action_key?: string | null
-    auth_script_id?: string | null
-  }) => Promise<void>
+  onToggleTagEnabled: (tagId: number, enabled: boolean) => Promise<void>
   onUpdateTagAuthScript: (
     tagId: number,
     authScriptId: string | null,
   ) => Promise<void>
-  onDeleteTag: (tagId: number, tagKey: string) => Promise<void>
 }
 
 export function ActionTagsScreen({
@@ -49,34 +45,33 @@ export function ActionTagsScreen({
   paths,
   tags,
   authScripts,
+  scripts,
   dataMode = 'mock',
   mutationsEnabled = true,
   onOpenSitesPaths,
-  onCreateTag,
+  onToggleTagEnabled,
   onUpdateTagAuthScript,
-  onDeleteTag,
 }: ActionTagsScreenProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const [siteFilter, setSiteFilter] = useState('all')
   const [pathFilter, setPathFilter] = useState('all')
+  const [togglingTagId, setTogglingTagId] = useState<number | null>(null)
   const drawerParam = searchParams.get('drawer')
   const editTagId = Number(searchParams.get('tagId') || 0)
-  const isCreateDrawer = drawerParam === 'add'
   const isEditAuthDrawer = drawerParam === 'edit-auth'
-  const isDrawerOpen = isCreateDrawer || isEditAuthDrawer
   const editingTag =
     isEditAuthDrawer && editTagId
       ? (tags.find((t) => t.id === editTagId) ?? null)
       : null
+  const isDrawerOpen = isEditAuthDrawer && editingTag !== null
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
-  const setDrawerOpen = (open: boolean, mode: 'add' | 'edit-auth' = 'add', tagId?: number) => {
+  const setDrawerOpen = (open: boolean, tagId?: number) => {
     const next = new URLSearchParams(searchParams)
-    if (open) {
-      next.set('drawer', mode)
-      if (mode === 'edit-auth' && tagId) next.set('tagId', String(tagId))
-      else next.delete('tagId')
+    if (open && tagId) {
+      next.set('drawer', 'edit-auth')
+      next.set('tagId', String(tagId))
     } else {
       next.delete('drawer')
       next.delete('tagId')
@@ -133,27 +128,12 @@ export function ActionTagsScreen({
     <div>
       <PageHeader
         title="Action Tags"
-        description="Danh sách Action Tags (liên kết Site và Path)"
+        description="Action Tags được tự động tạo từ Site & Path (kèm trạng thái bật/tắt và Published Script)"
         actions={
-          <>
-            <Button variant="outline" onClick={onOpenSitesPaths}>
-              <FolderTree className="size-3.5" />
-              Manage Sites & Paths
-            </Button>
-            <Button
-              type="button"
-              onClick={() => setDrawerOpen(true, 'add')}
-              disabled={!mutationsEnabled}
-              title={
-                mutationsEnabled
-                  ? undefined
-                  : 'Live editing not enabled yet'
-              }
-            >
-              <Plus className="size-3.5" />
-              Add Tag
-            </Button>
-          </>
+          <Button variant="outline" onClick={onOpenSitesPaths}>
+            <FolderTree className="size-3.5" />
+            Manage Sites & Paths
+          </Button>
         }
       />
 
@@ -216,6 +196,8 @@ export function ActionTagsScreen({
                 <th className="px-3 py-2 font-medium">Site</th>
                 <th className="px-3 py-2 font-medium">Path</th>
                 <th className="px-3 py-2 font-medium">Tag Key</th>
+                <th className="px-3 py-2 font-medium">Tag Status</th>
+                <th className="px-3 py-2 font-medium">Published Script</th>
                 <th className="px-3 py-2 font-medium">Auth Script</th>
                 <th className="px-3 py-2 font-medium text-right">Actions</th>
               </tr>
@@ -223,13 +205,13 @@ export function ActionTagsScreen({
             <tbody>
               {sites.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center">
+                  <td colSpan={7} className="px-4 py-10 text-center">
                     <p className="font-medium text-foreground">
                       Chưa có Site / Path nào trong hệ thống
                     </p>
                     <p className="mx-auto mt-1 max-w-md text-sm text-muted">
-                      Action Tag là liên kết giữa Site và Path. Vui lòng tạo
-                      Website và định nghĩa URL Pattern trước khi bắt đầu.
+                      Action Tag được tự động tạo khi Site có CMS Type hoặc Path.
+                      Vui lòng cấu hình Site và Path để bắt đầu.
                     </p>
                     <Button className="mt-4" onClick={onOpenSitesPaths}>
                       Manage Sites & Paths
@@ -238,38 +220,23 @@ export function ActionTagsScreen({
                 </tr>
               ) : tags.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center">
+                  <td colSpan={7} className="px-4 py-10 text-center">
                     <p className="font-medium text-foreground">
                       Chưa có Action Tag nào
                     </p>
                     <p className="mx-auto mt-1 max-w-md text-sm text-muted">
-                      Tạo Action Tag đầu tiên. Hệ thống sẽ tự động tạo Script
-                      Request để kỹ thuật viên RPA nhận việc.
+                      Action Tag sẽ tự động xuất hiện khi Site được gắn CMS Type
+                      (như WordPress) hoặc có Path hiệu lực.
                     </p>
-                    <Button
-                      className="mt-4"
-                      type="button"
-                      onClick={() => setDrawerOpen(true, 'add')}
-                      disabled={!mutationsEnabled}
-                      title={
-                        mutationsEnabled
-                          ? undefined
-                          : 'Live editing not enabled yet'
-                      }
-                    >
-                      <Plus className="size-3.5" />
-                      Add First Tag
+                    <Button className="mt-4" onClick={onOpenSitesPaths}>
+                      <FolderTree className="size-3.5" />
+                      Manage Sites & Paths
                     </Button>
-                    {!mutationsEnabled ? (
-                      <p className="mt-2 text-xs text-muted">
-                        Live editing not enabled yet
-                      </p>
-                    ) : null}
                   </td>
                 </tr>
               ) : filteredTags.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center">
+                  <td colSpan={7} className="px-4 py-10 text-center">
                     <p className="font-medium text-foreground">
                       Không tìm thấy Action Tag nào phù hợp
                     </p>
@@ -288,10 +255,17 @@ export function ActionTagsScreen({
               ) : (
                 filteredTags.map((tag) => {
                   const isCopied = copiedKey === tag.tag_key
+                  const isEnabled = tag.enabled ?? true
+                  const scriptStatus = resolveTagPublishedScriptStatus(tag, scripts)
+                  const isToggling = togglingTagId === tag.id
                   return (
                     <tr
                       key={tag.id}
-                      className="border-b border-border last:border-b-0"
+                      className={
+                        isEnabled
+                          ? 'border-b border-border last:border-b-0'
+                          : 'border-b border-border bg-surface-muted/40 opacity-75 last:border-b-0'
+                      }
                     >
                       <td className="px-3 py-2.5 text-foreground">
                         {tag.site_name}
@@ -308,6 +282,38 @@ export function ActionTagsScreen({
                         <code className="font-mono text-xs text-foreground">
                           {tag.tag_key}
                         </code>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={isEnabled}
+                          aria-label={`Toggle ${tag.tag_key}`}
+                          disabled={!mutationsEnabled || isToggling}
+                          onClick={() => {
+                            setTogglingTagId(tag.id)
+                            void onToggleTagEnabled(tag.id, !isEnabled).finally(
+                              () => setTogglingTagId(null),
+                            )
+                          }}
+                          className="inline-flex items-center gap-2 text-xs font-medium disabled:opacity-50"
+                        >
+                          <Badge variant={isEnabled ? 'success' : 'neutral'}>
+                            {isEnabled ? 'Enabled' : 'Disabled'}
+                          </Badge>
+                        </button>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {scriptStatus.hasPublishedScript ? (
+                          <Badge variant="primary">
+                            Published
+                            {scriptStatus.matchedScript?.version
+                              ? ` · v${scriptStatus.matchedScript.version}`
+                              : ''}
+                          </Badge>
+                        ) : (
+                          <Badge variant="warning">Missing Script</Badge>
+                        )}
                       </td>
                       <td className="max-w-[14rem] px-3 py-2.5">
                         {tag.auth_script ? (
@@ -333,9 +339,7 @@ export function ActionTagsScreen({
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
-                              setDrawerOpen(true, 'edit-auth', tag.id)
-                            }
+                            onClick={() => setDrawerOpen(true, tag.id)}
                             disabled={!mutationsEnabled}
                             aria-label={`Edit Auth Script for ${tag.tag_key}`}
                             title={
@@ -345,21 +349,6 @@ export function ActionTagsScreen({
                             }
                           >
                             <Pencil className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-danger/30 text-danger hover:bg-danger/5"
-                            onClick={() => void onDeleteTag(tag.id, tag.tag_key)}
-                            disabled={!mutationsEnabled}
-                            aria-label={`Delete ${tag.tag_key}`}
-                            title={
-                              mutationsEnabled
-                                ? undefined
-                                : 'Live editing not enabled yet'
-                            }
-                          >
-                            <Trash2 className="size-3.5" />
                           </Button>
                         </div>
                       </td>
@@ -375,7 +364,7 @@ export function ActionTagsScreen({
       {mutationsEnabled ? (
         <AddTagDrawer
           open={isDrawerOpen}
-          mode={isEditAuthDrawer ? 'edit-auth' : 'create'}
+          mode="edit-auth"
           dataMode={dataMode}
           editingTag={editingTag}
           sites={sites}
@@ -384,8 +373,8 @@ export function ActionTagsScreen({
           authScripts={authScripts}
           onClose={() => setDrawerOpen(false)}
           onOpenSitesPaths={onOpenSitesPaths}
-          onEditExistingTag={(id) => setDrawerOpen(true, 'edit-auth', id)}
-          onCreate={onCreateTag}
+          onEditExistingTag={(id) => setDrawerOpen(true, id)}
+          onCreate={async () => {}}
           onUpdateAuthScript={onUpdateTagAuthScript}
         />
       ) : null}

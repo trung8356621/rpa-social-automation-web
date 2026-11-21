@@ -1,3 +1,4 @@
+import { asCmsType } from '../cms-templates.ts'
 import type {
   ActionItem,
   ActionRegistryData,
@@ -46,6 +47,7 @@ export function mapSite(site: LiveSite): Site {
     name: String(site.name ?? ''),
     base_url: String(site.base_url ?? ''),
     base_url_mode: asBaseUrlMode(site.base_url_mode),
+    cms_type: asCmsType(site.cms_type),
     test_base_url: site.test_base_url ?? null,
     description: site.description ?? null,
     paths_count: site.paths_count ?? 0,
@@ -73,6 +75,9 @@ function mapPath(path: LivePath): PathItem {
       path.is_authentication == null
         ? undefined
         : Boolean(path.is_authentication),
+    source: path.source ?? 'site',
+    template_key: path.template_key ?? null,
+    is_override: path.is_override ?? false,
   }
 }
 
@@ -216,6 +221,16 @@ function mapTag(
     description: tag.description ?? null,
     scripts_count: Number(tag.scripts_count ?? 0),
     ready: Boolean(tag.ready),
+    enabled:
+      tag.is_enabled != null
+        ? Boolean(tag.is_enabled)
+        : tag.enabled != null
+          ? Boolean(tag.enabled)
+          : true,
+    published_script_available:
+      tag.published_script_available != null
+        ? Boolean(tag.published_script_available)
+        : Number(tag.scripts_count ?? 0) > 0,
     latest_request_status: tag.latest_request_status ?? null,
     latest_request_id: tag.latest_request_id ?? null,
     auth_script: resolvePinnedAuth(tag, packagesById),

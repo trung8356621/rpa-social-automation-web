@@ -6,12 +6,26 @@ export type PathInput = {
 
 export type BaseUrlMode = 'fixed' | 'dynamic'
 
+export type CmsType = 'wordpress' | 'custom'
+
+export type CmsPathTemplate = {
+  cms_type: CmsType
+  key: string
+  name: string
+  url_pattern: string
+  path_inputs: PathInput[]
+  description?: string | null
+  is_authentication?: boolean
+}
+
 export type Site = {
   id: number
   key: string
   name: string
   base_url: string
   base_url_mode?: BaseUrlMode
+  /** Explicit CMS type for reusable Path Templates; never inferred from base_url_mode. */
+  cms_type?: CmsType | null
   test_base_url?: string | null
   description?: string | null
   paths_count?: number
@@ -36,6 +50,12 @@ export type PathItem = {
    * Live: sa_paths.is_authentication. Never inferred from path key/name.
    */
   is_authentication?: boolean
+  /** 'site' = site-specific path/override; 'template' = inherited from CMS template */
+  source?: 'site' | 'template'
+  /** Template key when inherited from or overriding a CMS Path Template */
+  template_key?: string | null
+  /** True when a site-specific Path overrides a shared CMS Path Template */
+  is_override?: boolean
 }
 
 export type ActionItem = {
@@ -99,6 +119,10 @@ export type ActionTagItem = {
   description?: string | null
   scripts_count: number
   ready: boolean
+  /** Operator toggle per Site (defaults to true). Disabling never deletes Tag or Script refs. */
+  enabled: boolean
+  /** Published Script availability, distinct from Tag enabled state. */
+  published_script_available?: boolean
   latest_request_status?: string | null
   latest_request_id?: string | null
   /** Resolved pin summary (mock local or live join of auth_* ids + catalog) */

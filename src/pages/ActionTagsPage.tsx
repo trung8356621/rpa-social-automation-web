@@ -5,10 +5,12 @@ import { Toast } from '@/components/ui/toast'
 import { ActionTagsScreen } from '@/features/action-tags/components/ActionTagsScreen'
 import { SitesPathsScreen } from '@/features/action-tags/components/SitesPathsScreen'
 import { useActionRegistry } from '@/features/action-tags/use-action-registry'
+import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
 
 export function ActionTagsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const registry = useActionRegistry()
+  const scriptRegistry = useScriptRegistry()
   const view =
     searchParams.get('view') === 'sites_paths' ? 'sites_paths' : 'tags'
   const isLive = registry.mode === 'live'
@@ -93,12 +95,12 @@ export function ActionTagsPage() {
           actions={registry.data.actions}
           tags={registry.data.tags}
           authScripts={registry.data.auth_scripts}
+          scripts={scriptRegistry.data.scripts}
           dataMode={registry.mode}
           mutationsEnabled={mutationsEnabled}
           onOpenSitesPaths={openSitesPaths}
-          onCreateTag={registry.createTag}
+          onToggleTagEnabled={registry.toggleTagEnabled}
           onUpdateTagAuthScript={registry.updateTagAuthScript}
-          onDeleteTag={registry.deleteTag}
         />
       ) : (
         <SitesPathsScreen

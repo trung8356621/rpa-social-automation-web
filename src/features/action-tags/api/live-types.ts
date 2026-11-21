@@ -12,6 +12,7 @@ export type LiveSite = {
   name: string
   base_url: string
   base_url_mode?: string
+  cms_type?: string | null
   test_base_url?: string | null
   description?: string | null
   paths_count?: number
@@ -30,6 +31,9 @@ export type LivePath = {
   description?: string | null
   /** Present when addon exposes sa_paths.is_authentication */
   is_authentication?: boolean
+  source?: 'site' | 'template'
+  template_key?: string | null
+  is_override?: boolean
 }
 
 export type LiveAction = {
@@ -58,6 +62,9 @@ export type LiveTag = {
   auth_release_id?: number | null
   scripts_count: number
   ready: boolean
+  is_enabled?: boolean
+  enabled?: boolean
+  published_script_available?: boolean
   latest_request_status?: string | null
   latest_request_id?: string | null
 }
