@@ -8,6 +8,7 @@ import { Select } from '@/components/ui/select'
 import {
   allScriptVariables,
   emptyShortcodeMappingEntry,
+  validateBodyShortcodeSupport,
   type ShortcodeMappingFormEntry,
 } from '../shortcode-mapping'
 import type { ScriptInputSchema } from '../types'
@@ -30,6 +31,10 @@ export function ShortcodeMappingFields({
   disabled,
 }: Props) {
   const variables = allScriptVariables(schema)
+  const hasBodyShortcode = value.some((r) => r.shortcode.trim() === 'body')
+  const bodySupport = schema.schema_available
+    ? validateBodyShortcodeSupport(schema)
+    : null
 
   const patchRow = (
     id: string,
@@ -86,6 +91,8 @@ export function ShortcodeMappingFields({
           Published Script release projects an empty variables list (no mappable
           keys after credential filters).
         </p>
+      ) : hasBodyShortcode && bodySupport && !bodySupport.supported ? (
+        <p className="text-xs text-warning">{bodySupport.reason}</p>
       ) : null}
 
       <div className="space-y-2">

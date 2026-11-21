@@ -27,8 +27,7 @@ import {
   unavailableScriptInputSchema,
 } from '../script-compat'
 import {
-  defaultShortcodeMappingForm,
-  preferredDefaultVariable,
+  defaultShortcodeMappingForSchema,
   type ShortcodeMappingFormEntry,
 } from '../shortcode-mapping'
 import type { Campaign, CampaignContent, CampaignRunMode } from '../types'
@@ -41,12 +40,14 @@ type Props = {
   wizardMode: 'create' | 'edit'
   initialCampaign?: Campaign | null
   initialContents?: CampaignContent[]
+  initialStep?: 1 | 2
 }
 
 export function CampaignV2Wizard({
   wizardMode,
   initialCampaign = null,
   initialContents = [],
+  initialStep = 1,
 }: Props) {
   const navigate = useNavigate()
   const registry = useCampaigns()
@@ -61,7 +62,7 @@ export function CampaignV2Wizard({
     [wizardMode, initialCampaign, initialContents],
   )
 
-  const [step, setStep] = useState<1 | 2>(1)
+  const [step, setStep] = useState<1 | 2>(initialStep)
   const [name, setName] = useState(hydrated?.name ?? '')
   const [runMode, setRunMode] = useState<CampaignRunMode>(
     hydrated?.runMode ?? 'live',
@@ -170,10 +171,7 @@ export function CampaignV2Wizard({
           if (fromHydrated) {
             next[g.group_key] = fromHydrated
           } else {
-            const preferred = g.schema.schema_available
-              ? preferredDefaultVariable(g.schema)
-              : null
-            next[g.group_key] = defaultShortcodeMappingForm(preferred)
+            next[g.group_key] = defaultShortcodeMappingForSchema(g.schema)
           }
           changed = true
         } else if (
@@ -182,9 +180,9 @@ export function CampaignV2Wizard({
           next[g.group_key]![0]?.shortcode === 'body' &&
           !next[g.group_key]![0]?.variable
         ) {
-          const preferred = preferredDefaultVariable(g.schema)
-          if (preferred) {
-            next[g.group_key] = defaultShortcodeMappingForm(preferred)
+          const updated = defaultShortcodeMappingForSchema(g.schema)
+          if (updated[0]?.variable) {
+            next[g.group_key] = updated
             changed = true
           }
         }

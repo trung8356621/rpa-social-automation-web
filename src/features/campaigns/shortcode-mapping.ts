@@ -44,6 +44,18 @@ export function defaultShortcodeMappingForm(
 }
 
 /**
+ * Schema-aware default shortcode mapping for Campaign V2:
+ * - Suggests `[body] -> body` only when the published schema declares `body`.
+ * - Never silently maps `[body] -> title` when `body` is absent.
+ */
+export function defaultShortcodeMappingForSchema(
+  schema: ScriptInputSchema,
+): ShortcodeMappingFormEntry[] {
+  const bodyVar = findCompatibleBodyVariable(schema)
+  return defaultShortcodeMappingForm(bodyVar)
+}
+
+/**
  * All Script variables eligible for shortcode binding (includes title/body).
  * Does not invent keys — only schema-supported variables.
  */

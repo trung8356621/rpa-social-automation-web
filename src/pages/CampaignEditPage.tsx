@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import { toSafeApiMessage } from '@/lib/api/errors'
 
 export function CampaignEditPage() {
   const { id = '' } = useParams()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const registry = useCampaigns()
   const sites = useAccountSites()
@@ -168,6 +169,7 @@ export function CampaignEditPage() {
         wizardMode="edit"
         initialCampaign={campaign}
         initialContents={campaignContents}
+        initialStep={searchParams.get('step') === '2' ? 2 : 1}
       />
     )
   }

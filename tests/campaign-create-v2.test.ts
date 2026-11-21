@@ -33,6 +33,7 @@ import { ApiError } from '../src/lib/api/errors.ts'
 import { emptyScheduleForm, scheduleFormToApi } from '../src/features/campaigns/schedule.ts'
 import { unavailableScriptInputSchema } from '../src/features/campaigns/script-compat.ts'
 import {
+  defaultShortcodeMappingForSchema,
   emptyShortcodeMappingEntry,
   findCompatibleBodyVariable,
   preferredDefaultVariable,
@@ -926,5 +927,38 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(preferredDefaultVariable(FB_SCHEMA), 'caption')
     const unsupportedBody = validateBodyShortcodeSupport(FB_SCHEMA)
     assert.equal(unsupportedBody.supported, false)
+
+    // 6. V2 defaultShortcodeMappingForSchema never maps [body] -> title on title-only schema
+    const titleOnlySchema: ScriptInputSchema = {
+      fields: [],
+      test_mode_compatible: null,
+      title_required: true,
+      body_required: false,
+      schema_available: true,
+      title_supported: true,
+      body_supported: false,
+      unavailable_reason: null,
+    }
+    const wpDefaultMap = defaultShortcodeMappingForSchema(WP_SCHEMA)
+    assert.equal(wpDefaultMap[0]?.shortcode, 'body')
+    assert.equal(wpDefaultMap[0]?.variable, 'body')
+
+    const titleOnlyDefaultMap = defaultShortcodeMappingForSchema(titleOnlySchema)
+    assert.equal(titleOnlyDefaultMap[0]?.shortcode, 'body')
+    assert.equal(titleOnlyDefaultMap[0]?.variable, '')
+    assert.equal(validateBodyShortcodeSupport(titleOnlySchema).supported, false)
+
+    // 7. V2 Add Content in Edit mode preserves existing Content IDs & assignments
+    const addedItem = createPlannedContentItem({
+      external_ref: 'post-2',
+      target_tag_keys: ['mayhopphat.create_post'],
+      raw_source: '[body]Second[/body]',
+    })
+    const combinedContents = [...hydrated.contents, addedItem]
+    assert.equal(combinedContents[0]!.id, 'cnt_edit_1')
+    assert.deepEqual(combinedContents[0]!.target_tag_keys, [
+      'mayhopphat.create_post',
+    ])
+    assert.equal(combinedContents[1]!.external_ref, 'post-2')
   })
 })

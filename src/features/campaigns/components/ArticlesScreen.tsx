@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 
 import type { Site } from '@/features/action-tags/types'
@@ -100,6 +101,7 @@ export function ArticlesScreen({
   schemaLoading = false,
   schemaError = null,
 }: Props) {
+  const navigate = useNavigate()
   const [siteFilter, setSiteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -351,10 +353,24 @@ export function ArticlesScreen({
         </div>
       ) : null}
 
-      {isV2Campaign ? (
-        <div className="rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
-          Plan V2 Campaign: displaying persisted Content items and per-Tag
-          assignments. Single-script V1 Article creation is disabled for V2.
+      {isV2Campaign && campaign ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
+          <span>
+            Plan V2 Campaign: displaying persisted Content items and per-Tag
+            assignments. Legacy V1 Article creation is disabled because V2
+            requires per-Tag assignments and Backend V2 Draft Update.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              navigate(
+                `/social-automation/campaigns/${campaign.id}/edit?step=2`,
+              )
+            }
+          >
+            Plan Content in V2 Wizard
+          </Button>
         </div>
       ) : null}
 
