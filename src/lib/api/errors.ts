@@ -2,6 +2,7 @@ export type ApiErrorKind =
   | 'auth'
   | 'forbidden'
   | 'not_found'
+  | 'conflict'
   | 'validation'
   | 'server'
   | 'network'
@@ -14,6 +15,7 @@ export class ApiError extends Error {
   readonly kind: ApiErrorKind
   readonly status: number | null
   readonly code: string | null
+  readonly details: Record<string, unknown> | null
 
   constructor(
     message: string,
@@ -21,6 +23,7 @@ export class ApiError extends Error {
       kind: ApiErrorKind
       status?: number | null
       code?: string | null
+      details?: Record<string, unknown> | null
       cause?: unknown
     },
   ) {
@@ -29,6 +32,7 @@ export class ApiError extends Error {
     this.kind = options.kind
     this.status = options.status ?? null
     this.code = options.code ?? null
+    this.details = options.details ?? null
   }
 
   get isAuthRequired(): boolean {

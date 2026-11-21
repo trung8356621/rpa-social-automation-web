@@ -10,6 +10,7 @@ import type {
   CampaignContent,
   CampaignJobAttempt,
   CreateCampaignInput,
+  CreateCampaignV2Input,
   DemoScenario,
   ManualContentDraft,
   MockPreviewResult,
@@ -124,6 +125,22 @@ export function useCampaigns() {
         })
       }
       showToast('Campaign created')
+      return created
+    },
+    [adapter, showToast],
+  )
+
+  const createCampaignV2 = useCallback(
+    async (input: CreateCampaignV2Input) => {
+      const created = await adapter.createCampaignV2(input)
+      setCampaigns((prev) => [created, ...prev.filter((c) => c.id !== created.id)])
+      if (created.contents?.length) {
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== created.id)
+          return [...created.contents!, ...without]
+        })
+      }
+      showToast('Campaign V2 draft saved')
       return created
     },
     [adapter, showToast],
@@ -412,6 +429,7 @@ export function useCampaigns() {
     toast,
     reload,
     createCampaign,
+    createCampaignV2,
     updateCampaign,
     startCampaign,
     pauseCampaign,

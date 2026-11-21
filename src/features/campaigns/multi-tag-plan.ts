@@ -1,3 +1,4 @@
+import { ApiError, toSafeApiMessage } from '../../lib/api/errors.ts'
 import { resolveTagPublishedScriptStatus } from '../action-tags/auto-tag-lifecycle.ts'
 import type { ActionTagItem, Site } from '../action-tags/types.ts'
 import { findCmsGlobalScriptForActionTag } from '../script-registry/sharing.ts'
@@ -11,6 +12,7 @@ import { assertPlainShortcodeSource } from './shortcode-source.ts'
 import type {
   CampaignRunMode,
   CampaignShortcodeMapping,
+  CreateCampaignV2Input,
   ScriptInputSchema,
 } from './types.ts'
 
@@ -28,6 +30,7 @@ export type ResolvedScriptRef = {
 }
 
 export type ResolvedActionTagPlan = {
+  tag_id: number | null
   tag_key: string
   tag_name: string
   tag_enabled: boolean
@@ -93,6 +96,7 @@ export function resolveActionTagScript(
   }
 
   return {
+    tag_id: tag.id > 0 ? tag.id : null,
     tag_key: tag.tag_key,
     tag_name: tag.name,
     tag_enabled: tag.enabled,
@@ -421,8 +425,9 @@ export type BackendPersistenceSupport = {
 }
 
 /**
- * Honest compatibility gate against the current backend contract
- * (`POST /social-automation/api/campaigns`).
+ * Compatibility gate against Campaign V2 backend (`plan_version: 2`).
+ * Both LIVE and MOCK support account-free Draft creation with action_tags[]
+ * and contents[].assignments[].
  */
 export function inspectBackendPersistenceSupport(params: {
   mode: 'mock' | 'live'
@@ -430,30 +435,183 @@ export function inspectBackendPersistenceSupport(params: {
   contents: PlannedContentItem[]
 }): BackendPersistenceSupport {
   const blockers: string[] = []
-
-  if (params.mode === 'live') {
+  const runnable = params.resolvedTags.filter(
+    (t) => t.is_runnable && t.effective_script,
+  )
+  if (runnable.length === 0) {
+    blockers.push('At least one runnable Action Tag with a resolved Script is required.')
+  }
+  const unavailable = params.resolvedTags.filter((t) => !t.is_runnable)
+  if (unavailable.length > 0) {
     blockers.push(
-      'LIVE POST /social-automation/api/campaigns currently requires account_id (hard Account UUID pin); V2 Draft creation must not require Client/Account selection.',
-    )
-    if (params.resolvedTags.length > 1) {
-      blockers.push(
-        'LIVE CampaignCreateRequest only accepts a single platform + script_id + script_version (no multi-tag action_tags[] array or per-tag release pinning).',
-      )
-    }
-    if (params.contents.length > 0) {
-      blockers.push(
-        'LIVE CampaignCreateRequest.contents[] has no action_tag_key / target association or per-tag shortcode_mapping.',
-      )
-    }
-  } else if (params.resolvedTags.length > 1) {
-    blockers.push(
-      'Multi-Tag Campaign persistence requires Backend V2 schema (action_tags[], per-tag script_version/release_id pin, and content -> action_tag_key). Mock single-tag Drafts can be saved locally.',
+      `Unavailable Action Tags must be removed: ${unavailable.map((t) => t.tag_key).join(', ')}.`,
     )
   }
 
   return {
     supported: blockers.length === 0,
     blockers,
+  }
+}
+
+export function buildCreateCampaignV2Input(params: {
+  name: string
+  run_mode: CampaignRunMode
+  resolvedTags: ResolvedActionTagPlan[]
+  groups: SchemaMappingGroup[]
+  groupMappings: Record<string, CampaignShortcodeMapping>
+  validatedContents: ValidatedContentAssociation[]
+}): CreateCampaignV2Input {
+  const mappingByTag = new Map<string, CampaignShortcodeMapping>()
+  for (const g of params.groups) {
+    const m = params.groupMappings[g.group_key]
+    if (!m) continue
+    for (const tk of g.tag_keys) mappingByTag.set(tk, m)
+  }
+
+  const tagByKey = new Map(params.resolvedTags.map((t) => [t.tag_key, t]))
+
+  return {
+    plan_version: 2,
+    name: params.name.trim(),
+    run_mode: params.run_mode,
+    action_tags: params.resolvedTags
+      .filter(
+        (t): t is ResolvedActionTagPlan & { effective_script: ResolvedScriptRef } =>
+          t.is_runnable &&
+          t.effective_script !== null &&
+          t.resolution_source !== 'missing',
+      )
+      .map((t) => ({
+        action_tag_id: t.tag_id,
+        action_tag_key: t.tag_key,
+        site_key: t.site_key,
+        site_name: t.site_name,
+        cms_type: t.cms_type,
+        script_package_key: t.effective_script.package_key,
+        script_name: t.effective_script.name,
+        script_version: t.effective_script.version,
+        release_id:
+          t.effective_script.release_id > 0
+            ? t.effective_script.release_id
+            : null,
+        resolution_source:
+          t.resolution_source === 'cms_global' ? 'cms_global' : 'site_specific',
+        shortcode_mapping: mappingByTag.get(t.tag_key) ?? { entries: [] },
+      })),
+    contents: params.validatedContents.map((c) => ({
+      external_ref: c.external_ref,
+      raw_source: c.raw_source,
+      assignments: c.targets.map((target) => {
+        const tag = tagByKey.get(target.action_tag_key)
+        return {
+          action_tag_id: tag?.tag_id ?? null,
+          action_tag_key: target.action_tag_key,
+          script_package_key: target.script_package_key,
+          script_version: target.script_version,
+          release_id: target.release_id > 0 ? target.release_id : null,
+          raw_source: c.raw_source,
+          shortcode_mapping: target.shortcode_mapping,
+        }
+      }),
+    })),
+  }
+}
+
+export type FormattedCampaignV2Error = {
+  message: string
+  isStaleReleaseConflict: boolean
+  conflictTags: string[]
+  validationErrors: string[]
+}
+
+/**
+ * Format Campaign V2 API errors cleanly, surfacing 409 stale Script/Release
+ * conflicts and 422 field validation errors without exposing raw payloads.
+ */
+export function formatCampaignV2ApiError(
+  err: unknown,
+): FormattedCampaignV2Error {
+  if (err instanceof ApiError) {
+    const details = err.details ?? {}
+    const conflictTags: string[] = []
+
+    const directTag =
+      typeof details.action_tag_key === 'string'
+        ? details.action_tag_key
+        : typeof details.tag_key === 'string'
+          ? details.tag_key
+          : null
+    if (directTag) conflictTags.push(directTag)
+
+    if (Array.isArray(details.conflicts)) {
+      for (const item of details.conflicts) {
+        if (item && typeof item === 'object') {
+          const obj = item as Record<string, unknown>
+          const tk =
+            typeof obj.action_tag_key === 'string'
+              ? obj.action_tag_key
+              : typeof obj.tag_key === 'string'
+                ? obj.tag_key
+                : null
+          const ver =
+            typeof obj.script_version === 'string' ? obj.script_version : null
+          if (tk) conflictTags.push(ver ? `${tk} (v${ver})` : tk)
+        }
+      }
+    }
+
+    const validationErrors: string[] = []
+    if (Array.isArray(details.errors)) {
+      for (const e of details.errors) {
+        if (typeof e === 'string' && e.trim()) validationErrors.push(e.trim())
+      }
+    } else if (details.errors && typeof details.errors === 'object') {
+      for (const [field, msgs] of Object.entries(
+        details.errors as Record<string, unknown>,
+      )) {
+        if (Array.isArray(msgs)) {
+          for (const m of msgs) {
+            if (typeof m === 'string' && m.trim()) {
+              validationErrors.push(`${field}: ${m.trim()}`)
+            }
+          }
+        } else if (typeof msgs === 'string' && msgs.trim()) {
+          validationErrors.push(`${field}: ${msgs.trim()}`)
+        }
+      }
+    }
+
+    if (err.status === 409 || err.kind === 'conflict') {
+      const releaseHint =
+        details.expected_release_id != null || details.actual_release_id != null
+          ? ` (pinned #${String(details.expected_release_id ?? '?')} vs current #${String(details.actual_release_id ?? details.current_release_id ?? '?')})`
+          : ''
+      const tagHint =
+        conflictTags.length > 0 ? ` [${conflictTags.join(', ')}]` : ''
+      return {
+        message: `${err.message}${tagHint}${releaseHint}`,
+        isStaleReleaseConflict: true,
+        conflictTags,
+        validationErrors,
+      }
+    }
+
+    if (err.status === 422 || err.kind === 'validation') {
+      return {
+        message: err.message,
+        isStaleReleaseConflict: false,
+        conflictTags,
+        validationErrors,
+      }
+    }
+  }
+
+  return {
+    message: toSafeApiMessage(err),
+    isStaleReleaseConflict: false,
+    conflictTags: [],
+    validationErrors: [],
   }
 }
 

@@ -12,6 +12,7 @@ import type {
   CampaignJobAttempt,
   CampaignStoreSnapshot,
   CreateCampaignInput,
+  CreateCampaignV2Input,
   ManualContentDraft,
   MockPreviewResult,
   MockSaveResult,
@@ -43,7 +44,11 @@ function refreshSummaries(store: CampaignStoreSnapshot): void {
       .filter((x) => x.campaign_id === c.id)
       .map((x) => x.status)
     c.summary = summarizeContents(statuses)
-    c.allowed_actions = actionsFor(c.status)
+    const baseActions = actionsFor(c.status)
+    c.allowed_actions =
+      c.plan_version === 2
+        ? baseActions.filter((a) => a !== 'start')
+        : baseActions
   }
 }
 
@@ -154,6 +159,96 @@ export const mockCampaignAdapter = {
           updated_at: nowIso(),
         }
       })
+      store.contents = [...rows, ...store.contents]
+      refreshSummaries(store)
+    }
+    return structuredClone(campaign)
+  },
+
+  async createCampaignV2(input: CreateCampaignV2Input): Promise<Campaign> {
+    assertMockOnly()
+    const id = `camp_v2_${Date.now()}`
+    const firstTag = input.action_tags[0]
+    const actionTags = input.action_tags.map((t) => ({
+      action_tag_id: t.action_tag_id ?? null,
+      action_tag_key: t.action_tag_key,
+      site_key: t.site_key,
+      site_name: t.site_name ?? t.site_key,
+      cms_type: t.cms_type ?? null,
+      script_package_key: t.script_package_key,
+      script_name: t.script_name ?? t.script_package_key,
+      script_version: t.script_version,
+      release_id: t.release_id ?? null,
+      resolution_source: t.resolution_source,
+      shortcode_mapping: structuredClone(t.shortcode_mapping),
+    }))
+
+    const rows: CampaignContent[] = input.contents.map((c, i) => ({
+      id: `cnt_v2_${Date.now()}_${i}`,
+      campaign_id: id,
+      external_ref: c.external_ref?.trim() || `content-${i + 1}`,
+      source: 'manual' as const,
+      status: 'pending' as const,
+      input: { title: null, body: null, variables: {} },
+      source_format: 'shortcode' as const,
+      raw_source: c.raw_source,
+      mapping_version: 1,
+      editor_doc: null,
+      assigned_account_id: null,
+      assigned_account_label: null,
+      current_job_id: null,
+      last_result: null,
+      last_error_code: null,
+      last_error_message: null,
+      created_at: nowIso(),
+      updated_at: nowIso(),
+      assignments: c.assignments.map((a, ai) => ({
+        id: `asgn_v2_${Date.now()}_${i}_${ai}`,
+        action_tag_id: a.action_tag_id ?? null,
+        action_tag_key: a.action_tag_key,
+        script_package_key: a.script_package_key,
+        script_version: a.script_version,
+        release_id: a.release_id ?? null,
+        status: 'pending' as const,
+        raw_source: a.raw_source,
+        shortcode_mapping: structuredClone(a.shortcode_mapping),
+      })),
+    }))
+
+    const campaign: Campaign = {
+      id,
+      plan_version: 2,
+      name: input.name.trim(),
+      site_key: firstTag?.site_key ?? '',
+      site_name: firstTag?.site_name ?? firstTag?.site_key ?? '',
+      script_package_key: firstTag?.script_package_key ?? '',
+      script_name: firstTag?.script_name ?? firstTag?.script_package_key ?? '',
+      script_version: firstTag?.script_version ?? '',
+      account_id: null,
+      execution_mode: input.execution_mode ?? 'one_account_one_job',
+      run_mode: input.run_mode,
+      status: 'draft',
+      schedule: {
+        type: 'immediate',
+        timezone: 'Asia/Ho_Chi_Minh',
+        start_at: null,
+        daily_window: null,
+        min_interval_seconds: null,
+        resource_recheck_seconds: 3600,
+      },
+      summary: summarizeContents(rows.map((r) => r.status)),
+      created_at: nowIso(),
+      updated_at: nowIso(),
+      allowed_actions: ['edit', 'cancel'],
+      shortcode_mapping: firstTag?.shortcode_mapping
+        ? structuredClone(firstTag.shortcode_mapping)
+        : null,
+      shortcode_mapping_version: firstTag ? 1 : null,
+      action_tags: actionTags,
+    }
+
+    store.campaigns = [campaign, ...store.campaigns]
+    if (rows.length > 0) {
       store.contents = [...rows, ...store.contents]
       refreshSummaries(store)
     }

@@ -2,10 +2,14 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
 import type { ActionTagItem, Site } from '../src/features/action-tags/types.ts'
+import { buildLiveCampaignV2CreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
+import { mapLiveCampaign } from '../src/features/campaigns/api/mappers.ts'
 import { mockCampaignAdapter, resetMockCampaignStore } from '../src/features/campaigns/api/mock-adapter.ts'
 import {
+  buildCreateCampaignV2Input,
   buildV2DraftPlanPayload,
   createPlannedContentItem,
+  formatCampaignV2ApiError,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
   resolveActionTagScript,
@@ -13,6 +17,8 @@ import {
   validateStep1Plan,
   validateStep2Plan,
 } from '../src/features/campaigns/multi-tag-plan.ts'
+import { canStartCampaign, isCampaignV2 } from '../src/features/campaigns/validation.ts'
+import { ApiError } from '../src/lib/api/errors.ts'
 import { emptyScheduleForm, scheduleFormToApi } from '../src/features/campaigns/schedule.ts'
 import { unavailableScriptInputSchema } from '../src/features/campaigns/script-compat.ts'
 import { emptyShortcodeMappingEntry } from '../src/features/campaigns/shortcode-mapping.ts'
@@ -346,7 +352,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     ])
   })
 
-  it('honestly blocks LIVE persistence when backend V2 contract is missing, and allows MOCK single-tag Draft without account_id', async () => {
+  it('supports LIVE and MOCK V2 Draft creation without account_id and no execution/claim calls', async () => {
     const siteMap = new Map(SITES.map((s) => [s.key, s]))
     const wpDirect = resolveActionTagScript(TAGS[0]!, siteMap.get('mayhopphat'), SCRIPTS)
     const fbDirect = resolveActionTagScript(TAGS[2]!, siteMap.get('facebook'), SCRIPTS)
@@ -356,39 +362,189 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       resolvedTags: [wpDirect, fbDirect],
       contents: [],
     })
-    assert.equal(liveSupport.supported, false)
-    assert.ok(liveSupport.blockers.length >= 2)
+    assert.equal(liveSupport.supported, true)
 
     const mockMulti = inspectBackendPersistenceSupport({
       mode: 'mock',
       resolvedTags: [wpDirect, fbDirect],
       contents: [],
     })
-    assert.equal(mockMulti.supported, false)
+    assert.equal(mockMulti.supported, true)
 
-    const mockSingle = inspectBackendPersistenceSupport({
-      mode: 'mock',
-      resolvedTags: [wpDirect],
-      contents: [],
+    const schemaLookup = {
+      [scriptTargetKey('mayhopphat.create_post', '1.2.0')]: {
+        schema: WP_SCHEMA,
+        loading: false,
+        error: null,
+      },
+      [scriptTargetKey('facebook.group.post', '2.0.0')]: {
+        schema: FB_SCHEMA,
+        loading: false,
+        error: null,
+      },
+    }
+    const groups = groupTagsByCompatibleSchema(
+      [wpDirect, fbDirect],
+      schemaLookup,
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+    const mappingsByGroupKey = {
+      [groups[0]!.group_key]: [
+        emptyShortcodeMappingEntry({ shortcode: 'title', variable: 'title' }),
+        emptyShortcodeMappingEntry({ shortcode: 'body', variable: 'body' }),
+      ],
+      [groups[1]!.group_key]: [
+        emptyShortcodeMappingEntry({ shortcode: 'body', variable: 'caption' }),
+      ],
+    }
+    const step2 = validateStep2Plan({
+      groups,
+      mappingsByGroupKey,
+      resolvedTags: [wpDirect, fbDirect],
+      contents: [
+        createPlannedContentItem({
+          external_ref: 'wp-1',
+          target_tag_keys: ['mayhopphat.create_post'],
+          raw_source: '[title]Hello[/title][body]World[/body]',
+        }),
+        createPlannedContentItem({
+          external_ref: 'fb-1',
+          target_tag_keys: ['facebook.group.post'],
+          raw_source: '[body]FB Post[/body]',
+        }),
+      ],
     })
-    assert.equal(mockSingle.supported, true)
+    assert.equal(step2.ok, true)
+    if (!step2.ok) return
+
+    const v2Input = buildCreateCampaignV2Input({
+      name: 'V2 Multi-Tag Draft',
+      run_mode: 'live',
+      resolvedTags: [wpDirect, fbDirect],
+      groups,
+      groupMappings: step2.groupMappings,
+      validatedContents: step2.validatedContents,
+    })
+    const liveBody = buildLiveCampaignV2CreateBody(v2Input)
+    assert.equal(liveBody.plan_version, 2)
+    assert.equal('account_id' in liveBody, false)
+    assert.equal(liveBody.action_tags.length, 2)
+    assert.equal(liveBody.action_tags[0]!.release_id, 101)
+    assert.equal(liveBody.contents.length, 2)
+    assert.equal(liveBody.contents[0]!.assignments.length, 1)
+    assert.equal(
+      liveBody.contents[0]!.assignments[0]!.action_tag_key,
+      'mayhopphat.create_post',
+    )
 
     resetMockCampaignStore()
-    const created = await mockCampaignAdapter.createCampaign({
-      name: 'Draft Plan Only',
-      site_key: wpDirect.site_key,
-      script_package_key: wpDirect.effective_script!.package_key,
-      script_version: wpDirect.effective_script!.version,
-      execution_mode: 'one_account_one_job',
-      run_mode: 'live',
-      schedule: scheduleFormToApi(emptyScheduleForm()),
-      account_id: null,
-      shortcode_mapping: {
-        entries: [{ shortcode: 'body', variable: 'body' }],
-      },
-      contents: [],
-    })
+    const created = await mockCampaignAdapter.createCampaignV2(v2Input)
+    assert.equal(created.plan_version, 2)
     assert.equal(created.status, 'draft')
     assert.equal(created.account_id, null)
+    assert.equal(created.action_tags?.length, 2)
+    assert.equal(created.allowed_actions.includes('start'), false)
+    assert.equal(isCampaignV2(created), true)
+    const startCheck = canStartCampaign(created, [], null)
+    assert.equal(startCheck.ok, false)
+    assert.match(startCheck.reasons[0] ?? '', /not implemented yet/i)
+  })
+
+  it('parses Backend V2 GET/POST response, preserves V1 backward compatibility, and formats 409/422 errors', () => {
+    const v2Mapped = mapLiveCampaign({
+      id: 'camp_v2_99',
+      plan_version: 2,
+      name: 'Server V2 Draft',
+      status: 'draft',
+      run_mode: 'live',
+      account_id: null,
+      action_tags: [
+        {
+          action_tag_id: 1,
+          action_tag_key: 'mayhopphat.create_post',
+          site_key: 'mayhopphat',
+          site_name: 'MayHopPhat',
+          cms_type: 'wordpress',
+          script_package_key: 'mayhopphat.create_post',
+          script_name: 'WP Create Post',
+          script_version: '1.2.0',
+          release_id: 101,
+          resolution_source: 'site_specific',
+          shortcode_mapping: {
+            entries: [{ shortcode: 'body', variable: 'body' }],
+          },
+        },
+      ],
+      contents: [
+        {
+          id: 'cnt_1',
+          external_ref: 'wp-1',
+          status: 'pending',
+          source_format: 'shortcode',
+          raw_source: '[body]Hello[/body]',
+          assignments: [
+            {
+              id: 'asgn_1',
+              action_tag_key: 'mayhopphat.create_post',
+              script_package_key: 'mayhopphat.create_post',
+              script_version: '1.2.0',
+              release_id: 101,
+              status: 'pending',
+            },
+          ],
+        },
+      ],
+    })
+    assert.equal(v2Mapped.plan_version, 2)
+    assert.equal(isCampaignV2(v2Mapped), true)
+    assert.equal(v2Mapped.action_tags?.length, 1)
+    assert.equal(v2Mapped.contents?.[0]?.assignments?.length, 1)
+    assert.equal(canStartCampaign(v2Mapped, v2Mapped.contents ?? [], null).ok, false)
+
+    // Legacy V1 row still maps cleanly without plan_version: 2
+    const v1Mapped = mapLiveCampaign({
+      id: 'camp_v1_1',
+      name: 'Legacy V1',
+      platform: 'mayhopphat',
+      script_id: 'mayhopphat.create_post',
+      script_version: '1.0.0',
+      account_id: 'acc-1',
+      status: 'draft',
+      run_mode: 'live',
+      total_contents: 1,
+    })
+    assert.equal(isCampaignV2(v1Mapped), false)
+    assert.equal(v1Mapped.account_id, 'acc-1')
+
+    // 409 Stale Release conflict formatting
+    const err409 = new ApiError('Pinned script release is stale.', {
+      kind: 'conflict',
+      status: 409,
+      details: {
+        action_tag_key: 'mayhopphat.create_post',
+        expected_release_id: 101,
+        actual_release_id: 105,
+      },
+    })
+    const formatted409 = formatCampaignV2ApiError(err409)
+    assert.equal(formatted409.isStaleReleaseConflict, true)
+    assert.deepEqual(formatted409.conflictTags, ['mayhopphat.create_post'])
+    assert.match(formatted409.message, /#101 vs current #105/)
+
+    // 422 Validation error formatting
+    const err422 = new ApiError('The given data was invalid.', {
+      kind: 'validation',
+      status: 422,
+      details: {
+        errors: {
+          name: ['The name field is required.'],
+        },
+      },
+    })
+    const formatted422 = formatCampaignV2ApiError(err422)
+    assert.equal(formatted422.isStaleReleaseConflict, false)
+    assert.deepEqual(formatted422.validationErrors, [
+      'name: The name field is required.',
+    ])
   })
 })

@@ -1,6 +1,7 @@
 import type {
   CampaignShortcodeMapping,
   CreateCampaignInput,
+  CreateCampaignV2Input,
 } from '../types.ts'
 
 /**
@@ -88,4 +89,108 @@ export function buildLiveCampaignCreateBody(
     }
   }
   return body
+}
+
+export type LiveCampaignV2CreateBody = {
+  plan_version: 2
+  name: string
+  run_mode: 'test' | 'live'
+  execution_mode?: 'one_account_one_job' | 'one_account_many_jobs'
+  action_tags: Array<{
+    action_tag_id?: number
+    action_tag_key: string
+    site_key: string
+    cms_type?: string | null
+    script_package_key: string
+    script_version: string
+    release_id?: number
+    resolution_source: 'site_specific' | 'cms_global'
+    shortcode_mapping: CampaignShortcodeMapping
+  }>
+  contents: Array<{
+    external_ref?: string
+    raw_source: string
+    assignments: Array<{
+      action_tag_id?: number
+      action_tag_key: string
+      script_package_key: string
+      script_version: string
+      release_id?: number
+      raw_source: string
+      shortcode_mapping: CampaignShortcodeMapping
+    }>
+  }>
+}
+
+/**
+ * Map CreateCampaignV2Input -> Backend Campaign V2 create body.
+ * Account-free Draft: omits account_id. Never fabricates IDs.
+ */
+export function buildLiveCampaignV2CreateBody(
+  input: CreateCampaignV2Input,
+): LiveCampaignV2CreateBody {
+  const action_tags = input.action_tags.map((tag) => {
+    const row: LiveCampaignV2CreateBody['action_tags'][number] = {
+      action_tag_key: tag.action_tag_key.trim(),
+      site_key: tag.site_key.trim(),
+      script_package_key: tag.script_package_key.trim(),
+      script_version: tag.script_version.trim(),
+      resolution_source: tag.resolution_source,
+      shortcode_mapping: {
+        entries: tag.shortcode_mapping.entries.map((e) => ({
+          shortcode: e.shortcode.trim(),
+          variable: e.variable.trim(),
+        })),
+      },
+    }
+    if (tag.action_tag_id != null && tag.action_tag_id > 0) {
+      row.action_tag_id = tag.action_tag_id
+    }
+    if (tag.cms_type !== undefined) {
+      row.cms_type = tag.cms_type
+    }
+    if (tag.release_id != null && tag.release_id > 0) {
+      row.release_id = tag.release_id
+    }
+    return row
+  })
+
+  const contents = input.contents.map((c, idx) => {
+    const ext = c.external_ref?.trim()
+    return {
+      external_ref: ext || `content-${idx + 1}`,
+      raw_source: c.raw_source.trim(),
+      assignments: c.assignments.map((a) => {
+        const assignment: LiveCampaignV2CreateBody['contents'][number]['assignments'][number] =
+          {
+            action_tag_key: a.action_tag_key.trim(),
+            script_package_key: a.script_package_key.trim(),
+            script_version: a.script_version.trim(),
+            raw_source: a.raw_source.trim(),
+            shortcode_mapping: {
+              entries: a.shortcode_mapping.entries.map((e) => ({
+                shortcode: e.shortcode.trim(),
+                variable: e.variable.trim(),
+              })),
+            },
+          }
+        if (a.action_tag_id != null && a.action_tag_id > 0) {
+          assignment.action_tag_id = a.action_tag_id
+        }
+        if (a.release_id != null && a.release_id > 0) {
+          assignment.release_id = a.release_id
+        }
+        return assignment
+      }),
+    }
+  })
+
+  return {
+    plan_version: 2,
+    name: input.name.trim(),
+    run_mode: input.run_mode,
+    ...(input.execution_mode ? { execution_mode: input.execution_mode } : {}),
+    action_tags,
+    contents,
+  }
 }

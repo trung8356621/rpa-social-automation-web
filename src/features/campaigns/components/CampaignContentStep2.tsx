@@ -335,13 +335,13 @@ export function CampaignContentStep2({
           or reserve Clients, Accounts, or Browser Profiles.
         </p>
 
-        {!persistenceSupport.supported ? (
+            {!persistenceSupport.supported ? (
           <div className="rounded-[var(--radius-control)] border border-warning/50 bg-warning/10 p-3 space-y-2">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
               <div className="space-y-1 text-xs">
                 <p className="font-semibold text-foreground">
-                  Backend Contract Gap — Persistence Blocked
+                  Plan Cannot Be Saved Yet
                 </p>
                 <ul className="list-disc pl-4 space-y-0.5 text-muted">
                   {persistenceSupport.blockers.map((b, i) => (
@@ -350,24 +350,23 @@ export function CampaignContentStep2({
                 </ul>
               </div>
             </div>
-            {draftPreviewPayload ? (
-              <div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowPayload((v) => !v)}
-                >
-                  {showPayload
-                    ? 'Hide V2 Draft Plan Payload'
-                    : 'Inspect V2 Draft Plan Payload (Backend Handoff)'}
-                </Button>
-                {showPayload ? (
-                  <pre className="mt-2 max-h-60 overflow-auto rounded-[var(--radius-control)] border border-border bg-surface p-2 font-mono text-[11px] text-foreground">
-                    {JSON.stringify(draftPreviewPayload, null, 2)}
-                  </pre>
-                ) : null}
-              </div>
+          </div>
+        ) : draftPreviewPayload ? (
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setShowPayload((v) => !v)}
+            >
+              {showPayload
+                ? 'Hide V2 Draft Payload'
+                : 'Inspect V2 Draft Payload'}
+            </Button>
+            {showPayload ? (
+              <pre className="mt-2 max-h-60 overflow-auto rounded-[var(--radius-control)] border border-border bg-surface p-2 font-mono text-[11px] text-foreground">
+                {JSON.stringify(draftPreviewPayload, null, 2)}
+              </pre>
             ) : null}
           </div>
         ) : null}

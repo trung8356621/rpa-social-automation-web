@@ -8,15 +8,17 @@ import { useActionRegistry } from '@/features/action-tags/use-action-registry'
 import { CampaignContentStep2 } from '@/features/campaigns/components/CampaignContentStep2'
 import { CampaignPlanStep1 } from '@/features/campaigns/components/CampaignPlanStep1'
 import {
+  buildCreateCampaignV2Input,
   buildV2DraftPlanPayload,
+  formatCampaignV2ApiError,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
   resolveActionTagScript,
   validateStep1Plan,
   validateStep2Plan,
+  type FormattedCampaignV2Error,
   type PlannedContentItem,
 } from '@/features/campaigns/multi-tag-plan'
-import { emptyScheduleForm, scheduleFormToApi } from '@/features/campaigns/schedule'
 import {
   canStartWithRunMode,
   unavailableScriptInputSchema,
@@ -30,7 +32,6 @@ import type { CampaignRunMode } from '@/features/campaigns/types'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import { useMultiScriptSchemas } from '@/features/campaigns/use-multi-script-schemas'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
-import { toSafeApiMessage } from '@/lib/api/errors'
 
 export function CampaignCreatePage() {
   const navigate = useNavigate()
@@ -47,6 +48,8 @@ export function CampaignCreatePage() {
   >({})
   const [contents, setContents] = useState<PlannedContentItem[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [apiErrorDetail, setApiErrorDetail] =
+    useState<FormattedCampaignV2Error | null>(null)
   const [busy, setBusy] = useState(false)
 
   const siteByKey = useMemo(() => {
@@ -160,21 +163,34 @@ export function CampaignCreatePage() {
     const check = validateStep1Plan({ name, resolvedTags })
     if (!check.ok) {
       setError(check.message)
+      setApiErrorDetail(null)
       return
     }
     setError(null)
+    setApiErrorDetail(null)
     setStep(2)
   }
 
   const goBack = () => {
     setError(null)
+    setApiErrorDetail(null)
     setStep(1)
   }
 
+  const refreshResolution = () => {
+    actionRegistry.reload()
+    scriptRegistry.reload()
+    setError(null)
+    setApiErrorDetail(null)
+  }
+
   const submit = async () => {
+    if (busy) return
+
     const step1 = validateStep1Plan({ name, resolvedTags })
     if (!step1.ok) {
       setError(step1.message)
+      setApiErrorDetail(null)
       return
     }
 
@@ -186,6 +202,7 @@ export function CampaignCreatePage() {
     })
     if (!step2.ok) {
       setError(step2.message)
+      setApiErrorDetail(null)
       return
     }
 
@@ -196,6 +213,7 @@ export function CampaignCreatePage() {
           setError(
             `${g.script_package_key}: ${gate.reason ?? 'Test Mode requires an explicitly compatible Script.'}`,
           )
+          setApiErrorDetail(null)
           return
         }
       }
@@ -205,40 +223,29 @@ export function CampaignCreatePage() {
       setError(
         `Cannot persist Campaign Plan yet: ${persistenceSupport.blockers[0]}`,
       )
+      setApiErrorDetail(null)
       return
     }
 
-    const firstTag = resolvedTags[0]!
-    const firstGroup = groups[0]!
-    const firstMapping = step2.groupMappings[firstGroup.group_key]!
+    const v2Input = buildCreateCampaignV2Input({
+      name,
+      run_mode: runMode,
+      resolvedTags,
+      groups,
+      groupMappings: step2.groupMappings,
+      validatedContents: step2.validatedContents,
+    })
 
     setBusy(true)
     setError(null)
+    setApiErrorDetail(null)
     try {
-      const created = await registry.createCampaign(
-        {
-          name: name.trim(),
-          site_key: firstTag.site_key,
-          script_package_key: firstTag.effective_script!.package_key,
-          script_version: firstTag.effective_script!.version,
-          execution_mode: 'one_account_one_job',
-          run_mode: runMode,
-          schedule: scheduleFormToApi(emptyScheduleForm()),
-          account_id: null,
-          shortcode_mapping: firstMapping,
-          contents: step2.validatedContents.map((c) => ({
-            external_ref: c.external_ref,
-            raw_source: c.raw_source,
-          })),
-        },
-        {
-          site_name: firstTag.site_name,
-          script_name: firstTag.effective_script!.name,
-        },
-      )
+      const created = await registry.createCampaignV2(v2Input)
       navigate(`/social-automation/campaigns/${created.id}`)
     } catch (err) {
-      setError(toSafeApiMessage(err))
+      const formatted = formatCampaignV2ApiError(err)
+      setError(formatted.message)
+      setApiErrorDetail(formatted)
     } finally {
       setBusy(false)
     }
@@ -319,7 +326,35 @@ export function CampaignCreatePage() {
         />
       )}
 
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <div className="rounded-[var(--radius-control)] border border-danger/40 bg-danger/10 p-3 space-y-2 text-xs">
+          <p className="font-medium text-danger">{error}</p>
+          {apiErrorDetail?.validationErrors.length ? (
+            <ul className="list-disc pl-4 space-y-0.5 text-danger">
+              {apiErrorDetail.validationErrors.map((ve, i) => (
+                <li key={i}>{ve}</li>
+              ))}
+            </ul>
+          ) : null}
+          {apiErrorDetail?.isStaleReleaseConflict ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-muted">
+                Pinned Script Release is stale. Refresh Script resolution and
+                review before retrying (pinned Scripts are not swapped silently).
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={refreshResolution}
+              >
+                Refresh Script Resolution
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-2">
         {step === 2 ? (
@@ -352,9 +387,7 @@ export function CampaignCreatePage() {
             disabled={busy || !persistenceSupport.supported}
             onClick={() => void submit()}
           >
-            {persistenceSupport.supported
-              ? 'Create Draft Campaign'
-              : 'Create Blocked (Backend Contract Required)'}
+            {busy ? 'Saving Draft…' : 'Create Draft Campaign'}
           </Button>
         )}
       </div>

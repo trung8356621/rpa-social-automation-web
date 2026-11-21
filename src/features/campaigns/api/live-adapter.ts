@@ -5,6 +5,7 @@ import type {
   CampaignContent,
   CampaignJobAttempt,
   CreateCampaignInput,
+  CreateCampaignV2Input,
   ManualContentDraft,
   MockPreviewResult,
   MockSaveResult,
@@ -12,7 +13,10 @@ import type {
   UpdateCampaignInput,
 } from '../types'
 import { buildLiveCampaignContentBody } from './build-content-payload'
-import { buildLiveCampaignCreateBody } from './build-create-payload'
+import {
+  buildLiveCampaignCreateBody,
+  buildLiveCampaignV2CreateBody,
+} from './build-create-payload'
 import { unavailableScriptInputSchema } from '../script-compat'
 import type {
   LiveCampaignDetailResponse,
@@ -81,6 +85,20 @@ export const liveCampaignAdapter = {
     )
     const row = res.data ?? res.campaign
     if (!row) throw new Error('Create Campaign response missing data.')
+    return mapLiveCampaign(row)
+  },
+
+  async createCampaignV2(input: CreateCampaignV2Input): Promise<Campaign> {
+    if (!input.action_tags.length) {
+      throw new Error('Campaign V2 requires at least one Action Tag.')
+    }
+    const body = buildLiveCampaignV2CreateBody(input)
+    const res = await staffApiRequest<LiveCampaignMutationResponse>(
+      CAMPAIGN_PATHS.list,
+      { method: 'POST', body },
+    )
+    const row = res.data ?? res.campaign
+    if (!row) throw new Error('Create Campaign V2 response missing data.')
     return mapLiveCampaign(row)
   },
 

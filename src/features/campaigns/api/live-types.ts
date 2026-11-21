@@ -24,9 +24,48 @@ export type LiveCampaignSummary = {
   waiting?: number
 }
 
-/** CampaignSummary / CampaignDetail from OpenAPI CP19A/B. */
+export type LiveCampaignActionTagRow = {
+  id?: string | number
+  action_tag_id?: number | null
+  action_tag_key?: string
+  tag_key?: string
+  site_key?: string
+  platform?: string
+  site_name?: string
+  cms_type?: string | null
+  script_package_key?: string
+  script_id?: string
+  script_name?: string
+  script_version?: string
+  release_id?: number | null
+  script_release_id?: number | null
+  resolution_source?: string
+  shortcode_mapping?: {
+    entries?: Array<{ shortcode?: string; variable?: string }>
+  } | null
+}
+
+export type LiveContentAssignmentRow = {
+  id?: string | number
+  action_tag_id?: number | null
+  action_tag_key?: string
+  tag_key?: string
+  script_package_key?: string
+  script_id?: string
+  script_version?: string
+  release_id?: number | null
+  script_release_id?: number | null
+  status?: string
+  raw_source?: string | null
+  shortcode_mapping?: {
+    entries?: Array<{ shortcode?: string; variable?: string }>
+  } | null
+}
+
+/** CampaignSummary / CampaignDetail from OpenAPI CP19A/B + Campaign V2. */
 export type LiveCampaignRow = {
   id?: string | number
+  plan_version?: number
   name?: string
   site_key?: string
   platform?: string
@@ -56,6 +95,7 @@ export type LiveCampaignRow = {
     entries?: Array<{ shortcode?: string; variable?: string }>
   } | null
   shortcode_mapping_version?: number | null
+  action_tags?: LiveCampaignActionTagRow[]
   created_at?: string
   updated_at?: string
 }
@@ -101,6 +141,7 @@ export type LiveContentRow = {
   last_result?: string | null
   last_error_code?: string | null
   last_error_message?: string | null
+  assignments?: LiveContentAssignmentRow[]
   created_at?: string
   updated_at?: string
 }

@@ -28,6 +28,7 @@ function kindFromStatus(status: number): ApiError['kind'] {
   if (status === 401) return 'auth'
   if (status === 403) return 'forbidden'
   if (status === 404) return 'not_found'
+  if (status === 409) return 'conflict'
   if (status === 422) return 'validation'
   if (status >= 500) return 'server'
   return 'unknown'
@@ -165,7 +166,21 @@ export async function staffApiRequest<T>(
           ? payload.errors
               .filter((e): e is string => typeof e === 'string' && e.trim() !== '')
               .map((e) => e.trim())
-          : []
+          : payload &&
+              payload.errors &&
+              typeof payload.errors === 'object' &&
+              !Array.isArray(payload.errors)
+            ? Object.entries(payload.errors as Record<string, unknown>).flatMap(
+                ([field, msgs]) =>
+                  Array.isArray(msgs)
+                    ? msgs
+                        .filter((m): m is string => typeof m === 'string' && m.trim() !== '')
+                        .map((m) => `${field}: ${m.trim()}`)
+                    : typeof msgs === 'string' && msgs.trim()
+                      ? [`${field}: ${msgs.trim()}`]
+                      : [],
+              )
+            : []
       const laravelMessage =
         payload && typeof payload.message === 'string' && payload.message.trim()
           ? payload.message.trim()
@@ -175,13 +190,40 @@ export async function staffApiRequest<T>(
               ? errorsList.join('; ')
               : ''
       const message =
-        (response.status === 422 || response.status === 403) && laravelMessage
+        (response.status === 422 ||
+          response.status === 409 ||
+          response.status === 403) &&
+        laravelMessage
           ? laravelMessage
           : messageFromStatus(response.status, code)
+      const safeDetails: Record<string, unknown> | null = payload
+        ? Object.fromEntries(
+            Object.entries(payload).filter(([k]) =>
+              [
+                'errors',
+                'action_tag_key',
+                'tag_key',
+                'action_tag_id',
+                'script_package_key',
+                'script_id',
+                'script_version',
+                'release_id',
+                'expected_release_id',
+                'actual_release_id',
+                'current_release_id',
+                'conflicts',
+              ].includes(k),
+            ),
+          )
+        : null
       throw new ApiError(message, {
         kind: kindFromStatus(response.status),
         status: response.status,
         code,
+        details:
+          safeDetails && Object.keys(safeDetails).length > 0
+            ? safeDetails
+            : null,
       })
     }
 

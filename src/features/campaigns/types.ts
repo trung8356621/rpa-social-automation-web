@@ -65,8 +65,35 @@ export type CampaignShortcodeMapping = {
 
 export type ContentSourceFormat = 'legacy_input' | 'shortcode'
 
+export type CampaignActionTagPlan = {
+  action_tag_id: number | null
+  action_tag_key: string
+  site_key: string
+  site_name: string
+  cms_type: string | null
+  script_package_key: string
+  script_name: string
+  script_version: string
+  release_id: number | null
+  resolution_source: 'site_specific' | 'cms_global' | 'missing'
+  shortcode_mapping: CampaignShortcodeMapping | null
+}
+
+export type CampaignContentAssignment = {
+  id: string | null
+  action_tag_id: number | null
+  action_tag_key: string
+  script_package_key: string
+  script_version: string
+  release_id: number | null
+  status: CampaignContentStatus | null
+  raw_source: string | null
+  shortcode_mapping: CampaignShortcodeMapping | null
+}
+
 export type Campaign = {
   id: string
+  plan_version?: 1 | 2
   name: string
   site_key: string
   site_name: string
@@ -76,7 +103,7 @@ export type Campaign = {
   script_version: string
   /**
    * Hard Account UUID pin from create (`meta.pinned_account_id` / detail `account_id`).
-   * Null when create omitted account_id (auto platform selection).
+   * Null when create omitted account_id (auto platform selection) or V2 account-free draft.
    */
   account_id: string | null
   execution_mode: CampaignExecutionMode
@@ -93,6 +120,8 @@ export type Campaign = {
   /** Immutable after start (OpenAPI shortcode_mapping) */
   shortcode_mapping: CampaignShortcodeMapping | null
   shortcode_mapping_version: number | null
+  /** Campaign V2 resolved Action Tags & pinned Releases */
+  action_tags?: CampaignActionTagPlan[]
 }
 
 export type CampaignAction =
@@ -153,6 +182,8 @@ export type CampaignContent = {
   last_error_message: string | null
   created_at: string
   updated_at: string
+  /** Campaign V2 per-Tag assignments */
+  assignments?: CampaignContentAssignment[]
 }
 
 export type CampaignArtifact = {
@@ -243,6 +274,45 @@ export type CreateCampaignInput = {
    * Required for WordPress Draft POC / one_account_one_job — no silent fallback.
    */
   account_id?: string | null
+}
+
+export type CreateCampaignV2ActionTagInput = {
+  action_tag_id?: number | null
+  action_tag_key: string
+  site_key: string
+  site_name?: string
+  cms_type?: string | null
+  script_package_key: string
+  script_name?: string
+  script_version: string
+  release_id?: number | null
+  resolution_source: 'site_specific' | 'cms_global'
+  shortcode_mapping: CampaignShortcodeMapping
+}
+
+export type CreateCampaignV2AssignmentInput = {
+  action_tag_id?: number | null
+  action_tag_key: string
+  script_package_key: string
+  script_version: string
+  release_id?: number | null
+  raw_source: string
+  shortcode_mapping: CampaignShortcodeMapping
+}
+
+export type CreateCampaignV2ContentInput = {
+  external_ref?: string
+  raw_source: string
+  assignments: CreateCampaignV2AssignmentInput[]
+}
+
+export type CreateCampaignV2Input = {
+  plan_version: 2
+  name: string
+  run_mode: CampaignRunMode
+  execution_mode?: CampaignExecutionMode
+  action_tags: CreateCampaignV2ActionTagInput[]
+  contents: CreateCampaignV2ContentInput[]
 }
 
 export type UpdateCampaignInput = CreateCampaignInput & {

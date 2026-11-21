@@ -229,12 +229,29 @@ export function validateShortcodeContent(
   return { ok: true, value: true }
 }
 
+export function isCampaignV2(campaign: {
+  plan_version?: 1 | 2
+  action_tags?: unknown[]
+}): boolean {
+  return (
+    campaign.plan_version === 2 ||
+    (Array.isArray(campaign.action_tags) && campaign.action_tags.length > 0)
+  )
+}
+
+export const V2_EXECUTION_NOT_IMPLEMENTED =
+  'V2 Campaign execution is not implemented yet. Legacy Start is disabled for Plan V2 Drafts.'
+
 export function canStartCampaign(
   campaign: Campaign,
   contents: CampaignContent[],
   testCompatible: boolean | null,
 ): { ok: boolean; reasons: string[] } {
   const reasons: string[] = []
+  if (isCampaignV2(campaign)) {
+    reasons.push(V2_EXECUTION_NOT_IMPLEMENTED)
+    return { ok: false, reasons }
+  }
 
   if (campaign.status !== 'draft' && campaign.status !== 'scheduled' && campaign.status !== 'paused') {
     if (!campaign.allowed_actions.includes('start')) {

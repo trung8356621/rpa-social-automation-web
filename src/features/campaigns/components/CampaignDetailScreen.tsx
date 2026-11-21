@@ -24,6 +24,7 @@ import {
   RETRY_WARNING,
   UNKNOWN_RETRY_WARNING,
   canStartCampaign,
+  isCampaignV2,
   isPinnedAccountUnavailable,
 } from '../validation'
 import type {
@@ -80,6 +81,8 @@ export function CampaignDetailScreen({
   const [busy, setBusy] = useState(false)
   const [attempts, setAttempts] = useState<CampaignJobAttempt[]>([])
   const [attemptsError, setAttemptsError] = useState<string | null>(null)
+
+  const isV2 = useMemo(() => isCampaignV2(campaign), [campaign])
 
   const startGate = useMemo(
     () => canStartCampaign(campaign, contents, testCompatible),
@@ -146,8 +149,8 @@ export function CampaignDetailScreen({
   }
 
   const confirmStart = () => {
-    if (!startGate.ok) {
-      window.alert(startGate.reasons.join('\n'))
+    if (isV2 || !startGate.ok) {
+      if (!isV2) window.alert(startGate.reasons.join('\n'))
       return
     }
     if (campaign.run_mode === 'live') {
@@ -171,6 +174,7 @@ export function CampaignDetailScreen({
         description={`Campaign · ${campaign.id}`}
         actions={
           <div className="flex flex-wrap gap-2">
+            {isV2 ? <Badge variant="primary">PLAN V2</Badge> : null}
             {campaign.run_mode === 'test' ? (
               <Badge variant="warning">TEST MODE</Badge>
             ) : (
@@ -217,63 +221,144 @@ export function CampaignDetailScreen({
         ))}
       </section>
 
-      <section className="rounded-[var(--radius-card)] border border-border bg-surface p-3">
-        <h2 className="text-sm font-semibold">Configuration</h2>
-        <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-          <div>
-            <dt className="text-xs text-muted">Platform</dt>
-            <dd>
-              {campaign.site_name} ({campaign.site_key})
-            </dd>
+      {isV2 ? (
+        <section className="rounded-[var(--radius-card)] border border-border bg-surface p-3 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">
+              Plan V2 — Action Tags &amp; Pinned Releases (
+              {campaign.action_tags?.length ?? 0})
+            </h2>
+            <span className="text-xs text-muted">
+              Account-free Draft · {contents.length || campaign.summary.total}{' '}
+              Content item(s)
+            </span>
           </div>
-          <div>
-            <dt className="text-xs text-muted">Script</dt>
-            <dd
-              className={
-                scriptDisplay.state === 'missing'
-                  ? 'text-xs text-warning'
-                  : 'text-sm'
-              }
-            >
-              {scriptDisplay.label}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted">Pinned Account</dt>
-            <dd
-              className={
-                pinnedAccount.state === 'missing'
-                  ? 'text-xs text-warning'
-                  : 'text-sm'
-              }
-            >
-              {pinnedAccount.label}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted">Run Mode</dt>
-            <dd>{runModeLabel(campaign.run_mode)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted">Execution Mode</dt>
-            <dd>{executionModeLabel(campaign.execution_mode)}</dd>
-          </div>
-          <div className="sm:col-span-2">
-            <dt className="text-xs text-muted">Schedule</dt>
-            <dd>{formatScheduleLabel(campaign.schedule)}</dd>
-          </div>
-        </dl>
-      </section>
+          {campaign.action_tags && campaign.action_tags.length > 0 ? (
+            <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-border bg-surface-muted/60 text-[11px] text-muted">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Action Tag</th>
+                    <th className="px-3 py-2 font-medium">Site / CMS</th>
+                    <th className="px-3 py-2 font-medium">Effective Script</th>
+                    <th className="px-3 py-2 font-medium">Pinned Release</th>
+                    <th className="px-3 py-2 font-medium">Resolution</th>
+                    <th className="px-3 py-2 font-medium">Shortcode Mapping</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {campaign.action_tags.map((tag) => (
+                    <tr key={tag.action_tag_key}>
+                      <td className="px-3 py-2 font-mono font-medium">
+                        {tag.action_tag_key}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div>{tag.site_name}</div>
+                        <div className="font-mono text-[11px] text-muted">
+                          {tag.site_key}
+                          {tag.cms_type ? ` · ${tag.cms_type}` : ''}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div>{tag.script_name}</div>
+                        <div className="font-mono text-[11px] text-muted">
+                          {tag.script_package_key}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 font-mono">
+                        v{tag.script_version || '—'}
+                        {tag.release_id != null ? ` (#${tag.release_id})` : ''}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge
+                          variant={
+                            tag.resolution_source === 'cms_global'
+                              ? 'success'
+                              : tag.resolution_source === 'site_specific'
+                                ? 'primary'
+                                : 'warning'
+                          }
+                        >
+                          {tag.resolution_source}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[11px] text-muted">
+                        {tag.shortcode_mapping?.entries?.length
+                          ? tag.shortcode_mapping.entries
+                              .map((e) => `[${e.shortcode}] -> ${e.variable}`)
+                              .join(', ')
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-muted">No Action Tags returned.</p>
+          )}
+        </section>
+      ) : (
+        <section className="rounded-[var(--radius-card)] border border-border bg-surface p-3">
+          <h2 className="text-sm font-semibold">Configuration</h2>
+          <dl className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-muted">Platform</dt>
+              <dd>
+                {campaign.site_name} ({campaign.site_key})
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Script</dt>
+              <dd
+                className={
+                  scriptDisplay.state === 'missing'
+                    ? 'text-xs text-warning'
+                    : 'text-sm'
+                }
+              >
+                {scriptDisplay.label}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Pinned Account</dt>
+              <dd
+                className={
+                  pinnedAccount.state === 'missing'
+                    ? 'text-xs text-warning'
+                    : 'text-sm'
+                }
+              >
+                {pinnedAccount.label}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Run Mode</dt>
+              <dd>{runModeLabel(campaign.run_mode)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted">Execution Mode</dt>
+              <dd>{executionModeLabel(campaign.execution_mode)}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-muted">Schedule</dt>
+              <dd>{formatScheduleLabel(campaign.schedule)}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
 
       <section className="flex flex-wrap gap-2">
         <Button
           size="sm"
-          disabled={busy || !startGate.ok}
+          disabled={isV2 || busy || !startGate.ok}
           onClick={confirmStart}
           title={
-            mode === 'live'
-              ? 'Sends POST …/start. Client Runtime Claim must be approved separately.'
-              : undefined
+            isV2
+              ? 'V2 Campaign execution is not implemented yet.'
+              : mode === 'live'
+                ? 'Sends POST …/start. Client Runtime Claim must be approved separately.'
+                : undefined
           }
         >
           Start
@@ -388,6 +473,19 @@ export function CampaignDetailScreen({
                         <div className="line-clamp-2 font-mono text-xs text-muted">
                           {contentListPreview(c) || '(empty)'}
                         </div>
+                        {c.assignments && c.assignments.length > 0 ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {c.assignments.map((a, idx) => (
+                              <Badge
+                                key={`${a.action_tag_key}-${idx}`}
+                                variant="neutral"
+                              >
+                                {a.action_tag_key} · {a.script_package_key} v
+                                {a.script_version}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex flex-col gap-1">

@@ -7,7 +7,9 @@ import { mappingFromApi } from '../shortcode-mapping.ts'
 import type {
   Campaign,
   CampaignAction,
+  CampaignActionTagPlan,
   CampaignContent,
+  CampaignContentAssignment,
   CampaignContentStatus,
   CampaignExecutionMode,
   CampaignJobAttempt,
@@ -19,7 +21,9 @@ import type {
   ContentSourceFormat,
 } from '../types.ts'
 import type {
+  LiveCampaignActionTagRow,
   LiveCampaignRow,
+  LiveContentAssignmentRow,
   LiveContentRow,
   LiveJobAttemptRow,
 } from './live-types.ts'
@@ -221,6 +225,78 @@ function mapContentInput(
   return { title, body, variables }
 }
 
+function mapResolutionSource(
+  raw: unknown,
+): CampaignActionTagPlan['resolution_source'] {
+  if (raw === 'site_specific' || raw === 'cms_global' || raw === 'missing') {
+    return raw
+  }
+  return 'missing'
+}
+
+function mapActionTagPlan(row: LiveCampaignActionTagRow): CampaignActionTagPlan {
+  const scriptKey = String(row.script_package_key ?? row.script_id ?? '')
+  const releaseRaw = row.release_id ?? row.script_release_id
+  const releaseId =
+    releaseRaw != null && Number.isFinite(Number(releaseRaw))
+      ? Number(releaseRaw)
+      : null
+  const tagIdRaw = row.action_tag_id ?? row.id
+  const actionTagId =
+    tagIdRaw != null && Number.isFinite(Number(tagIdRaw))
+      ? Number(tagIdRaw)
+      : null
+  const siteKey = String(row.site_key ?? row.platform ?? '')
+  return {
+    action_tag_id: actionTagId,
+    action_tag_key: String(row.action_tag_key ?? row.tag_key ?? ''),
+    site_key: siteKey,
+    site_name: String(row.site_name ?? siteKey),
+    cms_type:
+      typeof row.cms_type === 'string' && row.cms_type.trim()
+        ? row.cms_type.trim()
+        : null,
+    script_package_key: scriptKey,
+    script_name: String(row.script_name ?? scriptKey),
+    script_version: String(row.script_version ?? ''),
+    release_id: releaseId,
+    resolution_source: mapResolutionSource(row.resolution_source),
+    shortcode_mapping: mappingFromApi(row.shortcode_mapping),
+  }
+}
+
+function mapContentAssignment(
+  row: LiveContentAssignmentRow,
+): CampaignContentAssignment {
+  const scriptKey = String(row.script_package_key ?? row.script_id ?? '')
+  const releaseRaw = row.release_id ?? row.script_release_id
+  const releaseId =
+    releaseRaw != null && Number.isFinite(Number(releaseRaw))
+      ? Number(releaseRaw)
+      : null
+  const tagIdRaw = row.action_tag_id
+  const actionTagId =
+    tagIdRaw != null && Number.isFinite(Number(tagIdRaw))
+      ? Number(tagIdRaw)
+      : null
+  return {
+    id: row.id == null ? null : String(row.id),
+    action_tag_id: actionTagId,
+    action_tag_key: String(row.action_tag_key ?? row.tag_key ?? ''),
+    script_package_key: scriptKey,
+    script_version: String(row.script_version ?? ''),
+    release_id: releaseId,
+    status: row.status ? asContentStatus(row.status) : null,
+    raw_source:
+      typeof row.raw_source === 'string'
+        ? row.raw_source
+        : row.raw_source == null
+          ? null
+          : String(row.raw_source),
+    shortcode_mapping: mappingFromApi(row.shortcode_mapping),
+  }
+}
+
 export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
   const status = asCampaignStatus(row.status)
   const allowed = Array.isArray(row.allowed_actions)
@@ -229,7 +305,26 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
       )
     : actionsForStatus(status)
 
-  const scriptKey = String(row.script_package_key ?? row.script_id ?? '')
+  const planVersion: 1 | 2 | undefined =
+    row.plan_version === 2
+      ? 2
+      : row.plan_version === 1
+        ? 1
+        : Array.isArray(row.action_tags) && row.action_tags.length > 0
+          ? 2
+          : undefined
+
+  const actionTags = Array.isArray(row.action_tags)
+    ? row.action_tags.map(mapActionTagPlan)
+    : undefined
+
+  const firstTag = actionTags?.[0]
+  const scriptKey = String(
+    row.script_package_key ??
+      row.script_id ??
+      firstTag?.script_package_key ??
+      '',
+  )
   const campaignId = String(row.id ?? '')
   const contents = Array.isArray(row.contents)
     ? row.contents.map((c) =>
@@ -246,14 +341,24 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
       ? null
       : Number(row.shortcode_mapping_version)
 
+  const siteKey = String(
+    row.site_key ?? row.platform ?? firstTag?.site_key ?? '',
+  )
+  const siteName = String(
+    row.site_name ?? row.site_key ?? row.platform ?? firstTag?.site_name ?? '',
+  )
+
   return {
     id: campaignId,
+    ...(planVersion ? { plan_version: planVersion } : {}),
     name: String(row.name ?? ''),
-    site_key: String(row.site_key ?? row.platform ?? ''),
-    site_name: String(row.site_name ?? row.site_key ?? row.platform ?? ''),
+    site_key: siteKey,
+    site_name: siteName,
     script_package_key: scriptKey,
-    script_name: String(row.script_name ?? scriptKey),
-    script_version: String(row.script_version ?? ''),
+    script_name: String(row.script_name ?? firstTag?.script_name ?? scriptKey),
+    script_version: String(
+      row.script_version ?? firstTag?.script_version ?? '',
+    ),
     account_id: pinned,
     execution_mode: asExecutionMode(row.execution_mode),
     run_mode: asRunMode(row.run_mode),
@@ -268,6 +373,7 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
     shortcode_mapping_version: Number.isFinite(mappingVersion)
       ? mappingVersion
       : null,
+    ...(actionTags ? { action_tags: actionTags } : {}),
   }
 }
 
@@ -324,6 +430,9 @@ export function mapLiveContent(
     last_error_message: errMsg,
     created_at: String(r.created_at ?? ''),
     updated_at: String(r.updated_at ?? ''),
+    ...(Array.isArray(r.assignments)
+      ? { assignments: r.assignments.map(mapContentAssignment) }
+      : {}),
   }
 }
 
