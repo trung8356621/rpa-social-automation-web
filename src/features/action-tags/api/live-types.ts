@@ -60,6 +60,17 @@ export type LiveTag = {
   /** Package id (sa_packages.id), not package_key */
   auth_script_id?: number | null
   auth_release_id?: number | null
+  effective_auth_script?: {
+    package_id?: number
+    release_id?: number | null
+    script_id?: string
+    package_key?: string
+    name?: string
+    version?: string | null
+    status?: string
+  } | null
+  auth_resolution_source?: string | null
+  auth_source?: string | null
   scripts_count: number
   ready: boolean
   is_enabled?: boolean

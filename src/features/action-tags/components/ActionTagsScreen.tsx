@@ -11,6 +11,7 @@ import { findCmsGlobalScriptForActionTag } from '@/features/script-registry/shar
 import type { ScriptListItem } from '@/features/script-registry/types'
 import type { RpaApiMode } from '@/lib/api/config'
 
+import { resolveActionTagAuthDisplay } from '../auth-display'
 import { resolveTagPublishedScriptStatus } from '../auto-tag-lifecycle'
 import { groupActionTagsBySite, isSiteGroupExpanded } from '../group-tags'
 import type {
@@ -67,9 +68,20 @@ export function ActionTagsScreen({
   const drawerParam = searchParams.get('drawer')
   const editTagId = Number(searchParams.get('tagId') || 0)
   const isEditAuthDrawer = drawerParam === 'edit-auth'
-  const editingTag =
+  const rawEditingTag =
     isEditAuthDrawer && editTagId
       ? (tags.find((t) => t.id === editTagId) ?? null)
+      : null
+  const editingTagSite = rawEditingTag
+    ? sites.find(
+        (s) =>
+          s.id === rawEditingTag.site_id || s.key === rawEditingTag.site_key,
+      )
+    : undefined
+  const editingTag =
+    rawEditingTag &&
+    resolveActionTagAuthDisplay(rawEditingTag, editingTagSite).allowManualEdit
+      ? rawEditingTag
       : null
   const isDrawerOpen = isEditAuthDrawer && editingTag !== null
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
@@ -333,6 +345,10 @@ export function ActionTagsScreen({
                               tagSite?.cms_type,
                               scripts,
                             )
+                            const authDisplay = resolveActionTagAuthDisplay(
+                              tag,
+                              tagSite,
+                            )
                             const isToggling = togglingTagId === tag.id
                             return (
                               <tr
@@ -415,16 +431,44 @@ export function ActionTagsScreen({
                                     </Badge>
                                   )}
                                 </td>
-                                <td className="max-w-[14rem] px-3 py-2.5">
-                                  {tag.auth_script ? (
-                                    <span
-                                      className="block truncate text-xs text-foreground"
-                                      title={formatAuthScriptLabel(
-                                        tag.auth_script,
-                                      )}
+                                <td className="max-w-[16rem] px-3 py-2.5">
+                                  {authDisplay.script ? (
+                                    <div className="flex flex-col gap-1">
+                                      <span
+                                        className="block truncate text-xs text-foreground"
+                                        title={formatAuthScriptLabel(
+                                          authDisplay.script,
+                                        )}
+                                      >
+                                        {formatAuthScriptLabel(
+                                          authDisplay.script,
+                                        )}
+                                      </span>
+                                      {authDisplay.sourceLabel ? (
+                                        <div>
+                                          <Badge
+                                            variant={
+                                              authDisplay.source === 'cms_global'
+                                                ? 'success'
+                                                : authDisplay.source ===
+                                                    'legacy_pin'
+                                                  ? 'warning'
+                                                  : 'neutral'
+                                            }
+                                            className="text-[10px]"
+                                          >
+                                            {authDisplay.sourceLabel}
+                                          </Badge>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  ) : authDisplay.isMissing ? (
+                                    <Badge
+                                      variant="warning"
+                                      className="text-[10px]"
                                     >
-                                      {formatAuthScriptLabel(tag.auth_script)}
-                                    </span>
+                                      Missing Auth Script
+                                    </Badge>
                                   ) : (
                                     <span className="text-xs text-muted">
                                       —
@@ -442,20 +486,22 @@ export function ActionTagsScreen({
                                     >
                                       {isCopied ? 'Copied' : 'Copy Key'}
                                     </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => setDrawerOpen(true, tag.id)}
-                                      disabled={!mutationsEnabled}
-                                      aria-label={`Edit Auth Script for ${tag.tag_key}`}
-                                      title={
-                                        mutationsEnabled
-                                          ? 'Edit Auth Script'
-                                          : 'Live editing not enabled yet'
-                                      }
-                                    >
-                                      <Pencil className="size-3.5" />
-                                    </Button>
+                                    {authDisplay.allowManualEdit ? (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setDrawerOpen(true, tag.id)}
+                                        disabled={!mutationsEnabled}
+                                        aria-label={`Edit Auth Script for ${tag.tag_key}`}
+                                        title={
+                                          mutationsEnabled
+                                            ? 'Edit Auth Script'
+                                            : 'Live editing not enabled yet'
+                                        }
+                                      >
+                                        <Pencil className="size-3.5" />
+                                      </Button>
+                                    ) : null}
                                   </div>
                                 </td>
                               </tr>

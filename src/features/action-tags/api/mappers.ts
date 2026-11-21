@@ -4,6 +4,7 @@ import type {
   ActionRegistryData,
   ActionTagAuthScript,
   ActionTagItem,
+  AuthResolutionSource,
   AuthScriptOption,
   CmsPathTemplate,
   CmsTypeItem,
@@ -200,6 +201,38 @@ function resolvePinnedAuth(
   }
 }
 
+function asAuthResolutionSource(
+  raw: string | null | undefined,
+): AuthResolutionSource | null {
+  const norm = (raw ?? '').trim().toLowerCase()
+  if (
+    norm === 'cms_global' ||
+    norm === 'site_specific' ||
+    norm === 'legacy_pin' ||
+    norm === 'missing'
+  ) {
+    return norm
+  }
+  return null
+}
+
+function mapEffectiveAuthScript(
+  raw: LiveTag['effective_auth_script'],
+): ActionTagAuthScript {
+  if (!raw || typeof raw !== 'object') return null
+  const scriptId = String(raw.script_id ?? raw.package_key ?? '').trim()
+  const name = String(raw.name ?? scriptId).trim()
+  if (!scriptId && !name) return null
+  return {
+    script_id: scriptId || `package:${raw.package_id ?? 'unknown'}`,
+    package_id: raw.package_id != null ? Number(raw.package_id) : undefined,
+    release_id: raw.release_id != null ? Number(raw.release_id) : null,
+    name: name || scriptId,
+    version: raw.version != null ? String(raw.version) : null,
+    status: raw.status === 'unavailable' ? 'unavailable' : 'published',
+  }
+}
+
 function mapTag(
   tag: LiveTag,
   packagesById: Map<number, LiveAuthPackage>,
@@ -238,6 +271,10 @@ function mapTag(
     latest_request_status: tag.latest_request_status ?? null,
     latest_request_id: tag.latest_request_id ?? null,
     auth_script: resolvePinnedAuth(tag, packagesById),
+    effective_auth_script: mapEffectiveAuthScript(tag.effective_auth_script),
+    auth_resolution_source: asAuthResolutionSource(
+      tag.auth_resolution_source ?? tag.auth_source,
+    ),
   }
 }
 

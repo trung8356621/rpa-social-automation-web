@@ -114,6 +114,12 @@ export type ActionTagAuthScript = {
   status?: 'published' | 'unavailable'
 } | null
 
+export type AuthResolutionSource =
+  | 'cms_global'
+  | 'site_specific'
+  | 'legacy_pin'
+  | 'missing'
+
 export type ActionTagItem = {
   id: number
   tag_key: string
@@ -138,6 +144,10 @@ export type ActionTagItem = {
   latest_request_id?: string | null
   /** Resolved pin summary (mock local or live join of auth_* ids + catalog) */
   auth_script?: ActionTagAuthScript
+  /** Backend-confirmed effective Auth Script (CMS Global or Site-specific inheritance) */
+  effective_auth_script?: ActionTagAuthScript
+  /** Backend-confirmed Auth resolution source; never inferred from frontend data alone */
+  auth_resolution_source?: AuthResolutionSource | null
 }
 
 export type ScriptRequestItem = {
