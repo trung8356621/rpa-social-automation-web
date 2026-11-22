@@ -180,9 +180,8 @@ export function useCampaigns() {
     [adapter, showToast],
   )
 
-  const startCampaign = useCallback(
-    async (id: string) => {
-      const updated = await adapter.startCampaign(id)
+  const applyAndReloadCampaign = useCallback(
+    async (id: string, updated: Campaign, toastLabel: string): Promise<Campaign> => {
       setCampaigns((prev) =>
         prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
       )
@@ -192,10 +191,48 @@ export function useCampaigns() {
           return [...updated.contents!, ...without]
         })
       }
-      showToast('Campaign started')
-      return updated
+
+      let canonical = updated
+      try {
+        const detail = await adapter.getCampaign(id)
+        if (detail) {
+          canonical = detail
+          setCampaigns((prev) =>
+            prev.map((c) => (c.id === detail.id ? { ...c, ...detail } : c)),
+          )
+          if (detail.contents) {
+            setContents((prev) => {
+              const without = prev.filter((c) => c.campaign_id !== id)
+              return [...detail.contents!, ...without]
+            })
+          }
+        }
+      } catch {
+        /* keep mutation response if detail reload fails transiently */
+      }
+
+      try {
+        const latestContents = await adapter.listContents(id)
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== id)
+          return [...latestContents, ...without]
+        })
+      } catch {
+        /* keep mutation/detail contents if list reload fails transiently */
+      }
+
+      showToast(toastLabel)
+      return canonical
     },
     [adapter, showToast],
+  )
+
+  const startCampaign = useCallback(
+    async (id: string) => {
+      const updated = await adapter.startCampaign(id)
+      return applyAndReloadCampaign(id, updated, 'Campaign started')
+    },
+    [adapter, applyAndReloadCampaign],
   )
 
   const pauseCampaign = useCallback(
@@ -213,13 +250,9 @@ export function useCampaigns() {
   const resumeCampaign = useCallback(
     async (id: string) => {
       const updated = await adapter.resumeCampaign(id)
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
-      )
-      showToast('Campaign resumed')
-      return updated
+      return applyAndReloadCampaign(id, updated, 'Campaign resumed')
     },
-    [adapter, showToast],
+    [adapter, applyAndReloadCampaign],
   )
 
   const cancelCampaign = useCallback(

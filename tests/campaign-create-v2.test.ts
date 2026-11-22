@@ -482,11 +482,17 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(created.status, 'draft')
     assert.equal(created.account_id, null)
     assert.equal(created.action_tags?.length, 2)
-    assert.equal(created.allowed_actions.includes('start'), false)
+    assert.equal(created.allowed_actions.includes('start'), true)
     assert.equal(isCampaignV2(created), true)
-    const startCheck = canStartCampaign(created, [], null)
-    assert.equal(startCheck.ok, false)
-    assert.match(startCheck.reasons[0] ?? '', /not implemented yet/i)
+    const startCheck = canStartCampaign(created, created.contents ?? [], null)
+    assert.equal(startCheck.ok, true)
+    const zeroCheck = canStartCampaign(
+      { ...created, summary: { ...created.summary, total: 0 } },
+      [],
+      null,
+    )
+    assert.equal(zeroCheck.ok, false)
+    assert.match(zeroCheck.reasons[0] ?? '', /zero Content/i)
   })
 
   it('parses Backend V2 GET/POST response, preserves V1 backward compatibility, and formats 409/422 errors', () => {
@@ -538,7 +544,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(isCampaignV2(v2Mapped), true)
     assert.equal(v2Mapped.action_tags?.length, 1)
     assert.equal(v2Mapped.contents?.[0]?.assignments?.length, 1)
-    assert.equal(canStartCampaign(v2Mapped, v2Mapped.contents ?? [], null).ok, false)
+    assert.equal(canStartCampaign(v2Mapped, v2Mapped.contents ?? [], null).ok, true)
 
     // Legacy V1 row still maps cleanly without plan_version: 2
     const v1Mapped = mapLiveCampaign({
@@ -1079,8 +1085,8 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(updatedV2.revision, 2)
     assert.equal(updatedV2.name, 'Edited V2 Name')
     assert.equal(updatedV2.contents?.length, 2)
-    assert.equal(updatedV2.allowed_actions.includes('start'), false)
-    assert.equal(canStartCampaign(updatedV2, updatedV2.contents ?? [], null).ok, false)
+    assert.equal(updatedV2.allowed_actions.includes('start'), true)
+    assert.equal(canStartCampaign(updatedV2, updatedV2.contents ?? [], null).ok, true)
 
     // Stale revision (1 vs 2) triggers 409 campaign_revision_conflict
     let caughtConflict: unknown = null
@@ -1275,7 +1281,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
 
     const reloaded = await mockCampaignAdapter.getCampaign(created.id)
     assert.equal(reloaded.summary.total, 101)
-    assert.equal(reloaded.allowed_actions.includes('start'), false)
+    assert.equal(reloaded.allowed_actions.includes('start'), true)
   })
 
   it('generates unambiguous [title]...[/title] for 1-variable title-only Script shared across 4 Tags with no duplicate mappings or assignments', async () => {
@@ -1658,7 +1664,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(cleaned.contents?.length, 1)
     assert.equal(cleaned.contents?.[0]?.external_ref, 'manual-site3-1')
     assert.equal(cleaned.action_tags?.length, 4)
-    assert.equal(cleaned.allowed_actions.includes('start'), false)
+    assert.equal(cleaned.allowed_actions.includes('start'), true)
   })
 
   it('supports V2 bulk selection across pages, campaign scope isolation, and bulk delete by stable Content IDs via V2 PUT', async () => {
@@ -1803,7 +1809,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(afterDelete.contents?.[0]?.external_ref, 'keep-manual-article')
     assert.equal(afterDelete.action_tags?.length, 1)
     assert.equal(afterDelete.action_tags?.[0]?.release_id, 101)
-    assert.equal(afterDelete.allowed_actions.includes('start'), false)
+    assert.equal(afterDelete.allowed_actions.includes('start'), true)
 
     let conflictErr: unknown = null
     try {
@@ -2099,6 +2105,6 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(updated.action_tags?.length, 2)
     assert.equal(updated.contents?.length, 2)
     assert.equal(updated.revision, 2)
-    assert.equal(updated.allowed_actions.includes('start'), false)
+    assert.equal(updated.allowed_actions.includes('start'), true)
   })
 })

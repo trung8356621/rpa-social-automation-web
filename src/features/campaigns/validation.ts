@@ -239,23 +239,28 @@ export function isCampaignV2(campaign: {
   )
 }
 
-export const V2_EXECUTION_NOT_IMPLEMENTED =
-  'V2 Campaign execution is not implemented yet. Legacy Start is disabled for Plan V2 Drafts.'
-
 export function canStartCampaign(
   campaign: Campaign,
   contents: CampaignContent[],
   testCompatible: boolean | null,
 ): { ok: boolean; reasons: string[] } {
   const reasons: string[] = []
-  if (isCampaignV2(campaign)) {
-    reasons.push(V2_EXECUTION_NOT_IMPLEMENTED)
-    return { ok: false, reasons }
-  }
+  const isV2 = isCampaignV2(campaign)
 
   if (campaign.status !== 'draft' && campaign.status !== 'scheduled' && campaign.status !== 'paused') {
     if (!campaign.allowed_actions.includes('start')) {
       reasons.push(`Campaign status "${campaign.status}" cannot Start.`)
+    }
+  }
+
+  if (isV2) {
+    const tags = campaign.action_tags ?? []
+    if (tags.length === 0) {
+      reasons.push('Campaign V2 has zero Action Tags configured.')
+    } else if (tags.some((t) => t.resolution_source === 'missing' || !t.release_id)) {
+      reasons.push(
+        'One or more Action Tags are missing a pinned Published Script Release.',
+      )
     }
   }
 
@@ -271,8 +276,12 @@ export function canStartCampaign(
     reasons.push('Campaign has zero Content. Add at least one Article before Start.')
   }
 
-  const runCheck = canStartWithRunMode(campaign.run_mode, testCompatible)
-  if (!runCheck.ok && runCheck.reason) reasons.push(runCheck.reason)
+  // V1 checks single-script Test Mode compatibility; V2 only blocks if an
+  // explicit false compatibility signal is known (otherwise Backend validates per-tag).
+  if (!isV2 || testCompatible !== null) {
+    const runCheck = canStartWithRunMode(campaign.run_mode, testCompatible)
+    if (!runCheck.ok && runCheck.reason) reasons.push(runCheck.reason)
+  }
 
   if (
     campaign.status === 'draft' ||

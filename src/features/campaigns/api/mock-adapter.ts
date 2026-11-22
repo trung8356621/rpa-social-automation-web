@@ -46,11 +46,7 @@ function refreshSummaries(store: CampaignStoreSnapshot): void {
       .filter((x) => x.campaign_id === c.id)
       .map((x) => x.status)
     c.summary = summarizeContents(statuses)
-    const baseActions = actionsFor(c.status)
-    c.allowed_actions =
-      c.plan_version === 2
-        ? baseActions.filter((a) => a !== 'start')
-        : baseActions
+    c.allowed_actions = actionsFor(c.status)
   }
 }
 
@@ -242,7 +238,7 @@ export const mockCampaignAdapter = {
       summary: summarizeContents(rows.map((r) => r.status)),
       created_at: nowIso(),
       updated_at: nowIso(),
-      allowed_actions: ['edit', 'cancel'],
+      allowed_actions: actionsFor('draft'),
       shortcode_mapping: firstTag?.shortcode_mapping
         ? structuredClone(firstTag.shortcode_mapping)
         : null,
@@ -411,7 +407,7 @@ export const mockCampaignAdapter = {
     if (contents.length === 0) {
       throw new Error('Cannot Start: Campaign has zero Content.')
     }
-    if (c.run_mode === 'test') {
+    if (c.run_mode === 'test' && c.plan_version !== 2) {
       const ok = MOCK_TEST_MODE_COMPATIBLE_SCRIPTS.has(c.script_package_key)
       if (!ok) {
         throw new Error('Cannot Start Test Mode: Script not Test-compatible.')

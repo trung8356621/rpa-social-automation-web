@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { toSafeApiMessage } from '@/lib/api/errors'
 
 import type { AccountItem } from '@/features/accounts/types'
 import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/types'
@@ -78,9 +79,13 @@ export function CampaignDetailScreen({
   loadAttempts,
 }: Props) {
   const navigate = useNavigate()
-  const [busy, setBusy] = useState(false)
+  const [busyAction, setBusyAction] = useState<
+    'start' | 'pause' | 'resume' | 'cancel' | 'other' | null
+  >(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [attempts, setAttempts] = useState<CampaignJobAttempt[]>([])
   const [attemptsError, setAttemptsError] = useState<string | null>(null)
+  const busy = busyAction !== null
 
   const isV2 = useMemo(() => isCampaignV2(campaign), [campaign])
 
@@ -139,18 +144,24 @@ export function CampaignDetailScreen({
     }
   }, [campaign.id, loadAttempts])
 
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true)
+  const run = async (
+    fn: () => Promise<unknown>,
+    action: 'start' | 'pause' | 'resume' | 'cancel' | 'other' = 'other',
+  ) => {
+    setBusyAction(action)
+    setActionError(null)
     try {
       await fn()
+    } catch (err: unknown) {
+      setActionError(toSafeApiMessage(err))
     } finally {
-      setBusy(false)
+      setBusyAction(null)
     }
   }
 
   const confirmStart = () => {
-    if (isV2 || !startGate.ok) {
-      if (!isV2) window.alert(startGate.reasons.join('\n'))
+    if (!startGate.ok) {
+      window.alert(startGate.reasons.join('\n'))
       return
     }
     if (campaign.run_mode === 'live') {
@@ -164,7 +175,7 @@ export function CampaignDetailScreen({
     } else if (!window.confirm('Start Test Mode campaign?')) {
       return
     }
-    void run(() => onStart(campaign.id))
+    void run(() => onStart(campaign.id), 'start')
   }
 
   return (
@@ -229,7 +240,7 @@ export function CampaignDetailScreen({
               {campaign.action_tags?.length ?? 0})
             </h2>
             <span className="text-xs text-muted">
-              Account-free Draft · {contents.length || campaign.summary.total}{' '}
+              {st.label} · {contents.length || campaign.summary.total}{' '}
               Content item(s)
             </span>
           </div>
@@ -351,17 +362,15 @@ export function CampaignDetailScreen({
       <section className="flex flex-wrap gap-2">
         <Button
           size="sm"
-          disabled={isV2 || busy || !startGate.ok}
+          disabled={busy || !startGate.ok}
           onClick={confirmStart}
           title={
-            isV2
-              ? 'V2 Campaign execution is not implemented yet.'
-              : mode === 'live'
-                ? 'Sends POST …/start. Client Runtime Claim must be approved separately.'
-                : undefined
+            mode === 'live'
+              ? 'Sends POST …/start. Backend Scheduler evaluates resource availability; no Client needs to be online.'
+              : undefined
           }
         >
-          Start
+          {busyAction === 'start' ? 'Starting…' : 'Start'}
         </Button>
         {campaign.allowed_actions.includes('pause') ? (
           <Button
@@ -370,10 +379,10 @@ export function CampaignDetailScreen({
             disabled={busy}
             onClick={() => {
               if (!window.confirm('Pause this campaign?')) return
-              void run(() => onPause(campaign.id))
+              void run(() => onPause(campaign.id), 'pause')
             }}
           >
-            Pause
+            {busyAction === 'pause' ? 'Pausing…' : 'Pause'}
           </Button>
         ) : null}
         {campaign.allowed_actions.includes('resume') ? (
@@ -383,10 +392,10 @@ export function CampaignDetailScreen({
             disabled={busy}
             onClick={() => {
               if (!window.confirm('Resume this campaign?')) return
-              void run(() => onResume(campaign.id))
+              void run(() => onResume(campaign.id), 'resume')
             }}
           >
-            Resume
+            {busyAction === 'resume' ? 'Resuming…' : 'Resume'}
           </Button>
         ) : null}
         {campaign.allowed_actions.includes('cancel') ? (
@@ -397,10 +406,10 @@ export function CampaignDetailScreen({
             disabled={busy}
             onClick={() => {
               if (!window.confirm('Cancel this campaign?')) return
-              void run(() => onCancel(campaign.id))
+              void run(() => onCancel(campaign.id), 'cancel')
             }}
           >
-            Cancel
+            {busyAction === 'cancel' ? 'Cancelling…' : 'Cancel'}
           </Button>
         ) : null}
         <Button
@@ -413,6 +422,15 @@ export function CampaignDetailScreen({
           Manage Articles
         </Button>
       </section>
+
+      {actionError ? (
+        <div
+          role="alert"
+          className="rounded-[var(--radius-control)] border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+        >
+          {actionError}
+        </div>
+      ) : null}
 
       {!startGate.ok ? (
         <ul className="list-disc space-y-1 pl-5 text-xs text-warning">
