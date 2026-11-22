@@ -14,6 +14,7 @@ import { ClientApiKeysPage } from '@/pages/ClientApiKeysPage'
 import { ClientsPage } from '@/pages/ClientsPage'
 import { HomeRedirect } from '@/pages/HomeRedirect'
 import { ScriptsPage } from '@/pages/ScriptsPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 import { StaffClientConnectionPage } from '@/pages/StaffClientConnectionPage'
 
 export const router = createBrowserRouter([
@@ -114,6 +115,14 @@ export const router = createBrowserRouter([
         element: (
           <RequireOwnerOrAdmin>
             <ArticlePromptsPage />
+          </RequireOwnerOrAdmin>
+        ),
+      },
+      {
+        path: 'social-automation/settings',
+        element: (
+          <RequireOwnerOrAdmin>
+            <SettingsPage />
           </RequireOwnerOrAdmin>
         ),
       },

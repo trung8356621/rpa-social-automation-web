@@ -4,6 +4,7 @@ import {
   Megaphone,
   MonitorSmartphone,
   ScrollText,
+  Settings,
   Sparkles,
   Tags,
   Users,
@@ -66,5 +67,11 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/social-automation/article-prompts',
     icon: Sparkles,
     description: 'Prompt configuration shell by Action Tags',
+  },
+  {
+    label: 'Settings',
+    to: '/social-automation/settings',
+    icon: Settings,
+    description: 'Global Campaign Scheduler settings',
   },
 ]
