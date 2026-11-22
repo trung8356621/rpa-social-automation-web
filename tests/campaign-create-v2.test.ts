@@ -21,6 +21,7 @@ import {
   buildUpdateCampaignV2Input,
   buildV2DraftPlanPayload,
   buildV2PlanUpdateFromCampaign,
+  CampaignV2ClientError,
   campaignToV2WizardState,
   createPlannedContentItem,
   filterSelectableCampaignTags,
@@ -1266,7 +1267,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(reloaded.allowed_actions.includes('start'), false)
   })
 
-  it('generates unambiguous [title]...[/title] for 1-variable title-only Script shared across 4 Tags with no duplicate mappings or assignments', () => {
+  it('generates unambiguous [title]...[/title] for 1-variable title-only Script shared across 4 Tags with no duplicate mappings or assignments', async () => {
     const fourSites: Site[] = [1, 2, 3, 4].map((n) => ({
       id: 100 + n,
       key: `wp${n}`,
@@ -1389,5 +1390,87 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.deepEqual(putBody.contents[0]!.assignments[0]!.shortcode_mapping, {
       entries: [{ shortcode: 'title', variable: 'title' }],
     })
+
+    // Batch 1 (1 mock) -> Batch 2 (10 mocks) preserving existing IDs and all 4 Tag assignments
+    resetMockCampaignStore()
+    const created4 = await mockCampaignAdapter.createCampaignV2(
+      buildCreateCampaignV2Input({
+        name: '4-Tag Bulk',
+        run_mode: 'live',
+        resolvedTags: resolved4,
+        groups,
+        groupMappings: {
+          [groups[0]!.group_key]: {
+            entries: [{ shortcode: 'title', variable: 'title' }],
+          },
+        },
+        validatedContents: [],
+      }),
+    )
+
+    const batch1 = generateBulkMockContentsForGroup({
+      group: groups[0]!,
+      count: 1,
+    })
+    assert.equal(batch1.ok, true)
+    if (!batch1.ok) return
+    const plan1 = buildV2PlanUpdateFromCampaign({
+      campaign: created4,
+      contents: batch1.items,
+      schemaLookup,
+    })
+    assert.equal(plan1.ok, true)
+    if (!plan1.ok) return
+    const saved1 = await mockCampaignAdapter.updateCampaignV2(plan1.input)
+    assert.equal(saved1.contents?.length, 1)
+    assert.equal(saved1.contents?.[0]?.assignments?.length, 4)
+
+    // Generate 10 more mocks after batch 1
+    const existingAfter1 = campaignToV2WizardState(
+      saved1,
+      saved1.contents ?? [],
+    ).contents
+    const batch2 = generateBulkMockContentsForGroup({
+      group: groups[0]!,
+      count: 10,
+      existingRefs: existingAfter1.map((c) => c.external_ref),
+      startSeq: 2,
+    })
+    assert.equal(batch2.ok, true)
+    if (!batch2.ok) return
+    const plan2 = buildV2PlanUpdateFromCampaign({
+      campaign: saved1,
+      contents: [...existingAfter1, ...batch2.items],
+      schemaLookup,
+    })
+    assert.equal(plan2.ok, true)
+    if (!plan2.ok) return
+    const saved2 = await mockCampaignAdapter.updateCampaignV2(plan2.input)
+    assert.equal(saved2.revision, 3)
+    assert.equal(saved2.contents?.length, 11)
+    assert.equal(saved2.contents?.[0]?.id, saved1.contents?.[0]?.id)
+    assert.equal(saved2.contents?.[0]?.assignments?.length, 4)
+    assert.equal(saved2.contents?.[10]?.assignments?.length, 4)
+
+    // Safe actionable error reporting for 500 and CampaignV2ClientError (no generic masking)
+    const err500 = new ApiError('Server error. Please try again later.', {
+      kind: 'server',
+      status: 500,
+      code: 'internal_error',
+    })
+    const fmt500 = formatCampaignV2ApiError(err500)
+    assert.equal(fmt500.status, 500)
+    assert.equal(fmt500.code, 'internal_error')
+    assert.match(fmt500.message, /HTTP 500 \[internal_error\]/)
+
+    const clientErr = new CampaignV2ClientError(
+      'mock-1: Assign at least one target Action Tag.',
+    )
+    const fmtClient = formatCampaignV2ApiError(clientErr)
+    assert.equal(fmtClient.code, 'client_validation')
+    assert.equal(
+      fmtClient.message,
+      'mock-1: Assign at least one target Action Tag.',
+    )
   })
 })

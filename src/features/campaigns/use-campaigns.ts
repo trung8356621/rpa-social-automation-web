@@ -244,8 +244,18 @@ export function useCampaigns() {
         return rows
       }
       setContents((prev) => {
+        const prevById = new Map(prev.map((c) => [c.id, c]))
+        const merged = rows.map((row) => {
+          if (row.assignments === undefined) {
+            const existing = prevById.get(row.id)
+            if (existing?.assignments) {
+              return { ...row, assignments: existing.assignments }
+            }
+          }
+          return row
+        })
         const without = prev.filter((c) => c.campaign_id !== campaignId)
-        return [...rows, ...without]
+        return [...merged, ...without]
       })
       return rows
     },

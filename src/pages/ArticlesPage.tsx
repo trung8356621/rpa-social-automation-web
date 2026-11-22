@@ -8,6 +8,7 @@ import { resolveArticlesCampaignId } from '@/features/campaigns/articles-selecti
 import { ArticlesScreen } from '@/features/campaigns/components/ArticlesScreen'
 import {
   buildV2PlanUpdateFromCampaign,
+  CampaignV2ClientError,
   campaignToV2WizardState,
   createPlannedContentItem,
   generateBulkMockContentsForGroup,
@@ -68,6 +69,12 @@ export function ArticlesPage() {
     registry.loading,
   ])
 
+  const activeCampaign = useMemo(
+    () => registry.campaigns.find((c) => c.id === activeCampaignId) ?? null,
+    [activeCampaignId, registry.campaigns],
+  )
+  const isV2 = activeCampaign ? isCampaignV2(activeCampaign) : false
+
   useEffect(() => {
     if (registry.mode !== 'live') return
     if (registry.loading) return
@@ -82,8 +89,11 @@ export function ArticlesPage() {
     setContentsLoading(true)
     setContentsError(null)
 
-    void registry
-      .loadContentsForCampaign(activeCampaignId)
+    const loadPromise = isV2
+      ? registry.loadCampaignDetail(activeCampaignId)
+      : registry.loadContentsForCampaign(activeCampaignId)
+
+    void loadPromise
       .then(() => {
         if (cancelled || reqId !== contentsReqSeq.current) return
         setContentsLoading(false)
@@ -102,24 +112,11 @@ export function ArticlesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeCampaignId,
+    isV2,
     registry.mode,
     registry.loading,
     registry.reload,
   ])
-
-  const activeCampaign = useMemo(
-    () => registry.campaigns.find((c) => c.id === activeCampaignId) ?? null,
-    [activeCampaignId, registry.campaigns],
-  )
-  const isV2 = activeCampaign ? isCampaignV2(activeCampaign) : false
-
-  useEffect(() => {
-    if (registry.mode !== 'live' || registry.loading || !activeCampaignId) return
-    if (isV2 && !activeCampaign?.action_tags?.length) {
-      void registry.loadCampaignDetail(activeCampaignId).catch(() => {})
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCampaignId, isV2, registry.mode, registry.loading])
   const activePackageKey = isV2
     ? ''
     : activeCampaign?.script_package_key?.trim() || ''
@@ -267,12 +264,11 @@ export function ArticlesPage() {
   const reloadActiveCampaign = async () => {
     if (!activeCampaignId || registry.mode !== 'live') return
     await registry.loadCampaignDetail(activeCampaignId)
-    await registry.loadContentsForCampaign(activeCampaignId)
   }
 
   const persistV2Contents = async (nextContents: PlannedContentItem[]) => {
     if (!activeCampaign || !isV2) {
-      throw new Error('Select a Campaign V2 Draft first.')
+      throw new CampaignV2ClientError('Select a Campaign V2 Draft first.')
     }
     const built = buildV2PlanUpdateFromCampaign({
       campaign: activeCampaign,
@@ -280,7 +276,7 @@ export function ArticlesPage() {
       schemaLookup: v2SchemaLookup,
     })
     if (!built.ok) {
-      throw new Error(built.message)
+      throw new CampaignV2ClientError(built.message)
     }
     await registry.updateCampaignV2(built.input)
     if (registry.mode === 'live') {
@@ -290,25 +286,30 @@ export function ArticlesPage() {
 
   const activeCampaignContents = useMemo(() => {
     if (!activeCampaign) return []
+    if (isV2 && Array.isArray(activeCampaign.contents)) {
+      return activeCampaign.contents
+    }
     const fromStore = registry.contents.filter(
       (c) => c.campaign_id === activeCampaign.id,
     )
     return fromStore.length > 0 ? fromStore : (activeCampaign.contents ?? [])
-  }, [activeCampaign, registry.contents])
+  }, [activeCampaign, isV2, registry.contents])
 
   const handleV2BulkMockSave = async (
     count: number,
     groupKey: string | 'all',
   ) => {
     if (!activeCampaign || !isV2) {
-      throw new Error('Select a Campaign V2 Draft first.')
+      throw new CampaignV2ClientError('Select a Campaign V2 Draft first.')
     }
     const targetGroups =
       groupKey === 'all'
         ? v2Groups.filter((g) => g.schema.schema_available)
         : v2Groups.filter((g) => g.group_key === groupKey)
     if (targetGroups.length === 0) {
-      throw new Error('No compatible Script group with loaded schema.')
+      throw new CampaignV2ClientError(
+        'No compatible Script group with loaded schema.',
+      )
     }
 
     const existingPlanned = campaignToV2WizardState(
@@ -331,7 +332,7 @@ export function ArticlesPage() {
         existingRefs,
         startSeq: seq,
       })
-      if (!res.ok) throw new Error(res.message)
+      if (!res.ok) throw new CampaignV2ClientError(res.message)
       for (const item of res.items) {
         existingRefs.add(item.external_ref)
         generated.push(item)
@@ -415,7 +416,7 @@ export function ArticlesPage() {
     <>
       <ArticlesScreen
         campaigns={registry.campaigns}
-        contents={registry.contents}
+        contents={isV2 ? activeCampaignContents : registry.contents}
         sites={sites.sites}
         campaignId={activeCampaignId}
         onCampaignChange={setActiveCampaignId}

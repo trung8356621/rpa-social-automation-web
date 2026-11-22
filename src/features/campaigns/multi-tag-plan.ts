@@ -1038,8 +1038,17 @@ export function buildUpdateCampaignV2Input(params: {
   }
 }
 
+export class CampaignV2ClientError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CampaignV2ClientError'
+  }
+}
+
 export type FormattedCampaignV2Error = {
   message: string
+  status: number | null
+  code: string | null
   isRevisionConflict: boolean
   expectedRevision: number | null
   currentRevision: number | null
@@ -1129,7 +1138,9 @@ export function formatCampaignV2ApiError(
             ? ` (your revision: ${expectedRevision ?? '?'} vs server: ${currentRevision ?? '?'})`
             : ''
         return {
-          message: `Campaign was modified elsewhere${revHint}. ${err.message}`,
+          message: `HTTP 409 [campaign_revision_conflict]: Campaign was modified elsewhere${revHint}. ${err.message}`,
+          status: err.status,
+          code: err.code ?? 'campaign_revision_conflict',
           isRevisionConflict: true,
           expectedRevision: Number.isFinite(expectedRevision)
             ? expectedRevision
@@ -1149,8 +1160,11 @@ export function formatCampaignV2ApiError(
           : ''
       const tagHint =
         conflictTags.length > 0 ? ` [${conflictTags.join(', ')}]` : ''
+      const codePrefix = err.code ? ` [${err.code}]` : ''
       return {
-        message: `${err.message}${tagHint}${releaseHint}`,
+        message: `HTTP 409${codePrefix}: ${err.message}${tagHint}${releaseHint}`,
+        status: err.status,
+        code: err.code,
         isRevisionConflict: false,
         expectedRevision: null,
         currentRevision: null,
@@ -1161,8 +1175,11 @@ export function formatCampaignV2ApiError(
     }
 
     if (err.status === 422 || err.kind === 'validation') {
+      const codePrefix = err.code ? ` [${err.code}]` : ''
       return {
-        message: err.message,
+        message: `HTTP 422${codePrefix}: ${err.message}`,
+        status: err.status,
+        code: err.code,
         isRevisionConflict: false,
         expectedRevision: null,
         currentRevision: null,
@@ -1171,10 +1188,40 @@ export function formatCampaignV2ApiError(
         validationErrors,
       }
     }
+
+    const statusPrefix = err.status != null ? `HTTP ${err.status}` : err.kind
+    const codePrefix = err.code ? ` [${err.code}]` : ''
+    return {
+      message: `${statusPrefix}${codePrefix}: ${err.message}`,
+      status: err.status,
+      code: err.code,
+      isRevisionConflict: false,
+      expectedRevision: null,
+      currentRevision: null,
+      isStaleReleaseConflict: false,
+      conflictTags,
+      validationErrors,
+    }
+  }
+
+  if (err instanceof CampaignV2ClientError) {
+    return {
+      message: err.message,
+      status: null,
+      code: 'client_validation',
+      isRevisionConflict: false,
+      expectedRevision: null,
+      currentRevision: null,
+      isStaleReleaseConflict: false,
+      conflictTags: [],
+      validationErrors: [],
+    }
   }
 
   return {
     message: toSafeApiMessage(err),
+    status: null,
+    code: null,
     isRevisionConflict: false,
     expectedRevision: null,
     currentRevision: null,

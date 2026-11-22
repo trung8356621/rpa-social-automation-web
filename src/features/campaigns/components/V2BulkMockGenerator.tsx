@@ -46,6 +46,8 @@ export function V2BulkMockGenerator({
     if (!Number.isFinite(qty) || qty < 1) {
       setErrorDetail({
         message: 'Quantity must be at least 1.',
+        status: null,
+        code: 'client_validation',
         isRevisionConflict: false,
         expectedRevision: null,
         currentRevision: null,

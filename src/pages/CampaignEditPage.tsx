@@ -47,8 +47,10 @@ export function CampaignEditPage() {
     setDetailLoading(true)
     setDetailLoaded(false)
     setDetailError(null)
-    await registry.loadCampaignDetail(id)
-    await registry.loadContentsForCampaign(id)
+    const detail = await registry.loadCampaignDetail(id)
+    if (!Array.isArray(detail.contents)) {
+      await registry.loadContentsForCampaign(id)
+    }
     setDetailLoaded(true)
     setDetailLoading(false)
   }, [id, registry])
@@ -71,13 +73,17 @@ export function CampaignEditPage() {
     setDetailError(null)
     void (async () => {
       try {
-        await registry.loadCampaignDetail(id)
+        const detail = await registry.loadCampaignDetail(id)
         if (cancelled) return
-        try {
-          await registry.loadContentsForCampaign(id)
+        if (Array.isArray(detail.contents)) {
           if (!cancelled) setDetailLoaded(true)
-        } catch {
-          if (!cancelled) setDetailLoaded(false)
+        } else {
+          try {
+            await registry.loadContentsForCampaign(id)
+            if (!cancelled) setDetailLoaded(true)
+          } catch {
+            if (!cancelled) setDetailLoaded(false)
+          }
         }
         if (!cancelled) setDetailLoading(false)
       } catch (err: unknown) {

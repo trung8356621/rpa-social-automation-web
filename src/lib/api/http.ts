@@ -42,6 +42,9 @@ function messageFromStatus(status: number, code: string | null): string {
     return 'Permission denied for Social Automation staff API.'
   }
   if (status === 404) return 'Resource not found.'
+  if (status === 413) {
+    return 'Payload too large (HTTP 413). Reduce batch quantity and try again.'
+  }
   if (status === 422) {
     return code ? `Validation failed (${code}).` : 'Validation failed.'
   }
