@@ -823,6 +823,109 @@ export function buildV2PlanUpdateFromCampaign(params: {
   }
 }
 
+export function toggleRowSelection(
+  selectedIds: ReadonlySet<string>,
+  id: string,
+): Set<string> {
+  const next = new Set(selectedIds)
+  if (!id) return next
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  return next
+}
+
+export function toggleVisibleSelection(
+  selectedIds: ReadonlySet<string>,
+  visibleIds: string[],
+): Set<string> {
+  const validVisible = visibleIds.filter(Boolean)
+  const next = new Set(selectedIds)
+  if (validVisible.length === 0) return next
+  const allSelected = validVisible.every((id) => next.has(id))
+  if (allSelected) {
+    for (const id of validVisible) next.delete(id)
+  } else {
+    for (const id of validVisible) next.add(id)
+  }
+  return next
+}
+
+export function selectAllMatchingIds(
+  matchingRows: Array<{ id: string; campaign_id: string }>,
+  activeCampaignId: string,
+): Set<string> {
+  const next = new Set<string>()
+  if (!activeCampaignId) return next
+  for (const row of matchingRows) {
+    if (row.campaign_id === activeCampaignId && row.id) {
+      next.add(row.id)
+    }
+  }
+  return next
+}
+
+/**
+ * Build a full-plan V2 PUT update removing ONLY the selected Content IDs
+ * from a V2 Draft Campaign while preserving all Action Tags, Release pins,
+ * and unselected Contents. Never deletes by array index or external_ref.
+ */
+export function buildV2BulkDeleteUpdate(params: {
+  campaign: Campaign
+  existingContents: CampaignContent[]
+  selectedIds: ReadonlySet<string>
+  schemaLookup: ScriptSchemaLookup
+}): { ok: true; input: UpdateCampaignV2Input; deletedCount: number } | { ok: false; message: string } {
+  if (!isCampaignV2(params.campaign)) {
+    return {
+      ok: false,
+      message: 'Bulk delete via V2 PUT is only supported for Plan V2 Campaigns.',
+    }
+  }
+  if (params.campaign.status !== 'draft') {
+    return {
+      ok: false,
+      message: `Only Draft V2 Campaigns allow bulk deleting Articles (current status: ${params.campaign.status}).`,
+    }
+  }
+  if (params.selectedIds.size === 0) {
+    return { ok: false, message: 'Select at least one Article to delete.' }
+  }
+
+  const campaignContents = params.existingContents.filter(
+    (c) => c.campaign_id === params.campaign.id,
+  )
+  const existingIdSet = new Set(campaignContents.map((c) => c.id))
+  for (const id of params.selectedIds) {
+    if (!existingIdSet.has(id)) {
+      return {
+        ok: false,
+        message: `Selected Article ID "${id}" does not belong to the loaded Campaign. Reload Campaign Detail first.`,
+      }
+    }
+  }
+
+  const planned = campaignToV2WizardState(
+    params.campaign,
+    campaignContents,
+  ).contents
+  const remaining = planned.filter(
+    (item) => !params.selectedIds.has(item.persisted_id ?? item.id),
+  )
+
+  const built = buildV2PlanUpdateFromCampaign({
+    campaign: params.campaign,
+    contents: remaining,
+    schemaLookup: params.schemaLookup,
+  })
+  if (!built.ok) return built
+
+  return {
+    ok: true,
+    input: built.input,
+    deletedCount: planned.length - remaining.length,
+  }
+}
+
 export function validateStep2Plan(params: {
   groups: SchemaMappingGroup[]
   mappingsByGroupKey?: Record<string, ShortcodeMappingFormEntry[]>

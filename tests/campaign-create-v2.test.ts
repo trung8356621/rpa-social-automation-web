@@ -19,6 +19,7 @@ import { mockCampaignAdapter, resetMockCampaignStore } from '../src/features/cam
 import {
   buildCreateCampaignV2Input,
   buildUpdateCampaignV2Input,
+  buildV2BulkDeleteUpdate,
   buildV2DraftPlanPayload,
   buildV2PlanUpdateFromCampaign,
   CampaignV2ClientError,
@@ -37,6 +38,9 @@ import {
   resolveActionTagScript,
   resolveActionTagWithPin,
   scriptTargetKey,
+  selectAllMatchingIds,
+  toggleRowSelection,
+  toggleVisibleSelection,
   validateStep1Plan,
   validateStep2Plan,
 } from '../src/features/campaigns/multi-tag-plan.ts'
@@ -1650,5 +1654,158 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(cleaned.contents?.[0]?.external_ref, 'manual-site3-1')
     assert.equal(cleaned.action_tags?.length, 4)
     assert.equal(cleaned.allowed_actions.includes('start'), false)
+  })
+
+  it('supports V2 bulk selection across pages, campaign scope isolation, and bulk delete by stable Content IDs via V2 PUT', async () => {
+    const site: Site = {
+      id: 1,
+      key: 'mayhopphat',
+      name: 'MayHopPhat',
+      base_url: 'https://mayhopphat.example',
+      cms_type: 'wordpress',
+    }
+    const tag: ActionTagItem = {
+      id: 1,
+      tag_key: 'mayhopphat.create_post',
+      site_key: 'mayhopphat',
+      site_name: 'MayHopPhat',
+      path_key: 'create_post',
+      path_name: 'Create Post',
+      name: 'MayHopPhat Create Post',
+      scripts_count: 1,
+      ready: true,
+      enabled: true,
+    }
+    const titleSchema: ScriptInputSchema = {
+      fields: [],
+      test_mode_compatible: null,
+      title_required: true,
+      body_required: false,
+      schema_available: true,
+      title_supported: true,
+      body_supported: false,
+      unavailable_reason: null,
+    }
+    const schemaLookup = {
+      [scriptTargetKey('mayhopphat.create_post', '1.2.0')]: {
+        schema: titleSchema,
+        loading: false,
+        error: null,
+      },
+    }
+    const resolved = resolveActionTagScript(tag, site, SCRIPTS)
+    const groups = groupTagsByCompatibleSchema(
+      [resolved],
+      schemaLookup,
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+
+    resetMockCampaignStore()
+    const camp = await mockCampaignAdapter.createCampaignV2(
+      buildCreateCampaignV2Input({
+        name: 'Bulk Delete Draft',
+        run_mode: 'live',
+        resolvedTags: [resolved],
+        groups,
+        groupMappings: {
+          [groups[0]!.group_key]: {
+            entries: [{ shortcode: 'title', variable: 'title' }],
+          },
+        },
+        validatedContents: [],
+      }),
+    )
+
+    const items = Array.from({ length: 30 }, (_, i) =>
+      createPlannedContentItem({
+        external_ref: i === 29 ? 'keep-manual-article' : `content-${i + 1}`,
+        target_tag_keys: ['mayhopphat.create_post'],
+        raw_source: `[title]Post ${i + 1}[/title]`,
+      }),
+    )
+    const seededPlan = buildV2PlanUpdateFromCampaign({
+      campaign: camp,
+      contents: items,
+      schemaLookup,
+    })
+    assert.equal(seededPlan.ok, true)
+    if (!seededPlan.ok) return
+    const seeded = await mockCampaignAdapter.updateCampaignV2(seededPlan.input)
+    const rows = seeded.contents ?? []
+    assert.equal(rows.length, 30)
+
+    let sel = toggleRowSelection(new Set(), rows[0]!.id)
+    assert.equal(sel.size, 1)
+    assert.equal(sel.has(rows[0]!.id), true)
+
+    const page1Ids = rows.slice(0, 25).map((r) => r.id)
+    sel = toggleVisibleSelection(sel, page1Ids)
+    assert.equal(sel.size, 25)
+    sel = toggleVisibleSelection(sel, page1Ids)
+    assert.equal(sel.size, 0)
+
+    const matchingPlusForeign = [
+      ...rows.slice(0, 29),
+      { id: 'foreign_cnt_1', campaign_id: 'other_campaign_id' },
+    ]
+    const allMatching = selectAllMatchingIds(matchingPlusForeign, seeded.id)
+    assert.equal(allMatching.size, 29)
+    assert.equal(allMatching.has('foreign_cnt_1'), false)
+
+    const badDelete = buildV2BulkDeleteUpdate({
+      campaign: seeded,
+      existingContents: rows,
+      selectedIds: new Set(['foreign_cnt_1']),
+      schemaLookup,
+    })
+    assert.equal(badDelete.ok, false)
+
+    const v1Camp = mapLiveCampaign({
+      id: 'v1_camp',
+      name: 'V1',
+      platform: 'mayhopphat',
+      script_id: 'mayhopphat.create_post',
+      script_version: '1.0.0',
+      status: 'draft',
+      run_mode: 'live',
+    })
+    assert.equal(
+      buildV2BulkDeleteUpdate({
+        campaign: v1Camp,
+        existingContents: [],
+        selectedIds: new Set(['c1']),
+        schemaLookup,
+      }).ok,
+      false,
+    )
+
+    const bulkDel = buildV2BulkDeleteUpdate({
+      campaign: seeded,
+      existingContents: rows,
+      selectedIds: allMatching,
+      schemaLookup,
+    })
+    assert.equal(bulkDel.ok, true)
+    if (!bulkDel.ok) return
+    assert.equal(bulkDel.deletedCount, 29)
+    assert.equal(bulkDel.input.revision, seeded.revision)
+    assert.equal(bulkDel.input.contents.length, 1)
+    assert.equal(bulkDel.input.contents[0]!.id, rows[29]!.id)
+
+    const afterDelete = await mockCampaignAdapter.updateCampaignV2(bulkDel.input)
+    assert.equal(afterDelete.revision, (seeded.revision ?? 1) + 1)
+    assert.equal(afterDelete.contents?.length, 1)
+    assert.equal(afterDelete.contents?.[0]?.external_ref, 'keep-manual-article')
+    assert.equal(afterDelete.action_tags?.length, 1)
+    assert.equal(afterDelete.action_tags?.[0]?.release_id, 101)
+    assert.equal(afterDelete.allowed_actions.includes('start'), false)
+
+    let conflictErr: unknown = null
+    try {
+      await mockCampaignAdapter.updateCampaignV2(bulkDel.input)
+    } catch (err) {
+      conflictErr = err
+    }
+    assert.equal(formatCampaignV2ApiError(conflictErr).isRevisionConflict, true)
   })
 })

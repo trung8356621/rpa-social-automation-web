@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Plus, Search, Trash2 } from 'lucide-react'
 
 import type { Site } from '@/features/action-tags/types'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -20,6 +20,10 @@ import {
   formatCampaignV2ApiError,
   matchesArticleSiteFilter,
   scriptTargetKey,
+  selectAllMatchingIds,
+  toggleRowSelection,
+  toggleVisibleSelection,
+  type FormattedCampaignV2Error,
   type ScriptSchemaLookup,
 } from '../multi-tag-plan'
 import { buildAutoShortcodeMapping } from '../shortcode-mapping'
@@ -79,6 +83,7 @@ type Props = {
   schemaError?: string | null
   v2TagOptions?: V2MockTagOption[]
   v2SchemaLookup?: ScriptSchemaLookup
+  v2BulkDeleteReady?: boolean
   onV2BulkMockSave?: (count: number, actionTagKey: string) => Promise<void>
   onV2ClearMocks?: () => Promise<void>
   onV2SaveContent?: (draft: {
@@ -88,6 +93,7 @@ type Props = {
     targetTagKeys: string[]
   }) => Promise<void>
   onV2DeleteContent?: (contentId: string) => Promise<void>
+  onV2BulkDeleteContents?: (selectedIds: string[]) => Promise<void>
   onReloadCampaign?: () => Promise<void>
 }
 
@@ -121,16 +127,21 @@ export function ArticlesScreen({
   schemaError = null,
   v2TagOptions = [],
   v2SchemaLookup = {},
+  v2BulkDeleteReady = false,
   onV2BulkMockSave,
   onV2ClearMocks,
   onV2SaveContent,
   onV2DeleteContent,
+  onV2BulkDeleteContents,
   onReloadCampaign,
 }: Props) {
   const [siteFilter, setSiteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteError, setBulkDeleteError] =
+    useState<FormattedCampaignV2Error | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [previewId, setPreviewId] = useState<string | null>(null)
@@ -146,6 +157,15 @@ export function ArticlesScreen({
 
   const campaign = campaigns.find((c) => c.id === campaignId) ?? null
   const isV2Campaign = campaign ? isCampaignV2(campaign) : false
+  const canBulkSelectV2 = Boolean(
+    isV2Campaign && campaign?.status === 'draft' && onV2BulkDeleteContents,
+  )
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setBulkDeleteError(null)
+    setPage(1)
+  }, [campaignId])
   const site = sites.find((s) => s.key === campaign?.site_key) ?? null
   const schema = campaign
     ? getSchema(campaign.script_package_key)
@@ -726,12 +746,143 @@ export function ArticlesScreen({
           (safePage - 1) * PAGE_SIZE,
           safePage * PAGE_SIZE,
         )
+        const visibleIds = pageRows.map((r) => r.id).filter(Boolean)
+        const allVisibleSelected =
+          visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))
+        const colCount = canBulkSelectV2 ? 7 : 6
+
+        const handleBulkDelete = async () => {
+          if (
+            !campaign ||
+            !onV2BulkDeleteContents ||
+            selectedIds.size === 0 ||
+            busy ||
+            !v2BulkDeleteReady
+          ) {
+            return
+          }
+          const ids = Array.from(selectedIds)
+          if (
+            !window.confirm(
+              `Delete ${ids.length} selected article(s) from V2 Draft Campaign "${campaign.name}"?\n\nCampaign Action Tags, pinned Script Releases, and unselected articles will be preserved.`,
+            )
+          ) {
+            return
+          }
+          setBusy(true)
+          setBulkDeleteError(null)
+          try {
+            await onV2BulkDeleteContents(ids)
+            setSelectedIds(new Set())
+          } catch (err) {
+            setBulkDeleteError(formatCampaignV2ApiError(err))
+          } finally {
+            setBusy(false)
+          }
+        }
+
         return (
           <div className="space-y-2">
+            {canBulkSelectV2 && filtered.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-border bg-surface px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">
+                    {selectedIds.size} selected
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || !v2BulkDeleteReady}
+                    onClick={() =>
+                      setSelectedIds(selectAllMatchingIds(filtered, campaignId))
+                    }
+                  >
+                    Select All Matching ({filtered.length})
+                  </Button>
+                  {selectedIds.size > 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setSelectedIds(new Set())}
+                    >
+                      Clear Selection
+                    </Button>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="text-danger"
+                  disabled={
+                    busy || selectedIds.size === 0 || !v2BulkDeleteReady
+                  }
+                  onClick={() => void handleBulkDelete()}
+                >
+                  <Trash2 className="size-3.5" />
+                  {busy
+                    ? 'Deleting…'
+                    : `Delete Selected (${selectedIds.size})`}
+                </Button>
+              </div>
+            ) : null}
+
+            {bulkDeleteError ? (
+              <div className="rounded-[var(--radius-control)] border border-danger/40 bg-danger/10 p-2.5 space-y-1.5 text-xs">
+                <p className="font-medium text-danger">
+                  {bulkDeleteError.message}
+                </p>
+                {bulkDeleteError.validationErrors.length > 0 ? (
+                  <ul className="list-disc pl-4 text-danger">
+                    {bulkDeleteError.validationErrors.map((v, i) => (
+                      <li key={i}>{v}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {bulkDeleteError.isRevisionConflict && onReloadCampaign ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true)
+                      void onReloadCampaign()
+                        .then(() => {
+                          setBulkDeleteError(null)
+                          setSelectedIds(new Set())
+                        })
+                        .finally(() => setBusy(false))
+                    }}
+                  >
+                    Reload Latest Plan
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
               <table className="w-full min-w-[56rem] text-left text-sm">
                 <thead className="border-b border-border bg-surface-muted text-xs text-muted">
                   <tr>
+                    {canBulkSelectV2 ? (
+                      <th className="w-10 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visible articles"
+                          disabled={busy || !v2BulkDeleteReady || visibleIds.length === 0}
+                          checked={allVisibleSelected}
+                          onChange={() =>
+                            setSelectedIds((prev) =>
+                              toggleVisibleSelection(prev, visibleIds),
+                            )
+                          }
+                        />
+                      </th>
+                    ) : null}
                     <th className="px-3 py-2">Ref</th>
                     <th className="px-3 py-2">Campaign</th>
                     <th className="px-3 py-2">
@@ -746,7 +897,7 @@ export function ArticlesScreen({
                   {listState === 'loading' ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={colCount}
                         className="px-3 py-8 text-center text-muted"
                       >
                         Loading campaign contents…
@@ -755,7 +906,7 @@ export function ArticlesScreen({
                   ) : listState === 'error' ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={colCount}
                         className="px-3 py-8 text-center text-danger"
                       >
                         Failed to load articles. {contentsError}
@@ -764,7 +915,7 @@ export function ArticlesScreen({
                   ) : listState === 'empty' ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={colCount}
                         className="px-3 py-8 text-center text-muted"
                       >
                         No articles. Shortcode V2 Campaigns start with zero
@@ -784,6 +935,21 @@ export function ArticlesScreen({
                         .join(', ')
                       return (
                         <tr key={row.id} className="border-b border-border">
+                          {canBulkSelectV2 ? (
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select article ${row.external_ref}`}
+                                disabled={busy || !v2BulkDeleteReady}
+                                checked={selectedIds.has(row.id)}
+                                onChange={() =>
+                                  setSelectedIds((prev) =>
+                                    toggleRowSelection(prev, row.id),
+                                  )
+                                }
+                              />
+                            </td>
+                          ) : null}
                           <td className="px-3 py-2 font-mono text-xs">
                             {row.external_ref}
                           </td>

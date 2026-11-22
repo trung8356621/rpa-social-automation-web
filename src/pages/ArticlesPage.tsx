@@ -7,6 +7,7 @@ import { useAccountSites } from '@/features/accounts/use-account-sites'
 import { resolveArticlesCampaignId } from '@/features/campaigns/articles-selection'
 import { ArticlesScreen } from '@/features/campaigns/components/ArticlesScreen'
 import {
+  buildV2BulkDeleteUpdate,
   buildV2PlanUpdateFromCampaign,
   CampaignV2ClientError,
   campaignToV2WizardState,
@@ -41,6 +42,7 @@ export function ArticlesPage() {
   )
   const [contentsLoading, setContentsLoading] = useState(false)
   const [contentsError, setContentsError] = useState<string | null>(null)
+  const [v2DetailLoaded, setV2DetailLoaded] = useState(registry.mode !== 'live')
   const [schemaDetail, setSchemaDetail] = useState<ScriptDetail | null>(null)
   const [schemaLoading, setSchemaLoading] = useState(false)
   const [schemaError, setSchemaError] = useState<string | null>(null)
@@ -88,6 +90,7 @@ export function ArticlesPage() {
     let cancelled = false
     setContentsLoading(true)
     setContentsError(null)
+    if (isV2) setV2DetailLoaded(false)
 
     const loadPromise = isV2
       ? registry.loadCampaignDetail(activeCampaignId)
@@ -98,11 +101,13 @@ export function ArticlesPage() {
         if (cancelled || reqId !== contentsReqSeq.current) return
         setContentsLoading(false)
         setContentsError(null)
+        if (isV2) setV2DetailLoaded(true)
       })
       .catch((err: unknown) => {
         if (cancelled || reqId !== contentsReqSeq.current) return
         setContentsError(toSafeApiMessage(err))
         setContentsLoading(false)
+        if (isV2) setV2DetailLoaded(false)
       })
 
     return () => {
@@ -400,6 +405,30 @@ export function ArticlesPage() {
     await persistV2Contents(nextContents)
   }
 
+  const handleV2BulkDeleteContents = async (selectedIds: string[]) => {
+    if (!activeCampaign || !isV2) {
+      throw new CampaignV2ClientError('Select a Campaign V2 Draft first.')
+    }
+    if (!v2DetailLoaded || contentsLoading || contentsError) {
+      throw new CampaignV2ClientError(
+        'Canonical Campaign Detail is not fully loaded. Reload before deleting.',
+      )
+    }
+    const built = buildV2BulkDeleteUpdate({
+      campaign: activeCampaign,
+      existingContents: activeCampaignContents,
+      selectedIds: new Set(selectedIds),
+      schemaLookup: v2SchemaLookup,
+    })
+    if (!built.ok) {
+      throw new CampaignV2ClientError(built.message)
+    }
+    await registry.updateCampaignV2(built.input)
+    if (registry.mode === 'live') {
+      await reloadActiveCampaign()
+    }
+  }
+
   if (registry.loading) {
     return (
       <div className="rounded-[var(--radius-card)] border border-border bg-surface p-6">
@@ -438,10 +467,18 @@ export function ArticlesPage() {
         schemaError={isV2 ? v2SchemaError : schemaError}
         v2TagOptions={v2TagOptions}
         v2SchemaLookup={v2SchemaLookup}
+        v2BulkDeleteReady={Boolean(
+          isV2 &&
+            activeCampaign?.status === 'draft' &&
+            v2DetailLoaded &&
+            !contentsLoading &&
+            !contentsError,
+        )}
         onV2BulkMockSave={handleV2BulkMockSave}
         onV2ClearMocks={handleV2ClearMockContents}
         onV2SaveContent={handleV2SaveSingleContent}
         onV2DeleteContent={handleV2DeleteContent}
+        onV2BulkDeleteContents={handleV2BulkDeleteContents}
         onReloadCampaign={reloadActiveCampaign}
         onCreate={async (draft, opts) => {
           await registry.createManualContent(draft, opts)
