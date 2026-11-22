@@ -18,7 +18,9 @@ import { resolveArticlesListState } from '../articles-list-state'
 import { checkContentLength, siteContentPolicy } from '../content-limit'
 import {
   formatCampaignV2ApiError,
+  getCampaignScopedSiteOptions,
   matchesArticleSiteFilter,
+  resolveValidSiteFilter,
   scriptTargetKey,
   selectAllMatchingIds,
   toggleRowSelection,
@@ -161,6 +163,18 @@ export function ArticlesScreen({
     isV2Campaign && campaign?.status === 'draft' && onV2BulkDeleteContents,
   )
 
+  const siteOptions = useMemo(
+    () => getCampaignScopedSiteOptions(campaign, sites),
+    [campaign, sites],
+  )
+  const effectiveSiteFilter = resolveValidSiteFilter(siteFilter, siteOptions)
+
+  useEffect(() => {
+    if (siteFilter !== 'all' && effectiveSiteFilter === 'all') {
+      setSiteFilter('all')
+    }
+  }, [siteFilter, effectiveSiteFilter])
+
   useEffect(() => {
     setSelectedIds(new Set())
     setBulkDeleteError(null)
@@ -190,12 +204,20 @@ export function ArticlesScreen({
     return 'legacy'
   })()
 
+  const totalCampaignRows = useMemo(
+    () =>
+      campaignId
+        ? contents.filter((c) => c.campaign_id === campaignId).length
+        : contents.length,
+    [contents, campaignId],
+  )
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return contents.filter((c) => {
       if (campaignId && c.campaign_id !== campaignId) return false
       const camp = campaigns.find((x) => x.id === c.campaign_id)
-      if (!matchesArticleSiteFilter(c, camp, siteFilter)) return false
+      if (!matchesArticleSiteFilter(c, camp, effectiveSiteFilter)) return false
       if (statusFilter !== 'all' && c.status !== statusFilter) return false
       if (!q) return true
       const hay = [
@@ -211,7 +233,29 @@ export function ArticlesScreen({
         .toLowerCase()
       return hay.includes(q)
     })
-  }, [contents, campaignId, campaigns, siteFilter, statusFilter, search])
+  }, [
+    contents,
+    campaignId,
+    campaigns,
+    effectiveSiteFilter,
+    statusFilter,
+    search,
+  ])
+
+  // Keep selectedIds strictly scoped to currently matching rows
+  useEffect(() => {
+    const visibleOrMatching = new Set(filtered.map((r) => r.id))
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev
+      let changed = false
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (visibleOrMatching.has(id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [filtered])
 
   const resetForm = () => {
     setExternalRef('')
@@ -475,35 +519,28 @@ export function ArticlesScreen({
           </Select>
         </div>
         <Select
-          className="w-40"
-          value={siteFilter}
+          className="w-44"
+          value={effectiveSiteFilter}
           onChange={(e) => {
             setSiteFilter(e.target.value)
             setPage(1)
           }}
-          aria-label="Platform filter"
+          aria-label="Site filter"
         >
-          <option value="all">All sites</option>
-          {(() => {
-            const siteMap = new Map(sites.map((s) => [s.key, s.name]))
-            if (isV2Campaign && campaign?.action_tags) {
-              for (const t of campaign.action_tags) {
-                if (!siteMap.has(t.site_key)) {
-                  siteMap.set(t.site_key, t.site_name || t.site_key)
-                }
-              }
-            }
-            return Array.from(siteMap.entries()).map(([k, label]) => (
-              <option key={k} value={k}>
-                {label}
-              </option>
-            ))
-          })()}
+          <option value="all">All Sites</option>
+          {siteOptions.map((opt) => (
+            <option key={opt.key} value={opt.key}>
+              {opt.label}
+            </option>
+          ))}
         </Select>
         <Select
           className="w-44"
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => {
+            setStatusFilter(e.target.value)
+            setPage(1)
+          }}
           aria-label="Status filter"
         >
           <option value="all">All status</option>
@@ -569,9 +606,56 @@ export function ArticlesScreen({
         />
       ) : null}
 
-      {contentsLoading ? (
-        <p className="text-xs text-muted">Loading campaign contents…</p>
-      ) : null}
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted"
+        aria-live="polite"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          {contentsLoading ? (
+            <span className="font-medium text-foreground">
+              Loading campaign articles…
+            </span>
+          ) : (
+            <span>
+              Showing{' '}
+              <strong className="text-foreground">{filtered.length}</strong> of{' '}
+              <strong className="text-foreground">{totalCampaignRows}</strong>{' '}
+              article(s)
+            </span>
+          )}
+          {effectiveSiteFilter !== 'all' ? (
+            <Badge variant="neutral">
+              Site:{' '}
+              {siteOptions.find((o) => o.key === effectiveSiteFilter)?.label ??
+                effectiveSiteFilter}
+            </Badge>
+          ) : null}
+          {statusFilter !== 'all' ? (
+            <Badge variant="neutral">Status: {statusFilter}</Badge>
+          ) : null}
+          {search.trim() ? (
+            <Badge variant="neutral">Search: &ldquo;{search.trim()}&rdquo;</Badge>
+          ) : null}
+        </div>
+        {effectiveSiteFilter !== 'all' ||
+        statusFilter !== 'all' ||
+        search.trim() ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setSiteFilter('all')
+              setStatusFilter('all')
+              setSearch('')
+              setPage(1)
+            }}
+          >
+            Reset Filters
+          </Button>
+        ) : null}
+      </div>
+
       {contentsError ? (
         <p className="text-xs text-danger">{contentsError}</p>
       ) : null}
@@ -864,7 +948,11 @@ export function ArticlesScreen({
               </div>
             ) : null}
 
-            <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
+            <div
+              className={`overflow-x-auto rounded-[var(--radius-card)] border border-border transition-opacity duration-150 ${
+                contentsLoading ? 'opacity-60' : 'opacity-100'
+              }`}
+            >
               <table className="w-full min-w-[56rem] text-left text-sm">
                 <thead className="border-b border-border bg-surface-muted text-xs text-muted">
                   <tr>
@@ -918,8 +1006,11 @@ export function ArticlesScreen({
                         colSpan={colCount}
                         className="px-3 py-8 text-center text-muted"
                       >
-                        No articles. Shortcode V2 Campaigns start with zero
-                        Content — add Articles or Generate Mock before Start.
+                        {totalCampaignRows > 0 && effectiveSiteFilter !== 'all'
+                          ? 'No Articles for this Site in the selected Campaign.'
+                          : totalCampaignRows > 0
+                            ? 'No Articles match the active filters.'
+                            : 'No articles yet in this Campaign — add Articles or Generate Mock above.'}
                       </td>
                     </tr>
                   ) : (

@@ -540,6 +540,48 @@ export function matchesArticleSiteFilter(
   return campaign?.site_key === siteFilter
 }
 
+export type ScopedSiteOption = {
+  key: string
+  label: string
+}
+
+/**
+ * Derive Site filter dropdown options scoped to the selected Campaign:
+ * - V2 Campaign: strictly from canonical `campaign.action_tags[]` (deduplicated by `site_key`).
+ *   Never includes unrelated global Sites and never uses `campaign.site_key` as source of truth.
+ * - V1 Campaign / no Campaign: preserves legacy global Sites list.
+ */
+export function getCampaignScopedSiteOptions(
+  campaign: Campaign | null | undefined,
+  globalSites: Site[],
+): ScopedSiteOption[] {
+  const globalNameByKey = new Map(globalSites.map((s) => [s.key, s.name]))
+
+  if (campaign && isCampaignV2(campaign)) {
+    const seen = new Map<string, string>()
+    for (const tag of campaign.action_tags ?? []) {
+      const key = tag.site_key.trim()
+      if (!key || seen.has(key)) continue
+      const label =
+        (tag.site_name && tag.site_name.trim()) ||
+        globalNameByKey.get(key) ||
+        key
+      seen.set(key, label)
+    }
+    return Array.from(seen.entries()).map(([key, label]) => ({ key, label }))
+  }
+
+  return globalSites.map((s) => ({ key: s.key, label: s.name }))
+}
+
+export function resolveValidSiteFilter(
+  currentFilter: string,
+  options: ScopedSiteOption[],
+): string {
+  if (!currentFilter || currentFilter === 'all') return 'all'
+  return options.some((o) => o.key === currentFilter) ? currentFilter : 'all'
+}
+
 /**
  * Generate N distinct mock Content items for ONE selected target Action Tag.
  * Each generated Content item has exactly ONE target_tag_keys entry.

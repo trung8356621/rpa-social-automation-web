@@ -30,6 +30,7 @@ import {
   generateBulkMockContentsForGroup,
   generateBulkMockContentsForTag,
   generateMockContentForGroup,
+  getCampaignScopedSiteOptions,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
   inspectV2UpdateSupport,
@@ -37,6 +38,7 @@ import {
   matchesArticleSiteFilter,
   resolveActionTagScript,
   resolveActionTagWithPin,
+  resolveValidSiteFilter,
   scriptTargetKey,
   selectAllMatchingIds,
   toggleRowSelection,
@@ -1807,5 +1809,125 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       conflictErr = err
     }
     assert.equal(formatCampaignV2ApiError(conflictErr).isRevisionConflict, true)
+  })
+
+  it('scopes V2 Site filter options strictly to campaign.action_tags[], resets stale filters on switch, and scopes Select All Matching to active filters', () => {
+    const globalSites: Site[] = [
+      { id: 1, key: 'baloquatang', name: 'Balo Qua Tang', base_url: 'https://b.ex', cms_type: 'wordpress' },
+      { id: 2, key: 'congtybalo', name: 'Cong Ty Balo', base_url: 'https://c.ex', cms_type: 'wordpress' },
+      { id: 3, key: 'mayhopphat', name: 'May Hop Phat', base_url: 'https://m.ex', cms_type: 'wordpress' },
+      { id: 4, key: 'maytuicanvas', name: 'May Tui Canvas', base_url: 'https://mt.ex', cms_type: 'wordpress' },
+      { id: 5, key: 'facebook', name: 'Facebook', base_url: 'https://fb.ex', cms_type: null },
+      { id: 6, key: 'reddit', name: 'Reddit', base_url: 'https://rd.ex', cms_type: null },
+      { id: 7, key: 'cp11_smoke', name: 'CP11_SMOKE_20261029', base_url: 'https://cp.ex', cms_type: null },
+    ]
+
+    const v2FourSites = mapLiveCampaign({
+      id: 'camp_tess',
+      plan_version: 2,
+      name: 'tessssssst',
+      status: 'draft',
+      run_mode: 'live',
+      action_tags: ['baloquatang', 'congtybalo', 'mayhopphat', 'maytuicanvas'].map((k, idx) => ({
+        action_tag_id: idx + 1,
+        action_tag_key: `${k}.create_post`,
+        site_key: k,
+        site_name: globalSites[idx]!.name,
+        cms_type: 'wordpress',
+        script_package_key: 'baloquatang.create_post',
+        script_version: '1.0.0',
+        resolution_source: 'cms_global',
+      })),
+      contents: [
+        {
+          id: 'c_balo_1',
+          external_ref: 'mock-1',
+          status: 'pending',
+          assignments: [{ id: 'a1', action_tag_key: 'baloquatang.create_post', script_package_key: 'baloquatang.create_post', script_version: '1.0.0' }],
+        },
+        {
+          id: 'c_may_1',
+          external_ref: 'mock-2',
+          status: 'pending',
+          assignments: [{ id: 'a2', action_tag_key: 'mayhopphat.create_post', script_package_key: 'baloquatang.create_post', script_version: '1.0.0' }],
+        },
+      ],
+    })
+
+    // 1. V2 Campaign with 4 Sites returns ONLY those 4 Sites (unrelated global Sites excluded)
+    const opts = getCampaignScopedSiteOptions(v2FourSites, globalSites)
+    assert.deepEqual(
+      opts.map((o) => o.key),
+      ['baloquatang', 'congtybalo', 'mayhopphat', 'maytuicanvas'],
+    )
+    assert.equal(opts.some((o) => o.key === 'facebook'), false)
+    assert.equal(opts.some((o) => o.key === 'reddit'), false)
+    assert.equal(opts.some((o) => o.key === 'cp11_smoke'), false)
+
+    // 2. Switching to another Campaign resets invalid Site filter to 'all'
+    const otherV2 = mapLiveCampaign({
+      id: 'camp_other',
+      plan_version: 2,
+      name: 'Other',
+      status: 'draft',
+      run_mode: 'live',
+      action_tags: [
+        {
+          action_tag_key: 'facebook.group.post',
+          site_key: 'facebook',
+          site_name: 'Facebook',
+          script_package_key: 'facebook.group.post',
+          script_version: '1.0.0',
+          resolution_source: 'site_specific',
+        },
+      ],
+    })
+    const otherOpts = getCampaignScopedSiteOptions(otherV2, globalSites)
+    assert.equal(resolveValidSiteFilter('baloquatang', otherOpts), 'all')
+    assert.equal(resolveValidSiteFilter('facebook', otherOpts), 'facebook')
+
+    // 3. Filtering + Select All Matching respects active Site filter
+    const allContents = v2FourSites.contents ?? []
+    assert.equal(
+      allContents.filter((c) => matchesArticleSiteFilter(c, v2FourSites, 'all')).length,
+      2,
+    )
+    const baloOnly = allContents.filter((c) =>
+      matchesArticleSiteFilter(c, v2FourSites, 'baloquatang'),
+    )
+    assert.equal(baloOnly.length, 1)
+    assert.deepEqual(
+      Array.from(selectAllMatchingIds(baloOnly, v2FourSites.id)),
+      ['c_balo_1'],
+    )
+
+    // 4. Filtered empty state for site with 0 articles (congtybalo) vs loading
+    const congtyOnly = allContents.filter((c) =>
+      matchesArticleSiteFilter(c, v2FourSites, 'congtybalo'),
+    )
+    assert.equal(congtyOnly.length, 0)
+    assert.equal(
+      resolveArticlesListState({ loading: true, error: null, rowCount: 0 }),
+      'loading',
+    )
+    assert.equal(
+      resolveArticlesListState({ loading: false, error: null, rowCount: 0 }),
+      'empty',
+    )
+
+    // 5. V1 backward compatibility preserves globalSites list
+    const v1Camp = mapLiveCampaign({
+      id: 'camp_v1_compat',
+      name: 'V1',
+      platform: 'mayhopphat',
+      script_id: 'mayhopphat.create_post',
+      script_version: '1.0.0',
+      status: 'draft',
+      run_mode: 'live',
+    })
+    assert.equal(
+      getCampaignScopedSiteOptions(v1Camp, globalSites).length,
+      globalSites.length,
+    )
   })
 })
