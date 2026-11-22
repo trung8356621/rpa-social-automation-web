@@ -2,6 +2,7 @@ import type {
   CampaignShortcodeMapping,
   CreateCampaignInput,
   CreateCampaignV2Input,
+  UpdateCampaignV2Input,
 } from '../types.ts'
 
 /**
@@ -190,6 +191,91 @@ export function buildLiveCampaignV2CreateBody(
     name: input.name.trim(),
     run_mode: input.run_mode,
     ...(input.execution_mode ? { execution_mode: input.execution_mode } : {}),
+    action_tags,
+    contents,
+  }
+}
+
+export type LiveCampaignV2UpdateBody = {
+  plan_version: 2
+  name: string
+  revision?: number
+  updated_at?: string
+  run_mode: 'test' | 'live'
+  execution_mode?: 'one_account_one_job' | 'one_account_many_jobs'
+  action_tags: Array<{
+    plan_tag_uuid?: string
+    action_tag_id?: number
+    action_tag_key: string
+    site_key: string
+    cms_type?: string | null
+    script_package_key: string
+    script_version: string
+    release_id?: number
+    resolution_source: 'site_specific' | 'cms_global'
+    shortcode_mapping: CampaignShortcodeMapping
+  }>
+  contents: Array<{
+    id?: string
+    external_ref?: string
+    raw_source: string
+    assignments: Array<{
+      id?: string
+      action_tag_id?: number
+      action_tag_key: string
+      script_package_key: string
+      script_version: string
+      release_id?: number
+      raw_source: string
+      shortcode_mapping: CampaignShortcodeMapping
+    }>
+  }>
+}
+
+/**
+ * Map UpdateCampaignV2Input -> Backend Campaign V2 PUT body (full-plan replacement).
+ * Preserves existing Tag/Content/Assignment IDs; omits IDs for newly added items.
+ */
+export function buildLiveCampaignV2UpdateBody(
+  input: UpdateCampaignV2Input,
+): LiveCampaignV2UpdateBody {
+  const createBody = buildLiveCampaignV2CreateBody(input)
+
+  const action_tags: LiveCampaignV2UpdateBody['action_tags'] =
+    input.action_tags.map((tag, idx) => {
+      const base = createBody.action_tags[idx]!
+      return {
+        ...(tag.plan_tag_uuid ? { plan_tag_uuid: tag.plan_tag_uuid } : {}),
+        ...base,
+      }
+    })
+
+  const contents: LiveCampaignV2UpdateBody['contents'] = input.contents.map(
+    (c, idx) => {
+      const base = createBody.contents[idx]!
+      return {
+        ...(c.id ? { id: c.id } : {}),
+        ...base,
+        assignments: c.assignments.map((a, aIdx) => {
+          const baseAssign = base.assignments[aIdx]!
+          return {
+            ...(a.id ? { id: a.id } : {}),
+            ...baseAssign,
+          }
+        }),
+      }
+    },
+  )
+
+  return {
+    plan_version: 2,
+    name: createBody.name,
+    ...(input.revision != null ? { revision: input.revision } : {}),
+    ...(input.updated_at ? { updated_at: input.updated_at } : {}),
+    run_mode: createBody.run_mode,
+    ...(createBody.execution_mode
+      ? { execution_mode: createBody.execution_mode }
+      : {}),
     action_tags,
     contents,
   }

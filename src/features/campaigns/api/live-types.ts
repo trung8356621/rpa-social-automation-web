@@ -26,6 +26,7 @@ export type LiveCampaignSummary = {
 
 export type LiveCampaignActionTagRow = {
   id?: string | number
+  plan_tag_uuid?: string | null
   action_tag_id?: number | null
   action_tag_key?: string
   tag_key?: string
@@ -66,6 +67,7 @@ export type LiveContentAssignmentRow = {
 export type LiveCampaignRow = {
   id?: string | number
   plan_version?: number
+  revision?: number | null
   name?: string
   site_key?: string
   platform?: string

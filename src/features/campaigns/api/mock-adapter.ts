@@ -1,3 +1,4 @@
+import { ApiError } from '../../../lib/api/errors.ts'
 import { draftToScriptInput } from '../content-adapters.ts'
 import {
   createMockCampaignStore,
@@ -18,6 +19,7 @@ import type {
   MockSaveResult,
   ScriptInputSchema,
   UpdateCampaignInput,
+  UpdateCampaignV2Input,
 } from '../types.ts'
 import { parseScriptInputSchema } from '../script-compat.ts'
 import { serializeShortcodeSegments } from '../shortcode-source.ts'
@@ -218,6 +220,7 @@ export const mockCampaignAdapter = {
     const campaign: Campaign = {
       id,
       plan_version: 2,
+      revision: 1,
       name: input.name.trim(),
       site_key: firstTag?.site_key ?? '',
       site_name: firstTag?.site_name ?? firstTag?.site_key ?? '',
@@ -283,6 +286,122 @@ export const mockCampaignAdapter = {
     c.allowed_actions = actionsFor(c.status)
     refreshSummaries(store)
     return structuredClone(c)
+  },
+
+  async updateCampaignV2(input: UpdateCampaignV2Input): Promise<Campaign> {
+    assertMockOnly()
+    const c = findCampaign(input.id)
+    if (c.plan_version !== 2) {
+      throw new ApiError('Campaign is not Plan V2.', {
+        kind: 'validation',
+        status: 422,
+      })
+    }
+    if (c.status !== 'draft') {
+      throw new ApiError('Only Draft V2 Campaigns can be edited.', {
+        kind: 'validation',
+        status: 422,
+      })
+    }
+    const currentRevision = c.revision ?? 1
+    if (input.revision != null && input.revision !== currentRevision) {
+      throw new ApiError('Campaign was modified elsewhere.', {
+        kind: 'conflict',
+        status: 409,
+        code: 'campaign_revision_conflict',
+        details: {
+          expected_revision: input.revision,
+          current_revision: currentRevision,
+        },
+      })
+    }
+
+    const existingTagMap = new Map(
+      (c.action_tags ?? []).map((t) => [t.action_tag_key, t]),
+    )
+    const actionTags = input.action_tags.map((t) => {
+      const prev = existingTagMap.get(t.action_tag_key)
+      return {
+        plan_tag_uuid:
+          t.plan_tag_uuid ??
+          prev?.plan_tag_uuid ??
+          `ptag_${Date.now()}_${t.action_tag_key}`,
+        action_tag_id: t.action_tag_id ?? null,
+        action_tag_key: t.action_tag_key,
+        site_key: t.site_key,
+        site_name: t.site_name ?? t.site_key,
+        cms_type: t.cms_type ?? null,
+        script_package_key: t.script_package_key,
+        script_name: t.script_name ?? t.script_package_key,
+        script_version: t.script_version,
+        release_id: t.release_id ?? null,
+        resolution_source: t.resolution_source,
+        shortcode_mapping: structuredClone(t.shortcode_mapping),
+      }
+    })
+
+    const now = nowIso()
+    const nextRows: CampaignContent[] = input.contents.map((row, i) => {
+      const contentId = row.id?.trim() || `cnt_v2_${Date.now()}_${i}`
+      return {
+        id: contentId,
+        campaign_id: c.id,
+        external_ref: row.external_ref?.trim() || `content-${i + 1}`,
+        source: 'manual' as const,
+        status: 'pending' as const,
+        input: { title: null, body: null, variables: {} },
+        source_format: 'shortcode' as const,
+        raw_source: row.raw_source,
+        mapping_version: 1,
+        editor_doc: null,
+        assigned_account_id: null,
+        assigned_account_label: null,
+        current_job_id: null,
+        last_result: null,
+        last_error_code: null,
+        last_error_message: null,
+        created_at: now,
+        updated_at: now,
+        assignments: row.assignments.map((a, ai) => ({
+          id: a.id?.trim() || `asgn_v2_${Date.now()}_${i}_${ai}`,
+          action_tag_id: a.action_tag_id ?? null,
+          action_tag_key: a.action_tag_key,
+          script_package_key: a.script_package_key,
+          script_version: a.script_version,
+          release_id: a.release_id ?? null,
+          status: 'pending' as const,
+          raw_source: a.raw_source,
+          shortcode_mapping: structuredClone(a.shortcode_mapping),
+        })),
+      }
+    })
+
+    store.contents = [
+      ...nextRows,
+      ...store.contents.filter((x) => x.campaign_id !== c.id),
+    ]
+
+    const firstTag = actionTags[0]
+    const updated: Campaign = {
+      ...c,
+      name: input.name.trim(),
+      run_mode: input.run_mode,
+      revision: currentRevision + 1,
+      site_key: firstTag?.site_key ?? c.site_key,
+      site_name: firstTag?.site_name ?? c.site_name,
+      script_package_key: firstTag?.script_package_key ?? c.script_package_key,
+      script_name: firstTag?.script_name ?? c.script_name,
+      script_version: firstTag?.script_version ?? c.script_version,
+      shortcode_mapping: firstTag?.shortcode_mapping
+        ? structuredClone(firstTag.shortcode_mapping)
+        : null,
+      action_tags: actionTags,
+      contents: nextRows,
+      updated_at: now,
+    }
+    store.campaigns = store.campaigns.map((x) => (x.id === c.id ? updated : x))
+    refreshSummaries(store)
+    return structuredClone(updated)
   },
 
   async startCampaign(id: string): Promise<Campaign> {

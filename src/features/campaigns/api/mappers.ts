@@ -247,7 +247,12 @@ function mapActionTagPlan(row: LiveCampaignActionTagRow): CampaignActionTagPlan 
       ? Number(tagIdRaw)
       : null
   const siteKey = String(row.site_key ?? row.platform ?? '')
+  const planTagUuid =
+    typeof row.plan_tag_uuid === 'string' && row.plan_tag_uuid.trim()
+      ? row.plan_tag_uuid.trim()
+      : null
   return {
+    ...(planTagUuid ? { plan_tag_uuid: planTagUuid } : {}),
     action_tag_id: actionTagId,
     action_tag_key: String(row.action_tag_key ?? row.tag_key ?? ''),
     site_key: siteKey,
@@ -348,9 +353,15 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
     row.site_name ?? row.site_key ?? row.platform ?? firstTag?.site_name ?? '',
   )
 
+  const revision =
+    row.revision != null && Number.isFinite(Number(row.revision))
+      ? Number(row.revision)
+      : null
+
   return {
     id: campaignId,
     ...(planVersion ? { plan_version: planVersion } : {}),
+    ...(revision != null ? { revision } : {}),
     name: String(row.name ?? ''),
     site_key: siteKey,
     site_name: siteName,

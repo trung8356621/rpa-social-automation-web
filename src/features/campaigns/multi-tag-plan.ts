@@ -23,6 +23,7 @@ import type {
   CampaignShortcodeMapping,
   CreateCampaignV2Input,
   ScriptInputSchema,
+  UpdateCampaignV2Input,
 } from './types.ts'
 
 export type TagScriptResolutionSource =
@@ -39,6 +40,7 @@ export type ResolvedScriptRef = {
 }
 
 export type ResolvedActionTagPlan = {
+  plan_tag_uuid?: string | null
   tag_id: number | null
   tag_key: string
   tag_name: string
@@ -321,6 +323,10 @@ export function groupTagsByCompatibleSchema(
 
 export type PlannedContentItem = {
   id: string
+  /** Canonical backend Content ID when hydrated from GET; null for unsaved new items. */
+  persisted_id?: string | null
+  /** Canonical backend Assignment IDs keyed by action_tag_key. */
+  persisted_assignments_by_tag?: Record<string, string>
   external_ref: string
   target_tag_keys: string[]
   raw_source: string
@@ -334,6 +340,8 @@ export function createPlannedContentItem(
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `cnt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    persisted_id: null,
+    persisted_assignments_by_tag: {},
     external_ref: '',
     target_tag_keys: [],
     raw_source: '',
@@ -370,9 +378,11 @@ export function validateStep1Plan(params: {
 }
 
 export type ValidatedContentAssociation = {
+  persisted_id: string | null
   external_ref: string
   raw_source: string
   targets: Array<{
+    assignment_id: string | null
     action_tag_key: string
     script_package_key: string
     script_version: string
@@ -479,6 +489,7 @@ export function validateStep2Plan(params: {
       }
       groupKeysUsed.add(group.group_key)
       targets.push({
+        assignment_id: item.persisted_assignments_by_tag?.[tk] ?? null,
         action_tag_key: tag.tag_key,
         script_package_key: tag.effective_script.package_key,
         script_version: tag.effective_script.version,
@@ -524,6 +535,7 @@ export function validateStep2Plan(params: {
     }
 
     validatedContents.push({
+      persisted_id: item.persisted_id ?? null,
       external_ref: item.external_ref.trim() || `content-${i + 1}`,
       raw_source: item.raw_source.trim(),
       targets,
@@ -635,8 +647,87 @@ export function buildCreateCampaignV2Input(params: {
   }
 }
 
+export function buildUpdateCampaignV2Input(params: {
+  id: string
+  revision?: number | null
+  updated_at?: string | null
+  name: string
+  run_mode: CampaignRunMode
+  resolvedTags: ResolvedActionTagPlan[]
+  groups: SchemaMappingGroup[]
+  groupMappings: Record<string, CampaignShortcodeMapping>
+  validatedContents: ValidatedContentAssociation[]
+}): UpdateCampaignV2Input {
+  const mappingByTag = new Map<string, CampaignShortcodeMapping>()
+  for (const g of params.groups) {
+    const m = params.groupMappings[g.group_key]
+    if (!m) continue
+    for (const tk of g.tag_keys) mappingByTag.set(tk, m)
+  }
+
+  const tagByKey = new Map(params.resolvedTags.map((t) => [t.tag_key, t]))
+
+  return {
+    id: params.id,
+    plan_version: 2,
+    ...(params.revision != null ? { revision: params.revision } : {}),
+    ...(params.updated_at ? { updated_at: params.updated_at } : {}),
+    name: params.name.trim(),
+    run_mode: params.run_mode,
+    action_tags: params.resolvedTags
+      .filter(
+        (t): t is ResolvedActionTagPlan & { effective_script: ResolvedScriptRef } =>
+          !t.is_system_auth &&
+          t.is_runnable &&
+          t.effective_script !== null &&
+          t.resolution_source !== 'missing',
+      )
+      .map((t) => ({
+        ...(t.plan_tag_uuid ? { plan_tag_uuid: t.plan_tag_uuid } : {}),
+        action_tag_id: t.tag_id,
+        action_tag_key: t.tag_key,
+        site_key: t.site_key,
+        site_name: t.site_name,
+        cms_type: t.cms_type,
+        script_package_key: t.effective_script.package_key,
+        script_name: t.effective_script.name,
+        script_version: t.effective_script.version,
+        release_id:
+          t.effective_script.release_id > 0
+            ? t.effective_script.release_id
+            : null,
+        resolution_source:
+          t.resolution_source === 'cms_global' ? 'cms_global' : 'site_specific',
+        shortcode_mapping: mappingByTag.get(t.tag_key) ?? { entries: [] },
+      })),
+    contents: params.validatedContents.map((c) => ({
+      ...(c.persisted_id ? { id: c.persisted_id } : {}),
+      external_ref: c.external_ref,
+      raw_source: c.raw_source,
+      assignments: c.targets
+        .filter((target) => !tagByKey.get(target.action_tag_key)?.is_system_auth)
+        .map((target) => {
+          const tag = tagByKey.get(target.action_tag_key)
+          return {
+            ...(target.assignment_id ? { id: target.assignment_id } : {}),
+            action_tag_id: tag?.tag_id ?? null,
+            action_tag_key: target.action_tag_key,
+            script_package_key: target.script_package_key,
+            script_version: target.script_version,
+            release_id: target.release_id > 0 ? target.release_id : null,
+            raw_source: c.raw_source,
+            shortcode_mapping: target.shortcode_mapping,
+          }
+        }),
+    })),
+  }
+}
+
 export type FormattedCampaignV2Error = {
   message: string
+  isRevisionConflict: boolean
+  expectedRevision: number | null
+  currentRevision: number | null
   isStaleReleaseConflict: boolean
   conflictTags: string[]
   validationErrors: string[]
@@ -700,6 +791,43 @@ export function formatCampaignV2ApiError(
     }
 
     if (err.status === 409 || err.kind === 'conflict') {
+      const isRevisionConflict =
+        err.code === 'campaign_revision_conflict' ||
+        /revision/i.test(err.message) ||
+        details.expected_revision != null ||
+        details.current_revision != null ||
+        details.actual_revision != null
+      const expectedRevision =
+        details.expected_revision != null
+          ? Number(details.expected_revision)
+          : null
+      const currentRevision =
+        details.current_revision != null
+          ? Number(details.current_revision)
+          : details.actual_revision != null
+            ? Number(details.actual_revision)
+            : null
+
+      if (isRevisionConflict) {
+        const revHint =
+          expectedRevision != null || currentRevision != null
+            ? ` (your revision: ${expectedRevision ?? '?'} vs server: ${currentRevision ?? '?'})`
+            : ''
+        return {
+          message: `Campaign was modified elsewhere${revHint}. ${err.message}`,
+          isRevisionConflict: true,
+          expectedRevision: Number.isFinite(expectedRevision)
+            ? expectedRevision
+            : null,
+          currentRevision: Number.isFinite(currentRevision)
+            ? currentRevision
+            : null,
+          isStaleReleaseConflict: false,
+          conflictTags,
+          validationErrors,
+        }
+      }
+
       const releaseHint =
         details.expected_release_id != null || details.actual_release_id != null
           ? ` (pinned #${String(details.expected_release_id ?? '?')} vs current #${String(details.actual_release_id ?? details.current_release_id ?? '?')})`
@@ -708,6 +836,9 @@ export function formatCampaignV2ApiError(
         conflictTags.length > 0 ? ` [${conflictTags.join(', ')}]` : ''
       return {
         message: `${err.message}${tagHint}${releaseHint}`,
+        isRevisionConflict: false,
+        expectedRevision: null,
+        currentRevision: null,
         isStaleReleaseConflict: true,
         conflictTags,
         validationErrors,
@@ -717,6 +848,9 @@ export function formatCampaignV2ApiError(
     if (err.status === 422 || err.kind === 'validation') {
       return {
         message: err.message,
+        isRevisionConflict: false,
+        expectedRevision: null,
+        currentRevision: null,
         isStaleReleaseConflict: false,
         conflictTags,
         validationErrors,
@@ -726,6 +860,9 @@ export function formatCampaignV2ApiError(
 
   return {
     message: toSafeApiMessage(err),
+    isRevisionConflict: false,
+    expectedRevision: null,
+    currentRevision: null,
     isStaleReleaseConflict: false,
     conflictTags: [],
     validationErrors: [],
@@ -734,6 +871,8 @@ export function formatCampaignV2ApiError(
 
 export type CampaignV2WizardInitialState = {
   campaignId: string
+  revision: number | null
+  updatedAt: string | null
   name: string
   runMode: CampaignRunMode
   selectedTagKeys: string[]
@@ -771,15 +910,25 @@ export function campaignToV2WizardState(
 
   const effectiveContents =
     contents.length > 0 ? contents : (campaign.contents ?? [])
-  const plannedContents: PlannedContentItem[] = effectiveContents.map((c) => ({
-    id: c.id,
-    external_ref: c.external_ref,
-    target_tag_keys: (c.assignments ?? []).map((a) => a.action_tag_key),
-    raw_source: c.raw_source ?? '',
-  }))
+  const plannedContents: PlannedContentItem[] = effectiveContents.map((c) => {
+    const assignMap: Record<string, string> = {}
+    for (const a of c.assignments ?? []) {
+      if (a.id && a.action_tag_key) assignMap[a.action_tag_key] = a.id
+    }
+    return {
+      id: c.id,
+      persisted_id: c.id || null,
+      persisted_assignments_by_tag: assignMap,
+      external_ref: c.external_ref,
+      target_tag_keys: (c.assignments ?? []).map((a) => a.action_tag_key),
+      raw_source: c.raw_source ?? '',
+    }
+  })
 
   return {
     campaignId: campaign.id,
+    revision: campaign.revision ?? null,
+    updatedAt: campaign.updated_at || null,
     name: campaign.name,
     runMode: campaign.run_mode,
     selectedTagKeys,
@@ -802,6 +951,7 @@ export function resolveActionTagWithPin(
 ): ResolvedActionTagPlan | null {
   if (pinned) {
     return {
+      plan_tag_uuid: pinned.plan_tag_uuid ?? null,
       tag_id: pinned.action_tag_id ?? (tag && tag.id > 0 ? tag.id : null),
       tag_key: pinned.action_tag_key,
       tag_name: tag?.name ?? pinned.action_tag_key,
@@ -833,25 +983,51 @@ export function resolveActionTagWithPin(
 }
 
 /**
- * Honest compatibility gate for V2 Draft Update (`PUT/PATCH /campaigns/{id}`).
- * Currently blocked in LIVE mode until Backend V2 Edit contract is deployed.
+ * Compatibility gate for Campaign V2 Draft Update (`PUT /campaigns/{id}`).
+ * Enables Save only when plan_version === 2, status === 'draft', canonical GET
+ * Detail hydration is complete, and at least one runnable Tag is present.
  */
-export function inspectV2UpdateSupport(
-  mode: 'mock' | 'live',
-): BackendPersistenceSupport {
-  if (mode === 'live') {
-    return {
-      supported: false,
-      blockers: [
-        'Backend V2 Draft update (PUT/PATCH /social-automation/api/campaigns/{id} with plan_version: 2) is not implemented yet. Legacy V1 PUT only updates name/platform/execution_mode/recheck and would not persist V2 action_tags[], release pins, or content assignments.',
-      ],
+export function inspectV2UpdateSupport(params: {
+  campaign: Campaign | null
+  detailLoaded: boolean
+  resolvedTags: ResolvedActionTagPlan[]
+}): BackendPersistenceSupport {
+  const blockers: string[] = []
+  if (!params.campaign) {
+    blockers.push('Campaign not loaded.')
+  } else {
+    if (params.campaign.plan_version !== 2 && !params.campaign.action_tags?.length) {
+      blockers.push('Campaign is not Plan V2.')
+    }
+    if (params.campaign.status !== 'draft') {
+      blockers.push(
+        `Only Draft V2 Campaigns can be edited (current status: ${params.campaign.status}).`,
+      )
     }
   }
+  if (!params.detailLoaded) {
+    blockers.push(
+      'Canonical Campaign Detail and Contents are still loading or incomplete — reload before saving to avoid silently removing records.',
+    )
+  }
+  const runnable = params.resolvedTags.filter(
+    (t) => t.is_runnable && t.effective_script,
+  )
+  if (runnable.length === 0) {
+    blockers.push(
+      'At least one runnable Action Tag with a resolved Script is required.',
+    )
+  }
+  const unavailable = params.resolvedTags.filter((t) => !t.is_runnable)
+  if (unavailable.length > 0) {
+    blockers.push(
+      `Unavailable Action Tags must be removed: ${unavailable.map((t) => t.tag_key).join(', ')}.`,
+    )
+  }
+
   return {
-    supported: false,
-    blockers: [
-      'Campaign V2 Draft editing is read-only until Backend V2 Draft update contract is implemented.',
-    ],
+    supported: blockers.length === 0,
+    blockers,
   }
 }
 

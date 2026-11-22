@@ -11,11 +11,13 @@ import type {
   MockSaveResult,
   ScriptInputSchema,
   UpdateCampaignInput,
+  UpdateCampaignV2Input,
 } from '../types'
 import { buildLiveCampaignContentBody } from './build-content-payload'
 import {
   buildLiveCampaignCreateBody,
   buildLiveCampaignV2CreateBody,
+  buildLiveCampaignV2UpdateBody,
 } from './build-create-payload'
 import { unavailableScriptInputSchema } from '../script-compat'
 import type {
@@ -119,6 +121,20 @@ export const liveCampaignAdapter = {
     )
     const row = res.data ?? res.campaign
     if (!row) throw new Error('Update Campaign response missing data.')
+    return mapLiveCampaign(row)
+  },
+
+  async updateCampaignV2(input: UpdateCampaignV2Input): Promise<Campaign> {
+    if (!input.action_tags.length) {
+      throw new Error('Campaign V2 requires at least one Action Tag.')
+    }
+    const body = buildLiveCampaignV2UpdateBody(input)
+    const res = await staffApiRequest<LiveCampaignMutationResponse>(
+      CAMPAIGN_PATHS.detail(input.id),
+      { method: 'PUT', body },
+    )
+    const row = res.data ?? res.campaign
+    if (!row) throw new Error('Update Campaign V2 response missing data.')
     return mapLiveCampaign(row)
   },
 

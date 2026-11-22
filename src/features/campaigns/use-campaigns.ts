@@ -17,6 +17,7 @@ import type {
   MockSaveResult,
   ScriptInputSchema,
   UpdateCampaignInput,
+  UpdateCampaignV2Input,
 } from './types'
 
 type ToastState = { message: string; type: 'success' | 'error' } | null
@@ -156,6 +157,24 @@ export function useCampaigns() {
         prev.map((c) => (c.id === updated.id ? updated : c)),
       )
       showToast('Campaign updated')
+      return updated
+    },
+    [adapter, showToast],
+  )
+
+  const updateCampaignV2 = useCallback(
+    async (input: UpdateCampaignV2Input) => {
+      const updated = await adapter.updateCampaignV2(input)
+      setCampaigns((prev) =>
+        prev.map((c) => (c.id === updated.id ? updated : c)),
+      )
+      if (Array.isArray(updated.contents)) {
+        setContents((prev) => {
+          const without = prev.filter((c) => c.campaign_id !== updated.id)
+          return [...updated.contents!, ...without]
+        })
+      }
+      showToast('Campaign V2 draft updated')
       return updated
     },
     [adapter, showToast],
@@ -431,6 +450,7 @@ export function useCampaigns() {
     createCampaign,
     createCampaignV2,
     updateCampaign,
+    updateCampaignV2,
     startCampaign,
     pauseCampaign,
     resumeCampaign,

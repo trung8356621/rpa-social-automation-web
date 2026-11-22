@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -32,13 +32,32 @@ export function CampaignEditPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [detailLoading, setDetailLoading] = useState(registry.mode === 'live')
+  const [detailLoaded, setDetailLoaded] = useState(registry.mode !== 'live')
   const [detailError, setDetailError] = useState<string | null>(null)
   const [form, setForm] = useState<CampaignFormValues | null>(null)
+
+  const loadCanonical = useCallback(async () => {
+    if (!id) return
+    if (registry.mode !== 'live') {
+      setDetailLoading(false)
+      setDetailLoaded(true)
+      setDetailError(null)
+      return
+    }
+    setDetailLoading(true)
+    setDetailLoaded(false)
+    setDetailError(null)
+    await registry.loadCampaignDetail(id)
+    await registry.loadContentsForCampaign(id)
+    setDetailLoaded(true)
+    setDetailLoading(false)
+  }, [id, registry])
 
   useEffect(() => {
     if (!id) return
     if (registry.mode !== 'live') {
       setDetailLoading(false)
+      setDetailLoaded(true)
       setDetailError(null)
       return
     }
@@ -48,6 +67,7 @@ export function CampaignEditPage() {
     }
     let cancelled = false
     setDetailLoading(true)
+    setDetailLoaded(false)
     setDetailError(null)
     void (async () => {
       try {
@@ -55,13 +75,15 @@ export function CampaignEditPage() {
         if (cancelled) return
         try {
           await registry.loadContentsForCampaign(id)
+          if (!cancelled) setDetailLoaded(true)
         } catch {
-          /* non-fatal for edit prepopulation */
+          if (!cancelled) setDetailLoaded(false)
         }
         if (!cancelled) setDetailLoading(false)
       } catch (err: unknown) {
         if (cancelled) return
         setDetailError(toSafeApiMessage(err))
+        setDetailLoaded(false)
         setDetailLoading(false)
       }
     })()
@@ -170,6 +192,8 @@ export function CampaignEditPage() {
         initialCampaign={campaign}
         initialContents={campaignContents}
         initialStep={searchParams.get('step') === '2' ? 2 : 1}
+        detailLoaded={detailLoaded}
+        onReloadLatest={loadCanonical}
       />
     )
   }

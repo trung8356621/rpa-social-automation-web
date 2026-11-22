@@ -9,6 +9,7 @@ import { useScriptRegistry } from '@/features/script-registry/use-script-registr
 
 import {
   buildCreateCampaignV2Input,
+  buildUpdateCampaignV2Input,
   buildV2DraftPlanPayload,
   campaignToV2WizardState,
   formatCampaignV2ApiError,
@@ -41,6 +42,8 @@ type Props = {
   initialCampaign?: Campaign | null
   initialContents?: CampaignContent[]
   initialStep?: 1 | 2
+  detailLoaded?: boolean
+  onReloadLatest?: () => Promise<void>
 }
 
 export function CampaignV2Wizard({
@@ -48,6 +51,8 @@ export function CampaignV2Wizard({
   initialCampaign = null,
   initialContents = [],
   initialStep = 1,
+  detailLoaded = true,
+  onReloadLatest,
 }: Props) {
   const navigate = useNavigate()
   const registry = useCampaigns()
@@ -80,6 +85,22 @@ export function CampaignV2Wizard({
   const [apiErrorDetail, setApiErrorDetail] =
     useState<FormattedCampaignV2Error | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const hydratedKey = hydrated
+    ? `${hydrated.campaignId}:${hydrated.revision ?? 'none'}:${hydrated.updatedAt ?? ''}`
+    : ''
+
+  useEffect(() => {
+    if (!hydrated) return
+    setName(hydrated.name)
+    setRunMode(hydrated.runMode)
+    setSelectedTagKeys(hydrated.selectedTagKeys)
+    setContents(hydrated.contents)
+    setMappingsByGroupKey({})
+    setError(null)
+    setApiErrorDetail(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydratedKey])
 
   const siteByKey = useMemo(
     () => new Map(actionRegistry.data.sites.map((s) => [s.key, s])),
@@ -193,14 +214,25 @@ export function CampaignV2Wizard({
 
   const persistenceSupport = useMemo(() => {
     if (wizardMode === 'edit') {
-      return inspectV2UpdateSupport(registry.mode)
+      return inspectV2UpdateSupport({
+        campaign: initialCampaign,
+        detailLoaded,
+        resolvedTags,
+      })
     }
     return inspectBackendPersistenceSupport({
       mode: registry.mode,
       resolvedTags,
       contents,
     })
-  }, [wizardMode, registry.mode, resolvedTags, contents])
+  }, [
+    wizardMode,
+    initialCampaign,
+    detailLoaded,
+    registry.mode,
+    resolvedTags,
+    contents,
+  ])
 
   const draftPreviewPayload = useMemo(() => {
     const step2 = validateStep2Plan({
@@ -243,6 +275,27 @@ export function CampaignV2Wizard({
     scriptRegistry.reload()
     setError(null)
     setApiErrorDetail(null)
+  }
+
+  const handleReloadLatest = async () => {
+    if (!onReloadLatest || busy) return
+    if (
+      !window.confirm(
+        'Reloading the latest Campaign plan from the server will discard your unsaved local changes. Continue?',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      await onReloadLatest()
+      setError(null)
+      setApiErrorDetail(null)
+    } catch (err) {
+      setApiErrorDetail(formatCampaignV2ApiError(err))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const submit = async () => {
@@ -288,21 +341,36 @@ export function CampaignV2Wizard({
       return
     }
 
-    const v2Input = buildCreateCampaignV2Input({
-      name,
-      run_mode: runMode,
-      resolvedTags,
-      groups,
-      groupMappings: step2.groupMappings,
-      validatedContents: step2.validatedContents,
-    })
-
     setBusy(true)
     setError(null)
     setApiErrorDetail(null)
     try {
-      const created = await registry.createCampaignV2(v2Input)
-      navigate(`/social-automation/campaigns/${created.id}`)
+      if (wizardMode === 'edit' && initialCampaign) {
+        const v2Update = buildUpdateCampaignV2Input({
+          id: initialCampaign.id,
+          revision: initialCampaign.revision ?? null,
+          updated_at: initialCampaign.updated_at || null,
+          name,
+          run_mode: runMode,
+          resolvedTags,
+          groups,
+          groupMappings: step2.groupMappings,
+          validatedContents: step2.validatedContents,
+        })
+        const updated = await registry.updateCampaignV2(v2Update)
+        navigate(`/social-automation/campaigns/${updated.id}`)
+      } else {
+        const v2Create = buildCreateCampaignV2Input({
+          name,
+          run_mode: runMode,
+          resolvedTags,
+          groups,
+          groupMappings: step2.groupMappings,
+          validatedContents: step2.validatedContents,
+        })
+        const created = await registry.createCampaignV2(v2Create)
+        navigate(`/social-automation/campaigns/${created.id}`)
+      }
     } catch (err) {
       const formatted = formatCampaignV2ApiError(err)
       setError(formatted.message)
@@ -412,6 +480,25 @@ export function CampaignV2Wizard({
               ))}
             </ul>
           ) : null}
+          {apiErrorDetail?.isRevisionConflict ? (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <span className="text-muted">
+                This Campaign was modified elsewhere. Reload the latest plan
+                (discards unsaved local changes) before saving again.
+              </span>
+              {onReloadLatest ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void handleReloadLatest()}
+                >
+                  Reload Latest Plan
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
           {apiErrorDetail?.isStaleReleaseConflict ? (
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-muted">
@@ -459,7 +546,9 @@ export function CampaignV2Wizard({
             onClick={() => void submit()}
           >
             {wizardMode === 'edit'
-              ? 'Save V2 Changes (Blocked — Backend Contract Required)'
+              ? busy
+                ? 'Saving V2 Draft…'
+                : 'Save V2 Draft'
               : busy
                 ? 'Saving Draft…'
                 : 'Create Draft Campaign'}

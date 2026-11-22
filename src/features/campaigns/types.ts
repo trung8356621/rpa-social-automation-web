@@ -66,6 +66,7 @@ export type CampaignShortcodeMapping = {
 export type ContentSourceFormat = 'legacy_input' | 'shortcode'
 
 export type CampaignActionTagPlan = {
+  plan_tag_uuid?: string | null
   action_tag_id: number | null
   action_tag_key: string
   site_key: string
@@ -94,6 +95,7 @@ export type CampaignContentAssignment = {
 export type Campaign = {
   id: string
   plan_version?: 1 | 2
+  revision?: number | null
   name: string
   site_key: string
   site_name: string
@@ -277,6 +279,7 @@ export type CreateCampaignInput = {
 }
 
 export type CreateCampaignV2ActionTagInput = {
+  plan_tag_uuid?: string | null
   action_tag_id?: number | null
   action_tag_key: string
   site_key: string
@@ -291,6 +294,7 @@ export type CreateCampaignV2ActionTagInput = {
 }
 
 export type CreateCampaignV2AssignmentInput = {
+  id?: string | null
   action_tag_id?: number | null
   action_tag_key: string
   script_package_key: string
@@ -301,6 +305,7 @@ export type CreateCampaignV2AssignmentInput = {
 }
 
 export type CreateCampaignV2ContentInput = {
+  id?: string | null
   external_ref?: string
   raw_source: string
   assignments: CreateCampaignV2AssignmentInput[]
@@ -313,6 +318,12 @@ export type CreateCampaignV2Input = {
   execution_mode?: CampaignExecutionMode
   action_tags: CreateCampaignV2ActionTagInput[]
   contents: CreateCampaignV2ContentInput[]
+}
+
+export type UpdateCampaignV2Input = CreateCampaignV2Input & {
+  id: string
+  revision?: number | null
+  updated_at?: string | null
 }
 
 export type UpdateCampaignInput = CreateCampaignInput & {

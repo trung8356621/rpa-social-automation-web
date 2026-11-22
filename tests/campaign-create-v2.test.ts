@@ -8,11 +8,15 @@ import type {
   Site,
 } from '../src/features/action-tags/types.ts'
 import { resolveArticlesListState } from '../src/features/campaigns/articles-list-state.ts'
-import { buildLiveCampaignV2CreateBody } from '../src/features/campaigns/api/build-create-payload.ts'
+import {
+  buildLiveCampaignV2CreateBody,
+  buildLiveCampaignV2UpdateBody,
+} from '../src/features/campaigns/api/build-create-payload.ts'
 import { mapLiveCampaign } from '../src/features/campaigns/api/mappers.ts'
 import { mockCampaignAdapter, resetMockCampaignStore } from '../src/features/campaigns/api/mock-adapter.ts'
 import {
   buildCreateCampaignV2Input,
+  buildUpdateCampaignV2Input,
   buildV2DraftPlanPayload,
   campaignToV2WizardState,
   createPlannedContentItem,
@@ -838,7 +842,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(historical.status, 'completed')
   })
 
-  it('prepopulates V2 Edit wizard with unchanged Release pins, blocks unsupported V2 update, decouples Articles from schema 404, and validates [body] shortcode', () => {
+  it('prepopulates V2 Edit wizard with unchanged Release pins, blocks unsupported V2 update, decouples Articles from schema 404, and validates [body] shortcode', async () => {
     const v2Campaign = mapLiveCampaign({
       id: 'camp_v2_edit_1',
       plan_version: 2,
@@ -906,9 +910,23 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(resolvedWithPin?.effective_script?.version, '1.0.0')
     assert.equal(resolvedWithPin?.effective_script?.release_id, 99)
 
-    // 3. Unsupported V2 Update remains blocked (never calls V1 PUT)
-    assert.equal(inspectV2UpdateSupport('live').supported, false)
-    assert.equal(inspectV2UpdateSupport('mock').supported, false)
+    // 3. Incomplete hydration cannot Save; complete hydration enables Save
+    assert.equal(
+      inspectV2UpdateSupport({
+        campaign: v2Campaign,
+        detailLoaded: false,
+        resolvedTags: resolvedWithPin ? [resolvedWithPin] : [],
+      }).supported,
+      false,
+    )
+    assert.equal(
+      inspectV2UpdateSupport({
+        campaign: v2Campaign,
+        detailLoaded: true,
+        resolvedTags: resolvedWithPin ? [resolvedWithPin] : [],
+      }).supported,
+      true,
+    )
 
     // 4. Articles list remains 'ready' when Content GET succeeded even if Script schema returned 404
     const articlesListState = resolveArticlesListState({
@@ -960,5 +978,106 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       'mayhopphat.create_post',
     ])
     assert.equal(combinedContents[1]!.external_ref, 'post-2')
+    assert.equal(combinedContents[1]!.persisted_id, null)
+
+    // 8. Build PUT V2 full-plan payload preserving existing IDs and omitting IDs on new items
+    const editGroup = groupTagsByCompatibleSchema(
+      [resolvedWithPin!],
+      {
+        [scriptTargetKey('mayhopphat.create_post', '1.0.0')]: {
+          schema: WP_SCHEMA,
+          loading: false,
+          error: null,
+        },
+      },
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+    const editMappings = {
+      [editGroup[0]!.group_key]: [
+        emptyShortcodeMappingEntry({ shortcode: 'title', variable: 'title' }),
+        emptyShortcodeMappingEntry({ shortcode: 'body', variable: 'body' }),
+      ],
+    }
+    const step2Edit = validateStep2Plan({
+      groups: editGroup,
+      mappingsByGroupKey: editMappings,
+      resolvedTags: [
+        { ...resolvedWithPin!, plan_tag_uuid: 'ptag-uuid-1' },
+      ],
+      contents: [
+        {
+          ...hydrated.contents[0]!,
+          raw_source: '[title]Updated[/title][body]Hello[/body]',
+        },
+        {
+          ...addedItem,
+          raw_source: '[title]Second Title[/title][body]Second[/body]',
+        },
+      ],
+    })
+    assert.equal(step2Edit.ok, true)
+    if (!step2Edit.ok) return
+
+    const updateInput = buildUpdateCampaignV2Input({
+      id: 'camp_v2_edit_1',
+      revision: 3,
+      name: 'Edited V2 Name',
+      run_mode: 'live',
+      resolvedTags: [
+        { ...resolvedWithPin!, plan_tag_uuid: 'ptag-uuid-1' },
+      ],
+      groups: editGroup,
+      groupMappings: step2Edit.groupMappings,
+      validatedContents: step2Edit.validatedContents,
+    })
+    const putBody = buildLiveCampaignV2UpdateBody(updateInput)
+    assert.equal(putBody.plan_version, 2)
+    assert.equal(putBody.revision, 3)
+    assert.equal(putBody.action_tags[0]!.plan_tag_uuid, 'ptag-uuid-1')
+    assert.equal(putBody.contents[0]!.id, 'cnt_edit_1')
+    assert.equal(putBody.contents[0]!.assignments[0]!.id, 'asgn_1')
+    assert.equal('id' in putBody.contents[1]!, false)
+    assert.equal('id' in putBody.contents[1]!.assignments[0]!, false)
+
+    // 9. Successful PUT + revision update + 409 revision conflict in mockCampaignAdapter
+    resetMockCampaignStore()
+    const createdV2 = await mockCampaignAdapter.createCampaignV2(
+      buildCreateCampaignV2Input({
+        name: 'Initial V2',
+        run_mode: 'live',
+        resolvedTags: [resolvedWithPin!],
+        groups: editGroup,
+        groupMappings: step2Edit.groupMappings,
+        validatedContents: [step2Edit.validatedContents[0]!],
+      }),
+    )
+    assert.equal(createdV2.revision, 1)
+
+    const updatedV2 = await mockCampaignAdapter.updateCampaignV2({
+      ...updateInput,
+      id: createdV2.id,
+      revision: 1,
+    })
+    assert.equal(updatedV2.revision, 2)
+    assert.equal(updatedV2.name, 'Edited V2 Name')
+    assert.equal(updatedV2.contents?.length, 2)
+    assert.equal(updatedV2.allowed_actions.includes('start'), false)
+    assert.equal(canStartCampaign(updatedV2, updatedV2.contents ?? [], null).ok, false)
+
+    // Stale revision (1 vs 2) triggers 409 campaign_revision_conflict
+    let caughtConflict: unknown = null
+    try {
+      await mockCampaignAdapter.updateCampaignV2({
+        ...updateInput,
+        id: createdV2.id,
+        revision: 1,
+      })
+    } catch (err) {
+      caughtConflict = err
+    }
+    const formattedConflict = formatCampaignV2ApiError(caughtConflict)
+    assert.equal(formattedConflict.isRevisionConflict, true)
+    assert.equal(formattedConflict.expectedRevision, 1)
+    assert.equal(formattedConflict.currentRevision, 2)
   })
 })
