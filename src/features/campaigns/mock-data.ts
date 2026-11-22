@@ -114,6 +114,17 @@ const campaignsSeed: Campaign[] = [
     allowed_actions: actionsFor('running'),
     shortcode_mapping: null,
     shortcode_mapping_version: null,
+    last_recheck_at: '2026-11-02T09:05:00+07:00',
+    next_recheck_at: '2026-11-02T09:10:00+07:00',
+    eligible_clients_count: 2,
+    resource_diagnostics: {
+      last_checked_at: '2026-11-02T09:05:00+07:00',
+      next_recheck_at: '2026-11-02T09:10:00+07:00',
+      eligible_clients_count: 2,
+      evaluation_source: 'scheduler_tick',
+      summary_message: null,
+      eligibility_errors: [],
+    },
   },
   {
     id: 'camp_waiting',
@@ -139,6 +150,25 @@ const campaignsSeed: Campaign[] = [
     allowed_actions: actionsFor('running'),
     shortcode_mapping: null,
     shortcode_mapping_version: null,
+    last_recheck_at: '2026-11-02T09:05:00+07:00',
+    next_recheck_at: '2026-11-02T10:05:00+07:00',
+    eligible_clients_count: 0,
+    resource_diagnostics: {
+      last_checked_at: '2026-11-02T09:05:00+07:00',
+      next_recheck_at: '2026-11-02T10:05:00+07:00',
+      eligible_clients_count: 0,
+      evaluation_source: 'scheduler_tick',
+      summary_message: null,
+      eligibility_errors: [
+        {
+          site_key: 'wordpress',
+          site_name: 'WordPress',
+          action_tag_key: null,
+          code: 'no_eligible_client',
+          message: 'No online Client with an authenticated WordPress browser.',
+        },
+      ],
+    },
   },
   {
     id: 'camp_test',

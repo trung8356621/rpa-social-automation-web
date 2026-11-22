@@ -11,8 +11,10 @@ import type {
   CampaignContent,
   CampaignContentAssignment,
   CampaignContentStatus,
+  CampaignEligibilityError,
   CampaignExecutionMode,
   CampaignJobAttempt,
+  CampaignResourceDiagnostics,
   CampaignRunMode,
   CampaignSchedule,
   CampaignScheduleType,
@@ -25,6 +27,7 @@ import type {
   LiveCampaignRow,
   LiveContentAssignmentRow,
   LiveContentRow,
+  LiveEligibilityError,
   LiveJobAttemptRow,
 } from './live-types.ts'
 
@@ -302,6 +305,83 @@ function mapContentAssignment(
   }
 }
 
+function pickNonEmptyString(...values: Array<unknown>): string | null {
+  for (const v of values) {
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return null
+}
+
+function pickFiniteNumber(...values: Array<unknown>): number | null {
+  for (const v of values) {
+    if (v != null && v !== '' && Number.isFinite(Number(v))) {
+      return Number(v)
+    }
+  }
+  return null
+}
+
+function mapEligibilityError(
+  raw: LiveEligibilityError,
+  fallbackSiteKey: string,
+  fallbackSiteName: string,
+): CampaignEligibilityError {
+  const siteKey =
+    pickNonEmptyString(raw.site_key) ??
+    (raw.action_tag_key?.includes('.') ? raw.action_tag_key.split('.')[0] : null) ??
+    fallbackSiteKey
+  const siteName = pickNonEmptyString(raw.site_name) ?? (siteKey || fallbackSiteName)
+  const code = pickNonEmptyString(raw.code, raw.error_code)
+  const message =
+    pickNonEmptyString(raw.message, raw.reason, code) ?? 'Eligibility check failed'
+  return {
+    site_key: siteKey,
+    site_name: siteName,
+    action_tag_key: pickNonEmptyString(raw.action_tag_key),
+    code,
+    message,
+    agent_uuid: pickNonEmptyString(raw.agent_uuid),
+    browser_uuid: pickNonEmptyString(raw.browser_uuid, raw.browser_id),
+  }
+}
+
+function mapResourceDiagnostics(
+  row: LiveCampaignRow,
+  fallbackSiteKey: string,
+  fallbackSiteName: string,
+): CampaignResourceDiagnostics | null {
+  const diag = row.resource_diagnostics
+  const rawErrors = [
+    ...(Array.isArray(row.eligibility_errors) ? row.eligibility_errors : []),
+    ...(Array.isArray(diag?.eligibility_errors) ? diag.eligibility_errors : []),
+    ...(Array.isArray(diag?.errors) ? diag.errors : []),
+  ]
+  if (!diag && rawErrors.length === 0) return null
+
+  return {
+    last_checked_at: pickNonEmptyString(
+      diag?.last_recheck_at,
+      diag?.last_checked_at,
+      row.last_recheck_at,
+      row.last_resource_check_at,
+      row.scheduler_last_checked_at,
+    ),
+    next_recheck_at: pickNonEmptyString(diag?.next_recheck_at, row.next_recheck_at),
+    eligible_clients_count: pickFiniteNumber(
+      diag?.eligible_clients_count,
+      diag?.eligible_clients,
+      row.eligible_clients_count,
+      row.eligible_clients,
+    ),
+    evaluation_source: pickNonEmptyString(diag?.evaluation_source),
+    summary_message: pickNonEmptyString(diag?.summary_message, row.status_message),
+    eligibility_errors: rawErrors.map((e) =>
+      mapEligibilityError(e, fallbackSiteKey, fallbackSiteName),
+    ),
+    raw: diag ? (diag as Record<string, unknown>) : null,
+  }
+}
+
 export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
   const status = asCampaignStatus(row.status)
   const allowed = Array.isArray(row.allowed_actions)
@@ -358,6 +438,29 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
       ? Number(row.revision)
       : null
 
+  const lastRecheckAt = pickNonEmptyString(
+    row.last_recheck_at,
+    row.last_resource_check_at,
+    row.scheduler_last_checked_at,
+    row.resource_diagnostics?.last_recheck_at,
+    row.resource_diagnostics?.last_checked_at,
+  )
+  const nextRecheckAt = pickNonEmptyString(
+    row.next_recheck_at,
+    row.resource_diagnostics?.next_recheck_at,
+  )
+  const eligibleClientsCount = pickFiniteNumber(
+    row.eligible_clients_count,
+    row.eligible_clients,
+    row.resource_diagnostics?.eligible_clients_count,
+    row.resource_diagnostics?.eligible_clients,
+  )
+  const statusMessage = pickNonEmptyString(
+    row.status_message,
+    row.resource_diagnostics?.summary_message,
+  )
+  const resourceDiagnostics = mapResourceDiagnostics(row, siteKey, siteName)
+
   return {
     id: campaignId,
     ...(planVersion ? { plan_version: planVersion } : {}),
@@ -385,6 +488,11 @@ export function mapLiveCampaign(row: LiveCampaignRow): Campaign {
       ? mappingVersion
       : null,
     ...(actionTags ? { action_tags: actionTags } : {}),
+    last_recheck_at: lastRecheckAt,
+    next_recheck_at: nextRecheckAt,
+    eligible_clients_count: eligibleClientsCount,
+    status_message: statusMessage,
+    resource_diagnostics: resourceDiagnostics,
   }
 }
 
@@ -451,11 +559,14 @@ export function mapLiveJobAttempt(row: unknown): CampaignJobAttempt {
   const r = (row ?? {}) as LiveJobAttemptRow
   return {
     id: String(r.id ?? ''),
+    attempt_uuid: pickNonEmptyString(r.attempt_uuid),
     content_id: String(r.content_id ?? ''),
     campaign_id: String(r.campaign_id ?? ''),
     attempt: Number(r.attempt ?? 1),
     status: asContentStatus(r.status),
+    agent_uuid: pickNonEmptyString(r.agent_uuid),
     agent_label: r.agent_label ?? null,
+    browser_uuid: pickNonEmptyString(r.browser_uuid),
     browser_label: r.browser_label ?? null,
     started_at: r.started_at ?? null,
     ended_at: r.ended_at ?? null,

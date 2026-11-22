@@ -63,6 +63,33 @@ export type LiveContentAssignmentRow = {
   } | null
 }
 
+export type LiveEligibilityError = {
+  site_key?: string
+  site_name?: string
+  action_tag_key?: string
+  code?: string
+  error_code?: string
+  message?: string
+  reason?: string
+  client_id?: string | number | null
+  account_id?: string | number | null
+  browser_id?: string | null
+  agent_uuid?: string | null
+  browser_uuid?: string | null
+}
+
+export type LiveResourceDiagnostics = {
+  last_checked_at?: string | null
+  last_recheck_at?: string | null
+  next_recheck_at?: string | null
+  eligible_clients_count?: number | null
+  eligible_clients?: number | null
+  evaluation_source?: string | null
+  summary_message?: string | null
+  eligibility_errors?: LiveEligibilityError[]
+  errors?: LiveEligibilityError[]
+}
+
 /** CampaignSummary / CampaignDetail from OpenAPI CP19A/B + Campaign V2. */
 export type LiveCampaignRow = {
   id?: string | number
@@ -90,7 +117,15 @@ export type LiveCampaignRow = {
   failed_contents?: number
   waiting_contents?: number
   resource_recheck_seconds?: number
+  last_recheck_at?: string | null
+  last_resource_check_at?: string | null
+  scheduler_last_checked_at?: string | null
   next_recheck_at?: string | null
+  eligible_clients_count?: number | null
+  eligible_clients?: number | null
+  status_message?: string | null
+  eligibility_errors?: LiveEligibilityError[]
+  resource_diagnostics?: LiveResourceDiagnostics | null
   contents?: LiveContentRow[]
   allowed_actions?: string[]
   shortcode_mapping?: {
@@ -150,11 +185,14 @@ export type LiveContentRow = {
 
 export type LiveJobAttemptRow = {
   id?: string | number
+  attempt_uuid?: string | null
   content_id?: string | number
   campaign_id?: string | number
   attempt?: number
   status?: string
+  agent_uuid?: string | null
   agent_label?: string | null
+  browser_uuid?: string | null
   browser_label?: string | null
   started_at?: string | null
   ended_at?: string | null

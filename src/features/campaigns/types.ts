@@ -92,6 +92,26 @@ export type CampaignContentAssignment = {
   shortcode_mapping: CampaignShortcodeMapping | null
 }
 
+export type CampaignEligibilityError = {
+  site_key: string
+  site_name: string
+  action_tag_key: string | null
+  code: string | null
+  message: string
+  agent_uuid?: string | null
+  browser_uuid?: string | null
+}
+
+export type CampaignResourceDiagnostics = {
+  last_checked_at: string | null
+  next_recheck_at: string | null
+  eligible_clients_count: number | null
+  evaluation_source: string | null
+  summary_message: string | null
+  eligibility_errors: CampaignEligibilityError[]
+  raw?: Record<string, unknown> | null
+}
+
 export type Campaign = {
   id: string
   plan_version?: 1 | 2
@@ -124,6 +144,16 @@ export type Campaign = {
   shortcode_mapping_version: number | null
   /** Campaign V2 resolved Action Tags & pinned Releases */
   action_tags?: CampaignActionTagPlan[]
+  /** Actual scheduler evaluation last check timestamp (never fabricated on frontend) */
+  last_recheck_at?: string | null
+  /** Actual next scheduled resource check timestamp from backend */
+  next_recheck_at?: string | null
+  /** Eligible Clients count from backend scheduler evaluation */
+  eligible_clients_count?: number | null
+  /** Concise status message from backend if provided */
+  status_message?: string | null
+  /** Preserved backend diagnostic data for Admin-only Technical Details */
+  resource_diagnostics?: CampaignResourceDiagnostics | null
 }
 
 export type CampaignAction =
@@ -197,11 +227,14 @@ export type CampaignArtifact = {
 
 export type CampaignJobAttempt = {
   id: string
+  attempt_uuid?: string | null
   content_id: string
   campaign_id: string
   attempt: number
   status: CampaignContentStatus
+  agent_uuid?: string | null
   agent_label: string | null
+  browser_uuid?: string | null
   browser_label: string | null
   started_at: string | null
   ended_at: string | null

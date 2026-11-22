@@ -8,11 +8,13 @@ import { CampaignDetailScreen } from '@/features/campaigns/components/CampaignDe
 import { resolveTestModeCompatibility } from '@/features/campaigns/script-compat'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
+import { useSessionIdentity } from '@/features/session-identity/use-session-identity'
 import { toSafeApiMessage } from '@/lib/api/errors'
 
 export function CampaignDetailPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
+  const identity = useSessionIdentity()
   const registry = useCampaigns()
   const scripts = useScriptRegistry()
   const accounts = useAccounts()
@@ -142,6 +144,7 @@ export function CampaignDetailPage() {
         onSkip={registry.skipContent}
         onCancelContent={registry.cancelContent}
         loadAttempts={registry.listJobAttempts}
+        isAdmin={identity.roleResolved && identity.isOwnerOrAdmin}
       />
       <Toast toast={registry.toast} />
     </>
