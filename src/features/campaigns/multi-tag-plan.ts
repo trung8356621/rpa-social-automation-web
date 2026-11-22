@@ -440,6 +440,279 @@ export function generateMockContentForGroup(
   }
 }
 
+/**
+ * Generate N distinct mock Content items for a compatible V2 schema group in O(N).
+ * Guarantees unique external_ref values (no collision with existingRefs or within batch)
+ * and distinct sample values per item. Never invents Script variables.
+ */
+export function generateBulkMockContentsForGroup(params: {
+  group: SchemaMappingGroup
+  count: number
+  existingRefs?: Iterable<string>
+  startSeq?: number
+}): { ok: true; items: PlannedContentItem[] } | { ok: false; message: string } {
+  const count = Math.floor(params.count)
+  if (!Number.isFinite(count) || count < 1) {
+    return { ok: false, message: 'Quantity must be at least 1.' }
+  }
+  const auto = buildAutoShortcodeMapping(params.group.schema)
+  if (!auto.ok) {
+    return {
+      ok: false,
+      message: `${params.group.script_package_key}: ${auto.error}`,
+    }
+  }
+
+  const usedRefs = new Set<string>()
+  if (params.existingRefs) {
+    for (const r of params.existingRefs) {
+      const trimmed = r.trim()
+      if (trimmed) usedRefs.add(trimmed)
+    }
+  }
+
+  const vars = allScriptVariables(params.group.schema).filter(
+    (v) => v.type !== 'secret',
+  )
+  const items: PlannedContentItem[] = []
+  let seq = Math.max(1, params.startSeq ?? 1)
+  const batchTag = Date.now().toString(36).slice(-4)
+
+  for (let i = 0; i < count; i++) {
+    let ref = `mock-${seq}-${batchTag}`
+    while (usedRefs.has(ref)) {
+      seq++
+      ref = `mock-${seq}-${batchTag}`
+    }
+    usedRefs.add(ref)
+
+    const lines: string[] = []
+    for (const v of vars) {
+      let sample: string
+      if (v.type === 'number') {
+        sample = String(seq)
+      } else if (v.type === 'boolean') {
+        sample = seq % 2 === 0 ? 'false' : 'true'
+      } else if (v.key === 'title') {
+        sample = `[TEST] Mock Title #${seq} (${ref})`
+      } else {
+        sample = `[TEST] Mock ${v.key} #${seq} (${ref}) for ${params.group.script_package_key}`
+      }
+      lines.push(`[${v.key}]${sample}[/${v.key}]`)
+    }
+
+    items.push(
+      createPlannedContentItem({
+        external_ref: ref,
+        target_tag_keys: [...params.group.tag_keys],
+        raw_source: lines.join('\n'),
+      }),
+    )
+    seq++
+  }
+
+  return { ok: true, items }
+}
+
+/**
+ * Build a full-plan UpdateCampaignV2Input from canonical Campaign Detail +
+ * existing/updated PlannedContentItem list. Preserves all Tag/Content/Assignment
+ * IDs, pinned Releases, and revision.
+ */
+export function buildV2PlanUpdateFromCampaign(params: {
+  campaign: Campaign
+  contents: PlannedContentItem[]
+  schemaLookup: ScriptSchemaLookup
+}): { ok: true; input: UpdateCampaignV2Input } | { ok: false; message: string } {
+  const actionTags = params.campaign.action_tags ?? []
+  if (actionTags.length === 0) {
+    return {
+      ok: false,
+      message: 'Campaign V2 has no Action Tags loaded. Reload Campaign Detail first.',
+    }
+  }
+
+  const resolvedTags: ResolvedActionTagPlan[] = actionTags.map((t) => ({
+    plan_tag_uuid: t.plan_tag_uuid ?? null,
+    tag_id: t.action_tag_id,
+    tag_key: t.action_tag_key,
+    tag_name: t.action_tag_key,
+    tag_enabled: true,
+    site_key: t.site_key,
+    site_name: t.site_name,
+    cms_type: t.cms_type,
+    path_key: '',
+    path_name: '',
+    effective_script: t.script_package_key
+      ? {
+          package_key: t.script_package_key,
+          script_id: t.script_package_key,
+          name: t.script_name || t.script_package_key,
+          version: t.script_version,
+          release_id: t.release_id ?? 0,
+        }
+      : null,
+    resolution_source: t.resolution_source,
+    is_system_auth: false,
+    is_runnable: Boolean(
+      t.script_package_key && t.resolution_source !== 'missing',
+    ),
+    status_reason: null,
+  }))
+
+  const groupMappings: Record<string, CampaignShortcodeMapping> = {}
+  const tagToMapping = new Map<string, CampaignShortcodeMapping>()
+  const tagToGroupKey = new Map<string, string>()
+
+  for (const tag of resolvedTags) {
+    if (!tag.effective_script) {
+      return {
+        ok: false,
+        message: `Action Tag "${tag.tag_key}" has no resolved Script.`,
+      }
+    }
+    const tKey = scriptTargetKey(
+      tag.effective_script.package_key,
+      tag.effective_script.version,
+    )
+    const entry = params.schemaLookup[tKey]
+    let mapping: CampaignShortcodeMapping | null = null
+    if (entry?.schema?.schema_available) {
+      const auto = buildAutoShortcodeMapping(entry.schema)
+      if (!auto.ok) {
+        return { ok: false, message: `${tag.tag_key}: ${auto.error}` }
+      }
+      mapping = auto.mapping
+    } else {
+      const existingTag = actionTags.find(
+        (a) => a.action_tag_key === tag.tag_key,
+      )
+      if (existingTag?.shortcode_mapping?.entries?.length) {
+        mapping = existingTag.shortcode_mapping
+      }
+    }
+    if (!mapping || mapping.entries.length === 0) {
+      return {
+        ok: false,
+        message: `Script schema unavailable for ${tag.effective_script.package_key} v${tag.effective_script.version}.`,
+      }
+    }
+    groupMappings[tKey] = mapping
+    tagToMapping.set(tag.tag_key, mapping)
+    tagToGroupKey.set(tag.tag_key, tKey)
+  }
+
+  const tagByKey = new Map(resolvedTags.map((t) => [t.tag_key, t]))
+  const validatedContents: ValidatedContentAssociation[] = []
+
+  for (let i = 0; i < params.contents.length; i++) {
+    const item = params.contents[i]!
+    const label = item.external_ref.trim() || `Content #${i + 1}`
+    if (item.target_tag_keys.length === 0) {
+      return {
+        ok: false,
+        message: `${label}: Assign at least one target Action Tag.`,
+      }
+    }
+    try {
+      assertPlainShortcodeSource(item.raw_source)
+    } catch (err) {
+      return {
+        ok: false,
+        message: `${label}: ${err instanceof Error ? err.message : 'Invalid shortcode source.'}`,
+      }
+    }
+    if (!item.raw_source.trim()) {
+      return { ok: false, message: `${label}: Shortcode source cannot be empty.` }
+    }
+
+    const targets: ValidatedContentAssociation['targets'] = []
+    for (const tk of item.target_tag_keys) {
+      const tag = tagByKey.get(tk)
+      const mapping = tagToMapping.get(tk)
+      if (!tag || !tag.effective_script || !mapping) {
+        return {
+          ok: false,
+          message: `${label}: Target Action Tag "${tk}" is not part of this Campaign.`,
+        }
+      }
+      targets.push({
+        assignment_id: item.persisted_assignments_by_tag?.[tk] ?? null,
+        action_tag_key: tag.tag_key,
+        script_package_key: tag.effective_script.package_key,
+        script_version: tag.effective_script.version,
+        release_id: tag.effective_script.release_id,
+        resolution_source: tag.resolution_source,
+        shortcode_mapping: mapping,
+      })
+    }
+
+    validatedContents.push({
+      persisted_id: item.persisted_id ?? null,
+      external_ref: item.external_ref.trim() || `content-${i + 1}`,
+      raw_source: item.raw_source.trim(),
+      targets,
+    })
+  }
+
+  return {
+    ok: true,
+    input: {
+      id: params.campaign.id,
+      plan_version: 2,
+      ...(params.campaign.revision != null
+        ? { revision: params.campaign.revision }
+        : {}),
+      ...(params.campaign.updated_at
+        ? { updated_at: params.campaign.updated_at }
+        : {}),
+      name: params.campaign.name,
+      run_mode: params.campaign.run_mode,
+      action_tags: resolvedTags
+        .filter(
+          (t): t is ResolvedActionTagPlan & { effective_script: ResolvedScriptRef } =>
+            t.effective_script !== null && t.resolution_source !== 'missing',
+        )
+        .map((t) => ({
+          ...(t.plan_tag_uuid ? { plan_tag_uuid: t.plan_tag_uuid } : {}),
+          action_tag_id: t.tag_id,
+          action_tag_key: t.tag_key,
+          site_key: t.site_key,
+          site_name: t.site_name,
+          cms_type: t.cms_type,
+          script_package_key: t.effective_script.package_key,
+          script_name: t.effective_script.name,
+          script_version: t.effective_script.version,
+          release_id:
+            t.effective_script.release_id > 0
+              ? t.effective_script.release_id
+              : null,
+          resolution_source:
+            t.resolution_source === 'cms_global' ? 'cms_global' : 'site_specific',
+          shortcode_mapping: tagToMapping.get(t.tag_key) ?? { entries: [] },
+        })),
+      contents: validatedContents.map((c) => ({
+        ...(c.persisted_id ? { id: c.persisted_id } : {}),
+        external_ref: c.external_ref,
+        raw_source: c.raw_source,
+        assignments: c.targets.map((target) => {
+          const tag = tagByKey.get(target.action_tag_key)
+          return {
+            ...(target.assignment_id ? { id: target.assignment_id } : {}),
+            action_tag_id: tag?.tag_id ?? null,
+            action_tag_key: target.action_tag_key,
+            script_package_key: target.script_package_key,
+            script_version: target.script_version,
+            release_id: target.release_id > 0 ? target.release_id : null,
+            raw_source: c.raw_source,
+            shortcode_mapping: target.shortcode_mapping,
+          }
+        }),
+      })),
+    },
+  }
+}
+
 export function validateStep2Plan(params: {
   groups: SchemaMappingGroup[]
   mappingsByGroupKey?: Record<string, ShortcodeMappingFormEntry[]>

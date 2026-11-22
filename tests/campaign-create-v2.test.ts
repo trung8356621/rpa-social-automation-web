@@ -20,10 +20,12 @@ import {
   buildCreateCampaignV2Input,
   buildUpdateCampaignV2Input,
   buildV2DraftPlanPayload,
+  buildV2PlanUpdateFromCampaign,
   campaignToV2WizardState,
   createPlannedContentItem,
   filterSelectableCampaignTags,
   formatCampaignV2ApiError,
+  generateBulkMockContentsForGroup,
   generateMockContentForGroup,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
@@ -1147,26 +1149,29 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       assert.match(upperAuto.error, /PostTitle/)
     }
 
-    // 4. CampaignContentStep2.tsx has no manual ShortcodeMappingFields controls
+    // 4. CampaignContentStep2.tsx has no manual ShortcodeMappingFields or Mock controls
     const step2Source = fs.readFileSync(
       path.resolve('src/features/campaigns/components/CampaignContentStep2.tsx'),
       'utf8',
     )
     assert.equal(step2Source.includes('ShortcodeMappingFields'), false)
+    assert.equal(step2Source.includes('Generate Mock'), false)
+    assert.equal(step2Source.includes('V2BulkMockGenerator'), false)
 
-    // 5. Generate Mock Content for V2 group -> assigned to group's Tags -> persisted via PUT -> reloaded
+    // 5. Generate 1, 20, and 100 distinct mock Contents on Articles -> ONE V2 PUT -> reload lists persisted Contents
     const siteMap = new Map(SITES.map((s) => [s.key, s]))
     const wpDirect = resolveActionTagScript(TAGS[0]!, siteMap.get('mayhopphat'), SCRIPTS)
     const wpGlobal = resolveActionTagScript(TAGS[1]!, siteMap.get('blog2'), SCRIPTS)
+    const schemaLookup = {
+      [scriptTargetKey('mayhopphat.create_post', '1.2.0')]: {
+        schema: multiSchema,
+        loading: false,
+        error: null,
+      },
+    }
     const groups = groupTagsByCompatibleSchema(
       [wpDirect, wpGlobal],
-      {
-        [scriptTargetKey('mayhopphat.create_post', '1.2.0')]: {
-          schema: multiSchema,
-          loading: false,
-          error: null,
-        },
-      },
+      schemaLookup,
       (reason) => unavailableScriptInputSchema(null, reason),
     )
     assert.equal(groups.length, 1)
@@ -1175,21 +1180,47 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       'blog2.create_post',
     ])
 
-    const mockGen = generateMockContentForGroup(groups[0]!, 0)
-    assert.equal(mockGen.ok, true)
-    if (!mockGen.ok) return
-    assert.equal(mockGen.item.persisted_id, null)
-    assert.deepEqual(mockGen.item.target_tag_keys, [
+    const gen1 = generateBulkMockContentsForGroup({ group: groups[0]!, count: 1 })
+    assert.equal(gen1.ok, true)
+    if (!gen1.ok) return
+    assert.equal(gen1.items.length, 1)
+
+    const gen20 = generateBulkMockContentsForGroup({
+      group: groups[0]!,
+      count: 20,
+      existingRefs: gen1.items.map((x) => x.external_ref),
+      startSeq: 2,
+    })
+    assert.equal(gen20.ok, true)
+    if (!gen20.ok) return
+    assert.equal(gen20.items.length, 20)
+
+    const gen100 = generateBulkMockContentsForGroup({
+      group: groups[0]!,
+      count: 100,
+      existingRefs: [...gen1.items, ...gen20.items].map((x) => x.external_ref),
+      startSeq: 22,
+    })
+    assert.equal(gen100.ok, true)
+    if (!gen100.ok) return
+    assert.equal(gen100.items.length, 100)
+
+    const allRefs = new Set([
+      ...gen1.items.map((x) => x.external_ref),
+      ...gen20.items.map((x) => x.external_ref),
+      ...gen100.items.map((x) => x.external_ref),
+    ])
+    assert.equal(allRefs.size, 121)
+    assert.deepEqual(gen100.items[0]!.target_tag_keys, [
       'mayhopphat.create_post',
       'blog2.create_post',
     ])
-    assert.match(mockGen.item.raw_source, /\[title\]\[TEST\]/)
-    assert.match(mockGen.item.raw_source, /\[content\]\[TEST\]/)
-    assert.match(mockGen.item.raw_source, /\[count\]1\[\/count\]/)
+    assert.match(gen100.items[0]!.raw_source, /\[title\]\[TEST\]/)
+    assert.match(gen100.items[0]!.raw_source, /\[content\]\[TEST\]/)
 
     const step2 = validateStep2Plan({
       groups,
-      contents: [mockGen.item],
+      contents: [gen1.items[0]!],
       resolvedTags: [wpDirect, wpGlobal],
     })
     assert.equal(step2.ok, true)
@@ -1198,33 +1229,40 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     resetMockCampaignStore()
     const created = await mockCampaignAdapter.createCampaignV2(
       buildCreateCampaignV2Input({
-        name: 'V2 Mock Test',
+        name: 'V2 Bulk Mock Test',
         run_mode: 'live',
-        resolvedTags: [wpDirect, wpGlobal],
-        groups,
-        groupMappings: step2.groupMappings,
-        validatedContents: [],
-      }),
-    )
-
-    const updated = await mockCampaignAdapter.updateCampaignV2(
-      buildUpdateCampaignV2Input({
-        id: created.id,
-        revision: created.revision ?? 1,
-        name: created.name,
-        run_mode: created.run_mode,
         resolvedTags: [wpDirect, wpGlobal],
         groups,
         groupMappings: step2.groupMappings,
         validatedContents: step2.validatedContents,
       }),
     )
+    assert.equal(created.contents?.length ?? 0, 0) // createCampaignV2 stores contents in store.contents
+    const initialContents = (await mockCampaignAdapter.listContents()).filter(
+      (c) => c.campaign_id === created.id,
+    )
+    assert.equal(initialContents.length, 1)
+
+    const existingPlanned = campaignToV2WizardState(created, initialContents).contents
+    const bulkPlan = buildV2PlanUpdateFromCampaign({
+      campaign: created,
+      contents: [...existingPlanned, ...gen100.items],
+      schemaLookup,
+    })
+    assert.equal(bulkPlan.ok, true)
+    if (!bulkPlan.ok) return
+    assert.equal(bulkPlan.input.contents.length, 101)
+    assert.equal(bulkPlan.input.contents[0]!.id, initialContents[0]!.id)
+    assert.equal('id' in bulkPlan.input.contents[1]!, false)
+
+    const updated = await mockCampaignAdapter.updateCampaignV2(bulkPlan.input)
     assert.equal(updated.revision, 2)
-    assert.equal(updated.contents?.length, 1)
-    assert.equal(updated.contents?.[0]?.assignments?.length, 2)
+    assert.equal(updated.contents?.length, 101)
+    assert.equal(updated.contents?.[0]?.id, initialContents[0]!.id)
+    assert.equal(updated.contents?.[100]?.assignments?.length, 2)
 
     const reloaded = await mockCampaignAdapter.getCampaign(created.id)
-    assert.equal(reloaded.summary.total, 1)
+    assert.equal(reloaded.summary.total, 101)
     assert.equal(reloaded.allowed_actions.includes('start'), false)
   })
 })

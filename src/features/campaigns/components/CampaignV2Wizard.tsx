@@ -418,10 +418,8 @@ export function CampaignV2Wizard({
           groups={groups}
           historicalMappingsByTagKey={hydrated?.initialMappingsByTagKey}
           contents={contents}
-          onContentsChange={setContents}
           persistenceSupport={persistenceSupport}
           draftPreviewPayload={draftPreviewPayload}
-          disabled={busy}
         />
       )}
 

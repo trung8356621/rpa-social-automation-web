@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Plus, Search } from 'lucide-react'
 
 import type { Site } from '@/features/action-tags/types'
@@ -17,6 +16,11 @@ import {
 } from '../api/build-content-payload'
 import { resolveArticlesListState } from '../articles-list-state'
 import { checkContentLength, siteContentPolicy } from '../content-limit'
+import {
+  formatCampaignV2ApiError,
+  type SchemaMappingGroup,
+} from '../multi-tag-plan'
+import { buildAutoShortcodeMapping } from '../shortcode-mapping'
 import { contentListPreview } from '../shortcode-source'
 import { contentStatusBadge } from '../status-labels'
 import {
@@ -37,6 +41,7 @@ import type {
 import { ManualArticleEditor } from './ManualArticleEditor'
 import { MockArticleGenerator } from './MockArticleGenerator'
 import { ShortcodeArticleEditor } from './ShortcodeArticleEditor'
+import { V2BulkMockGenerator } from './V2BulkMockGenerator'
 
 type ContentSaveOpts = {
   schema: ScriptInputSchema
@@ -70,6 +75,19 @@ type Props = {
   contentsError?: string | null
   schemaLoading?: boolean
   schemaError?: string | null
+  v2Groups?: SchemaMappingGroup[]
+  onV2BulkMockSave?: (
+    count: number,
+    groupKey: string | 'all',
+  ) => Promise<void>
+  onV2SaveContent?: (draft: {
+    editingId: string | null
+    externalRef: string
+    rawSource: string
+    targetTagKeys: string[]
+  }) => Promise<void>
+  onV2DeleteContent?: (contentId: string) => Promise<void>
+  onReloadCampaign?: () => Promise<void>
 }
 
 const EMPTY_SCHEMA: ScriptInputSchema = {
@@ -100,14 +118,21 @@ export function ArticlesScreen({
   contentsError = null,
   schemaLoading = false,
   schemaError = null,
+  v2Groups = [],
+  onV2BulkMockSave,
+  onV2SaveContent,
+  onV2DeleteContent,
+  onReloadCampaign,
 }: Props) {
-  const navigate = useNavigate()
   const [siteFilter, setSiteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [externalRef, setExternalRef] = useState('')
+  const [v2TargetTags, setV2TargetTags] = useState<string[]>([])
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [rawSource, setRawSource] = useState('')
@@ -166,6 +191,8 @@ export function ArticlesScreen({
   }, [contents, campaignId, campaigns, siteFilter, statusFilter, search])
 
   const resetForm = () => {
+    setExternalRef('')
+    setV2TargetTags([])
     setTitle('')
     setBody('')
     setRawSource('')
@@ -178,6 +205,13 @@ export function ArticlesScreen({
 
   const openCreate = () => {
     resetForm()
+    if (isV2Campaign) {
+      const firstGroup = v2Groups[0]
+      setV2TargetTags(firstGroup ? [...firstGroup.tag_keys] : [])
+      setExternalRef(`post-${filtered.length + 1}`)
+      setCreating(true)
+      return
+    }
     if (hasShortcodeMapping && campaign?.shortcode_mapping) {
       const first = campaign.shortcode_mapping.entries[0]?.shortcode ?? 'body'
       setRawSource(`[${first}][/${first}]`)
@@ -194,6 +228,14 @@ export function ArticlesScreen({
     }
     setCreating(false)
     setEditingId(row.id)
+    setExternalRef(row.external_ref)
+    if (isV2Campaign) {
+      setV2TargetTags((row.assignments ?? []).map((a) => a.action_tag_key))
+      setRawSource(row.raw_source ?? '')
+      setFormError(null)
+      onCampaignChange(row.campaign_id)
+      return
+    }
     setTitle(row.input.title ?? '')
     setBody(row.input.body ?? '')
     setRawSource(row.raw_source ?? '')
@@ -206,6 +248,33 @@ export function ArticlesScreen({
   const submit = async () => {
     if (!campaign) {
       setFormError('Select a Campaign.')
+      return
+    }
+    if (isV2Campaign) {
+      if (!onV2SaveContent) return
+      if (v2TargetTags.length === 0) {
+        setFormError('Select at least one target Action Tag.')
+        return
+      }
+      if (!rawSource.trim()) {
+        setFormError('Shortcode source is required.')
+        return
+      }
+      setBusy(true)
+      setFormError(null)
+      try {
+        await onV2SaveContent({
+          editingId,
+          externalRef,
+          rawSource,
+          targetTagKeys: v2TargetTags,
+        })
+        resetForm()
+      } catch (err) {
+        setFormError(formatCampaignV2ApiError(err).message)
+      } finally {
+        setBusy(false)
+      }
       return
     }
     if (schemaLoading) {
@@ -332,10 +401,12 @@ export function ArticlesScreen({
         actions={
           <Button
             size="sm"
-            disabled={!campaignId || isV2Campaign}
+            disabled={
+              !campaignId || (isV2Campaign && campaign?.status !== 'draft')
+            }
             title={
-              isV2Campaign
-                ? 'V2 multi-tag Content is managed in the Campaign Plan.'
+              isV2Campaign && campaign?.status !== 'draft'
+                ? 'Only Draft V2 Campaigns can add Articles.'
                 : undefined
             }
             onClick={openCreate}
@@ -354,25 +425,9 @@ export function ArticlesScreen({
       ) : null}
 
       {isV2Campaign && campaign ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
-          <span>
-            Plan V2 Campaign: displaying persisted Content items and per-Tag
-            assignments. Use the V2 Wizard to generate mock articles or plan
-            Content and save via V2 PUT.
-          </span>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                navigate(
-                  `/social-automation/campaigns/${campaign.id}/edit?step=2`,
-                )
-              }
-            >
-              Generate Mock Article / Plan Content
-            </Button>
-          </div>
+        <div className="rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
+          Plan V2 Campaign ({campaign.status}): displaying persisted Content
+          items and per-Tag assignments. Changes save via V2 Draft PUT.
         </div>
       ) : null}
 
@@ -450,6 +505,18 @@ export function ArticlesScreen({
         </div>
       ) : null}
 
+      {campaignId &&
+      isV2Campaign &&
+      campaign?.status === 'draft' &&
+      onV2BulkMockSave ? (
+        <V2BulkMockGenerator
+          groups={v2Groups}
+          disabled={busy}
+          onGenerateAndSave={onV2BulkMockSave}
+          onReloadCampaign={onReloadCampaign}
+        />
+      ) : null}
+
       {campaignId && !isV2Campaign && hasShortcodeMapping ? (
         <MockArticleGenerator
           disabled={!campaignId || busy}
@@ -470,7 +537,74 @@ export function ArticlesScreen({
           <h2 className="text-sm font-semibold">
             {editingId ? 'Edit Article' : 'Add Article'}
           </h2>
-          {editorMode === 'shortcode' && campaign?.shortcode_mapping ? (
+          {isV2Campaign && campaign ? (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <span className="text-xs text-muted">External Ref</span>
+                <Input
+                  disabled={busy}
+                  value={externalRef}
+                  placeholder="post-1"
+                  onChange={(e) => setExternalRef(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs text-muted">Target Action Tags</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(campaign.action_tags ?? []).map((t) => {
+                    const checked = v2TargetTags.includes(t.action_tag_key)
+                    return (
+                      <button
+                        key={t.action_tag_key}
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          setV2TargetTags((prev) =>
+                            checked
+                              ? prev.filter((k) => k !== t.action_tag_key)
+                              : [...prev, t.action_tag_key],
+                          )
+                        }
+                        className={`rounded-[var(--radius-control)] border px-2.5 py-1 text-xs ${
+                          checked
+                            ? 'border-primary bg-primary/10 font-medium text-primary'
+                            : 'border-border bg-surface text-muted'
+                        }`}
+                      >
+                        <span className="font-mono">{t.action_tag_key}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              {(() => {
+                const matchedGroup =
+                  v2Groups.find((g) =>
+                    g.tag_keys.some((tk) => v2TargetTags.includes(tk)),
+                  ) ?? v2Groups[0]
+                const auto = matchedGroup
+                  ? buildAutoShortcodeMapping(matchedGroup.schema)
+                  : null
+                const mapping =
+                  auto && auto.ok
+                    ? auto.mapping
+                    : matchedGroup
+                      ? (campaign.action_tags?.find((a) =>
+                          matchedGroup.tag_keys.includes(a.action_tag_key),
+                        )?.shortcode_mapping ?? { entries: [] })
+                      : { entries: [] }
+                return (
+                  <ShortcodeArticleEditor
+                    key={editingId ?? 'v2-new'}
+                    rawSource={rawSource}
+                    mapping={mapping}
+                    disabled={busy}
+                    onChange={setRawSource}
+                  />
+                )
+              })()}
+            </div>
+          ) : editorMode === 'shortcode' && campaign?.shortcode_mapping ? (
             <ShortcodeArticleEditor
               rawSource={rawSource}
               mapping={campaign.shortcode_mapping}
@@ -526,10 +660,11 @@ export function ArticlesScreen({
               size="sm"
               disabled={
                 busy ||
-                editorMode == null ||
-                (editorMode === 'legacy' &&
-                  (schemaLoading || !schema.schema_available)) ||
-                (editorMode === 'shortcode' && !hasShortcodeMapping)
+                (!isV2Campaign &&
+                  (editorMode == null ||
+                    (editorMode === 'legacy' &&
+                      (schemaLoading || !schema.schema_available)) ||
+                    (editorMode === 'shortcode' && !hasShortcodeMapping)))
               }
               onClick={() => void submit()}
             >
@@ -567,105 +702,192 @@ export function ArticlesScreen({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
-        <table className="w-full min-w-[56rem] text-left text-sm">
-          <thead className="border-b border-border bg-surface-muted text-xs text-muted">
-            <tr>
-              <th className="px-3 py-2">Ref</th>
-              <th className="px-3 py-2">Campaign</th>
-              <th className="px-3 py-2">Format</th>
-              <th className="px-3 py-2">Content</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {listState === 'loading' ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-muted">
-                  Loading campaign contents…
-                </td>
-              </tr>
-            ) : listState === 'error' ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-danger">
-                  Failed to load articles. {contentsError}
-                </td>
-              </tr>
-            ) : listState === 'empty' ? (
-              <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-muted">
-                  No articles. Shortcode V2 Campaigns start with zero Content —
-                  add Articles or Generate Mock before Start.
-                </td>
-              </tr>
-            ) : (
-              filtered.map((row) => {
-                const cs = contentStatusBadge(row.status)
-                const camp = campaigns.find((c) => c.id === row.campaign_id)
-                return (
-                  <tr key={row.id} className="border-b border-border">
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {row.external_ref}
-                    </td>
-                    <td className="px-3 py-2 text-xs">
-                      {camp?.name ?? row.campaign_id}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-[11px]">
-                      {row.source_format}
-                      {row.mapping_version != null
-                        ? ` · v${row.mapping_version}`
-                        : ''}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="line-clamp-2 font-mono text-xs">
-                        {contentListPreview(row) || '(empty)'}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <Badge variant={cs.variant}>{cs.label}</Badge>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setPreviewId(row.id)}
-                        >
-                          Preview
-                        </Button>
-                        {isContentEditable(row) ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openEdit(row)}
-                          >
-                            Edit
-                          </Button>
-                        ) : null}
-                        {mode === 'mock' && row.status === 'draft' ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-danger"
-                            onClick={() => {
-                              if (!window.confirm('Remove draft article?'))
-                                return
-                              void onRemoveDraft(row.id)
-                            }}
-                          >
-                            Remove draft
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
+      {(() => {
+        const PAGE_SIZE = 25
+        const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+        const safePage = Math.min(page, totalPages)
+        const pageRows = filtered.slice(
+          (safePage - 1) * PAGE_SIZE,
+          safePage * PAGE_SIZE,
+        )
+        return (
+          <div className="space-y-2">
+            <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
+              <table className="w-full min-w-[56rem] text-left text-sm">
+                <thead className="border-b border-border bg-surface-muted text-xs text-muted">
+                  <tr>
+                    <th className="px-3 py-2">Ref</th>
+                    <th className="px-3 py-2">Campaign</th>
+                    <th className="px-3 py-2">
+                      {isV2Campaign ? 'Tags' : 'Format'}
+                    </th>
+                    <th className="px-3 py-2">Content</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Actions</th>
                   </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                </thead>
+                <tbody>
+                  {listState === 'loading' ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-3 py-8 text-center text-muted"
+                      >
+                        Loading campaign contents…
+                      </td>
+                    </tr>
+                  ) : listState === 'error' ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-3 py-8 text-center text-danger"
+                      >
+                        Failed to load articles. {contentsError}
+                      </td>
+                    </tr>
+                  ) : listState === 'empty' ? (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="px-3 py-8 text-center text-muted"
+                      >
+                        No articles. Shortcode V2 Campaigns start with zero
+                        Content — add Articles or Generate Mock before Start.
+                      </td>
+                    </tr>
+                  ) : (
+                    pageRows.map((row) => {
+                      const cs = contentStatusBadge(row.status)
+                      const camp = campaigns.find(
+                        (c) => c.id === row.campaign_id,
+                      )
+                      const rowV2 = camp ? isCampaignV2(camp) : isV2Campaign
+                      const tagCount = row.assignments?.length ?? 0
+                      const tagTitle = (row.assignments ?? [])
+                        .map((a) => a.action_tag_key)
+                        .join(', ')
+                      return (
+                        <tr key={row.id} className="border-b border-border">
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {row.external_ref}
+                          </td>
+                          <td className="px-3 py-2 text-xs">
+                            {camp?.name ?? row.campaign_id}
+                          </td>
+                          <td
+                            className="px-3 py-2 font-mono text-[11px]"
+                            title={tagTitle || undefined}
+                          >
+                            {rowV2 ? (
+                              <Badge variant="neutral">
+                                {tagCount} tag{tagCount === 1 ? '' : 's'}
+                              </Badge>
+                            ) : (
+                              <>
+                                {row.source_format}
+                                {row.mapping_version != null
+                                  ? ` · v${row.mapping_version}`
+                                  : ''}
+                              </>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="line-clamp-2 font-mono text-xs">
+                              {contentListPreview(row) || '(empty)'}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Badge variant={cs.variant}>{cs.label}</Badge>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setPreviewId(row.id)}
+                              >
+                                Preview
+                              </Button>
+                              {isContentEditable(row) ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openEdit(row)}
+                                >
+                                  Edit
+                                </Button>
+                              ) : null}
+                              {rowV2 &&
+                              camp?.status === 'draft' &&
+                              onV2DeleteContent ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-danger"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    if (!window.confirm('Delete this article?'))
+                                      return
+                                    void onV2DeleteContent(row.id)
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              ) : mode === 'mock' && row.status === 'draft' ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-danger"
+                                  onClick={() => {
+                                    if (
+                                      !window.confirm('Remove draft article?')
+                                    )
+                                      return
+                                    void onRemoveDraft(row.id)
+                                  }}
+                                >
+                                  Remove draft
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {filtered.length > PAGE_SIZE ? (
+              <div className="flex items-center justify-between text-xs text-muted">
+                <span>
+                  Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                  {Math.min(safePage * PAGE_SIZE, filtered.length)} of{' '}
+                  {filtered.length}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )
+      })()}
     </div>
   )
 }

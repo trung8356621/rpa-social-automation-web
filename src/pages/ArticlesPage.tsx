@@ -7,6 +7,15 @@ import { useAccountSites } from '@/features/accounts/use-account-sites'
 import { resolveArticlesCampaignId } from '@/features/campaigns/articles-selection'
 import { ArticlesScreen } from '@/features/campaigns/components/ArticlesScreen'
 import {
+  buildV2PlanUpdateFromCampaign,
+  campaignToV2WizardState,
+  createPlannedContentItem,
+  generateBulkMockContentsForGroup,
+  groupTagsByCompatibleSchema,
+  type PlannedContentItem,
+  type ResolvedActionTagPlan,
+} from '@/features/campaigns/multi-tag-plan'
+import {
   parseScriptInputSchema,
   resolveTestModeCompatibility,
   unavailableScriptInputSchema,
@@ -217,6 +226,171 @@ export function ArticlesPage() {
     return errs.length > 0 ? errs.join(' · ') : null
   }, [isV2, v2SchemaLookup])
 
+  const v2Groups = useMemo(() => {
+    if (!isV2 || !activeCampaign?.action_tags?.length) return []
+    const resolved: ResolvedActionTagPlan[] = activeCampaign.action_tags.map(
+      (t) => ({
+        plan_tag_uuid: t.plan_tag_uuid ?? null,
+        tag_id: t.action_tag_id,
+        tag_key: t.action_tag_key,
+        tag_name: t.action_tag_key,
+        tag_enabled: true,
+        site_key: t.site_key,
+        site_name: t.site_name,
+        cms_type: t.cms_type,
+        path_key: '',
+        path_name: '',
+        effective_script: t.script_package_key
+          ? {
+              package_key: t.script_package_key,
+              script_id: t.script_package_key,
+              name: t.script_name || t.script_package_key,
+              version: t.script_version,
+              release_id: t.release_id ?? 0,
+            }
+          : null,
+        resolution_source: t.resolution_source,
+        is_system_auth: false,
+        is_runnable: Boolean(
+          t.script_package_key && t.resolution_source !== 'missing',
+        ),
+        status_reason: null,
+      }),
+    )
+    return groupTagsByCompatibleSchema(
+      resolved,
+      v2SchemaLookup,
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+  }, [isV2, activeCampaign, v2SchemaLookup])
+
+  const reloadActiveCampaign = async () => {
+    if (!activeCampaignId || registry.mode !== 'live') return
+    await registry.loadCampaignDetail(activeCampaignId)
+    await registry.loadContentsForCampaign(activeCampaignId)
+  }
+
+  const persistV2Contents = async (nextContents: PlannedContentItem[]) => {
+    if (!activeCampaign || !isV2) {
+      throw new Error('Select a Campaign V2 Draft first.')
+    }
+    const built = buildV2PlanUpdateFromCampaign({
+      campaign: activeCampaign,
+      contents: nextContents,
+      schemaLookup: v2SchemaLookup,
+    })
+    if (!built.ok) {
+      throw new Error(built.message)
+    }
+    await registry.updateCampaignV2(built.input)
+    if (registry.mode === 'live') {
+      await reloadActiveCampaign()
+    }
+  }
+
+  const activeCampaignContents = useMemo(() => {
+    if (!activeCampaign) return []
+    const fromStore = registry.contents.filter(
+      (c) => c.campaign_id === activeCampaign.id,
+    )
+    return fromStore.length > 0 ? fromStore : (activeCampaign.contents ?? [])
+  }, [activeCampaign, registry.contents])
+
+  const handleV2BulkMockSave = async (
+    count: number,
+    groupKey: string | 'all',
+  ) => {
+    if (!activeCampaign || !isV2) {
+      throw new Error('Select a Campaign V2 Draft first.')
+    }
+    const targetGroups =
+      groupKey === 'all'
+        ? v2Groups.filter((g) => g.schema.schema_available)
+        : v2Groups.filter((g) => g.group_key === groupKey)
+    if (targetGroups.length === 0) {
+      throw new Error('No compatible Script group with loaded schema.')
+    }
+
+    const existingPlanned = campaignToV2WizardState(
+      activeCampaign,
+      activeCampaignContents,
+    ).contents
+    const existingRefs = new Set(existingPlanned.map((c) => c.external_ref))
+    const generated: PlannedContentItem[] = []
+    const basePerGroup = Math.floor(count / targetGroups.length)
+    let remainder = count % targetGroups.length
+    let seq = existingPlanned.length + 1
+
+    for (const g of targetGroups) {
+      const qty = basePerGroup + (remainder > 0 ? 1 : 0)
+      if (remainder > 0) remainder--
+      if (qty <= 0) continue
+      const res = generateBulkMockContentsForGroup({
+        group: g,
+        count: qty,
+        existingRefs,
+        startSeq: seq,
+      })
+      if (!res.ok) throw new Error(res.message)
+      for (const item of res.items) {
+        existingRefs.add(item.external_ref)
+        generated.push(item)
+      }
+      seq += qty
+    }
+
+    await persistV2Contents([...existingPlanned, ...generated])
+  }
+
+  const handleV2SaveSingleContent = async (draft: {
+    editingId: string | null
+    externalRef: string
+    rawSource: string
+    targetTagKeys: string[]
+  }) => {
+    if (!activeCampaign || !isV2) return
+    const existingPlanned = campaignToV2WizardState(
+      activeCampaign,
+      activeCampaignContents,
+    ).contents
+    let nextContents: PlannedContentItem[]
+    if (draft.editingId) {
+      nextContents = existingPlanned.map((item) =>
+        item.id === draft.editingId || item.persisted_id === draft.editingId
+          ? {
+              ...item,
+              external_ref: draft.externalRef.trim() || item.external_ref,
+              raw_source: draft.rawSource,
+              target_tag_keys: draft.targetTagKeys,
+            }
+          : item,
+      )
+    } else {
+      nextContents = [
+        ...existingPlanned,
+        createPlannedContentItem({
+          external_ref:
+            draft.externalRef.trim() || `post-${existingPlanned.length + 1}`,
+          raw_source: draft.rawSource,
+          target_tag_keys: draft.targetTagKeys,
+        }),
+      ]
+    }
+    await persistV2Contents(nextContents)
+  }
+
+  const handleV2DeleteContent = async (contentId: string) => {
+    if (!activeCampaign || !isV2) return
+    const existingPlanned = campaignToV2WizardState(
+      activeCampaign,
+      activeCampaignContents,
+    ).contents
+    const nextContents = existingPlanned.filter(
+      (c) => c.id !== contentId && c.persisted_id !== contentId,
+    )
+    await persistV2Contents(nextContents)
+  }
+
   if (registry.loading) {
     return (
       <div className="rounded-[var(--radius-card)] border border-border bg-surface p-6">
@@ -253,6 +427,11 @@ export function ArticlesPage() {
           (isV2 && Object.values(v2SchemaLookup).some((e) => e.loading))
         }
         schemaError={isV2 ? v2SchemaError : schemaError}
+        v2Groups={v2Groups}
+        onV2BulkMockSave={handleV2BulkMockSave}
+        onV2SaveContent={handleV2SaveSingleContent}
+        onV2DeleteContent={handleV2DeleteContent}
+        onReloadCampaign={reloadActiveCampaign}
         onCreate={async (draft, opts) => {
           await registry.createManualContent(draft, opts)
         }}
