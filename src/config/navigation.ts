@@ -60,7 +60,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Bài viết',
     to: '/social-automation/articles',
     icon: FileText,
-    description: 'Campaign Content / manual articles',
+    description: 'Independent Article Library',
   },
   {
     label: 'Prompt bài viết theo Tags',

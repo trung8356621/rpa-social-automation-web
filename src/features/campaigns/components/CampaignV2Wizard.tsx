@@ -7,7 +7,11 @@ import { Button } from '@/components/ui/button'
 import { Select } from '@/components/ui/select'
 import { Toast } from '@/components/ui/toast'
 import { useActionRegistry } from '@/features/action-tags/use-action-registry'
+import { CampaignArticleSelector } from '@/features/articles/components/CampaignArticleSelector'
+import type { CampaignArticleAssignment } from '@/features/articles/types'
+import { useArticleLibrary } from '@/features/articles/use-article-library'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
+import { toSafeApiMessage } from '@/lib/api/errors'
 
 import {
   applyTagRemovalResolution,
@@ -60,6 +64,7 @@ export function CampaignV2Wizard({
   const registry = useCampaigns()
   const actionRegistry = useActionRegistry()
   const scriptRegistry = useScriptRegistry()
+  const articleLibrary = useArticleLibrary()
 
   const hydrated = useMemo(
     () =>
@@ -88,6 +93,10 @@ export function CampaignV2Wizard({
     ({ tagKey: string } & TagDependentContentCounts) | null
   >(null)
   const [reassignTargetKey, setReassignTargetKey] = useState<string>('')
+  const [selectedArticleIds, setSelectedArticleIds] = useState<string[]>([])
+  const [assignedRows, setAssignedRows] = useState<CampaignArticleAssignment[]>([])
+  const [assignmentBusy, setAssignmentBusy] = useState(false)
+  const [assignmentError, setAssignmentError] = useState<string | null>(null)
 
   const hydratedKey = hydrated
     ? `${hydrated.campaignId}:${hydrated.revision ?? 'none'}:${hydrated.updatedAt ?? ''}`
@@ -105,6 +114,72 @@ export function CampaignV2Wizard({
     setApiErrorDetail(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydratedKey])
+
+  useEffect(() => {
+    if (wizardMode !== 'edit' || !initialCampaign?.id) return
+    let cancelled = false
+    void articleLibrary.adapter
+      .listCampaignArticles(initialCampaign.id)
+      .then((rows) => {
+        if (!cancelled) {
+          setAssignedRows(rows)
+          setAssignmentError(null)
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setAssignmentError(toSafeApiMessage(err))
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [wizardMode, initialCampaign?.id, articleLibrary.adapter])
+
+  const handleAssignPersisted = async (articleIds: string[]) => {
+    if (!initialCampaign?.id) return
+    setAssignmentBusy(true)
+    setAssignmentError(null)
+    try {
+      const startOrder =
+        assignedRows.reduce((m, r) => Math.max(m, r.sort_order), 0) + 1
+      await articleLibrary.adapter.assignCampaignArticles(
+        initialCampaign.id,
+        articleIds.map((article_id, i) => ({
+          article_id,
+          sort_order: startOrder + i,
+        })),
+      )
+      const refreshed = await articleLibrary.adapter.listCampaignArticles(
+        initialCampaign.id,
+      )
+      setAssignedRows(refreshed)
+    } catch (err: unknown) {
+      setAssignmentError(toSafeApiMessage(err))
+    } finally {
+      setAssignmentBusy(false)
+    }
+  }
+
+  const handleRemovePersisted = async (articleOrContentId: string) => {
+    if (!initialCampaign?.id) return
+    setAssignmentBusy(true)
+    setAssignmentError(null)
+    try {
+      await articleLibrary.adapter.removeCampaignArticle(
+        initialCampaign.id,
+        articleOrContentId,
+      )
+      const refreshed = await articleLibrary.adapter.listCampaignArticles(
+        initialCampaign.id,
+      )
+      setAssignedRows(refreshed)
+    } catch (err: unknown) {
+      setAssignmentError(toSafeApiMessage(err))
+    } finally {
+      setAssignmentBusy(false)
+    }
+  }
 
   const siteByKey = useMemo(
     () => new Map(actionRegistry.data.sites.map((s) => [s.key, s])),
@@ -403,6 +478,15 @@ export function CampaignV2Wizard({
           validatedContents: step2.validatedContents,
         })
         const created = await registry.createCampaignV2(v2Create)
+        if (selectedArticleIds.length > 0) {
+          await articleLibrary.adapter.assignCampaignArticles(
+            created.id,
+            selectedArticleIds.map((article_id, idx) => ({
+              article_id,
+              sort_order: idx + 1,
+            })),
+          )
+        }
         navigate(`/social-automation/campaigns/${created.id}`)
       }
     } catch (err) {
@@ -576,16 +660,32 @@ export function CampaignV2Wizard({
           />
         </>
       ) : (
-        <CampaignContentStep2
-          name={name}
-          runMode={runMode}
-          resolvedTags={resolvedTags}
-          groups={groups}
-          historicalMappingsByTagKey={hydrated?.initialMappingsByTagKey}
-          contents={contents}
-          persistenceSupport={persistenceSupport}
-          draftPreviewPayload={draftPreviewPayload}
-        />
+        <div className="space-y-5">
+          <CampaignContentStep2
+            name={name}
+            runMode={runMode}
+            resolvedTags={resolvedTags}
+            groups={groups}
+            historicalMappingsByTagKey={hydrated?.initialMappingsByTagKey}
+            contents={contents}
+            persistenceSupport={persistenceSupport}
+            draftPreviewPayload={draftPreviewPayload}
+          />
+          <CampaignArticleSelector
+            mode={wizardMode}
+            campaignStatus={initialCampaign?.status ?? 'draft'}
+            resolvedTags={resolvedTags}
+            availableArticles={articleLibrary.articles}
+            loadingArticles={articleLibrary.loading}
+            selectedArticleIds={selectedArticleIds}
+            onChangeSelectedArticleIds={setSelectedArticleIds}
+            assignedRows={assignedRows}
+            onAssignPersisted={handleAssignPersisted}
+            onRemovePersisted={handleRemovePersisted}
+            busy={busy || assignmentBusy}
+            error={assignmentError}
+          />
+        </div>
       )}
 
       {error ? (

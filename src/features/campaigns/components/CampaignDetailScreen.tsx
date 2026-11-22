@@ -355,15 +355,21 @@ export function CampaignDetailScreen({
             {busyAction === 'cancel' ? 'Cancelling…' : 'Cancel'}
           </Button>
         ) : null}
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() =>
-            navigate(`/social-automation/articles?campaign=${campaign.id}`)
-          }
-        >
-          Manage Articles
-        </Button>
+        {campaign.status === 'draft' ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              navigate(
+                isV2
+                  ? `/social-automation/campaigns/${campaign.id}/edit`
+                  : `/social-automation/articles?campaign=${campaign.id}`,
+              )
+            }
+          >
+            {isV2 ? 'Assign Articles' : 'Manage Articles'}
+          </Button>
+        ) : null}
       </section>
 
       {actionError ? (
