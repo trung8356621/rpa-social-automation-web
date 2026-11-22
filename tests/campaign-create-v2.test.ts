@@ -1215,8 +1215,8 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       'mayhopphat.create_post',
       'blog2.create_post',
     ])
-    assert.match(gen100.items[0]!.raw_source, /\[title\]\[TEST\]/)
-    assert.match(gen100.items[0]!.raw_source, /\[content\]\[TEST\]/)
+    assert.match(gen100.items[0]!.raw_source, /\[title\]TEST Mock Title/)
+    assert.match(gen100.items[0]!.raw_source, /\[content\]TEST Mock content/)
 
     const step2 = validateStep2Plan({
       groups,
@@ -1264,5 +1264,130 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     const reloaded = await mockCampaignAdapter.getCampaign(created.id)
     assert.equal(reloaded.summary.total, 101)
     assert.equal(reloaded.allowed_actions.includes('start'), false)
+  })
+
+  it('generates unambiguous [title]...[/title] for 1-variable title-only Script shared across 4 Tags with no duplicate mappings or assignments', () => {
+    const fourSites: Site[] = [1, 2, 3, 4].map((n) => ({
+      id: 100 + n,
+      key: `wp${n}`,
+      name: `WP ${n}`,
+      base_url: `https://wp${n}.example`,
+      cms_type: 'wordpress',
+    }))
+    const fourTags: ActionTagItem[] = [1, 2, 3, 4].map((n) => ({
+      id: 200 + n,
+      tag_key: `wp${n}.create_post`,
+      site_key: `wp${n}`,
+      site_name: `WP ${n}`,
+      path_key: 'create_post',
+      path_name: 'Create Post',
+      name: `WP ${n} Create Post`,
+      scripts_count: 1,
+      ready: true,
+      enabled: true,
+    }))
+    const globalWpScript: ScriptListItem = {
+      package_key: 'wp1.create_post',
+      script_id: 'wp1.create_post',
+      name: 'WP Create Post',
+      action_tag_key: 'wp1.create_post',
+      version: '1.0.0',
+      release_id: 501,
+      status: 'published',
+      assets_complete: true,
+      video_demo_status: 'ready',
+      has_playable_video: true,
+      has_thumbnail: true,
+      video_media_id: 1,
+      thumbnail_media_id: 2,
+      thumbnail_url: null,
+      video_url: null,
+      last_sync_label: 'now',
+      updated_by_label: 'staff',
+      sharing_mode: 'cms_global',
+      global_scope: 'wordpress:create_post',
+    }
+    const titleOnlySchema: ScriptInputSchema = {
+      fields: [],
+      test_mode_compatible: null,
+      title_required: true,
+      body_required: false,
+      schema_available: true,
+      title_supported: true,
+      body_supported: false,
+      unavailable_reason: null,
+    }
+
+    const resolved4 = fourTags.map((t, idx) =>
+      resolveActionTagScript(t, fourSites[idx], [globalWpScript]),
+    )
+    const schemaLookup = {
+      [scriptTargetKey('wp1.create_post', '1.0.0')]: {
+        schema: titleOnlySchema,
+        loading: false,
+        error: null,
+      },
+    }
+    const groups = groupTagsByCompatibleSchema(
+      resolved4,
+      schemaLookup,
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+    assert.equal(groups.length, 1)
+    assert.equal(groups[0]!.tag_keys.length, 4)
+
+    const bulk = generateBulkMockContentsForGroup({
+      group: groups[0]!,
+      count: 20,
+    })
+    assert.equal(bulk.ok, true)
+    if (!bulk.ok) return
+    assert.equal(bulk.items.length, 20)
+
+    const firstRaw = bulk.items[0]!.raw_source
+    assert.equal((firstRaw.match(/\[title\]/g) ?? []).length, 1)
+    assert.equal((firstRaw.match(/\[\/title\]/g) ?? []).length, 1)
+    // No inner square brackets inside sample value
+    const inner = firstRaw.slice('[title]'.length, -'[/title]'.length)
+    assert.equal(inner.includes('[') || inner.includes(']'), false)
+
+    const campaign = mapLiveCampaign({
+      id: 'camp_4tags',
+      plan_version: 2,
+      revision: 1,
+      name: '4-Tag Title Only',
+      status: 'draft',
+      run_mode: 'live',
+      action_tags: resolved4.map((r) => ({
+        action_tag_id: r.tag_id,
+        action_tag_key: r.tag_key,
+        site_key: r.site_key,
+        site_name: r.site_name,
+        cms_type: r.cms_type,
+        script_package_key: r.effective_script!.package_key,
+        script_version: r.effective_script!.version,
+        release_id: r.effective_script!.release_id,
+        resolution_source: r.resolution_source,
+        shortcode_mapping: {
+          entries: [{ shortcode: 'title', variable: 'title' }],
+        },
+      })),
+    })
+
+    const built = buildV2PlanUpdateFromCampaign({
+      campaign,
+      contents: bulk.items,
+      schemaLookup,
+    })
+    assert.equal(built.ok, true)
+    if (!built.ok) return
+
+    const putBody = buildLiveCampaignV2UpdateBody(built.input)
+    assert.equal(putBody.action_tags.length, 4)
+    assert.equal(putBody.contents.length, 20)
+    assert.equal(putBody.contents[0]!.assignments.length, 4)
+    assert.deepEqual(putBody.contents[0]!.assignments[0]!.shortcode_mapping, {
+      entries: [{ shortcode: 'title', variable: 'title' }],
+    })
   })
 })

@@ -423,9 +423,9 @@ export function generateMockContentForGroup(
     } else if (v.type === 'boolean') {
       sample = 'true'
     } else if (v.key === 'title') {
-      sample = `[TEST] Sample Title #${seq} (${group.script_package_key})`
+      sample = `TEST Mock Title #${seq} (${group.script_package_key})`
     } else {
-      sample = `[TEST] Sample ${v.key} #${seq} for ${group.script_package_key} v${group.script_version}`
+      sample = `TEST Mock ${v.key} #${seq} for ${group.script_package_key} v${group.script_version}`
     }
     lines.push(`[${v.key}]${sample}[/${v.key}]`)
   }
@@ -494,9 +494,9 @@ export function generateBulkMockContentsForGroup(params: {
       } else if (v.type === 'boolean') {
         sample = seq % 2 === 0 ? 'false' : 'true'
       } else if (v.key === 'title') {
-        sample = `[TEST] Mock Title #${seq} (${ref})`
+        sample = `TEST Mock Title #${seq} (${ref})`
       } else {
-        sample = `[TEST] Mock ${v.key} #${seq} (${ref}) for ${params.group.script_package_key}`
+        sample = `TEST Mock ${v.key} #${seq} (${ref}) for ${params.group.script_package_key}`
       }
       lines.push(`[${v.key}]${sample}[/${v.key}]`)
     }
@@ -627,7 +627,10 @@ export function buildV2PlanUpdateFromCampaign(params: {
     }
 
     const targets: ValidatedContentAssociation['targets'] = []
+    const seenTargetTags = new Set<string>()
     for (const tk of item.target_tag_keys) {
+      if (seenTargetTags.has(tk)) continue
+      seenTargetTags.add(tk)
       const tag = tagByKey.get(tk)
       const mapping = tagToMapping.get(tk)
       if (!tag || !tag.effective_script || !mapping) {
