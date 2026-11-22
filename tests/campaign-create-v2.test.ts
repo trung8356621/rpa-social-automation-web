@@ -17,6 +17,7 @@ import {
 import { mapLiveCampaign } from '../src/features/campaigns/api/mappers.ts'
 import { mockCampaignAdapter, resetMockCampaignStore } from '../src/features/campaigns/api/mock-adapter.ts'
 import {
+  applyTagRemovalResolution,
   buildCreateCampaignV2Input,
   buildUpdateCampaignV2Input,
   buildV2BulkDeleteUpdate,
@@ -24,8 +25,10 @@ import {
   buildV2PlanUpdateFromCampaign,
   CampaignV2ClientError,
   campaignToV2WizardState,
+  countDependentContentsForTag,
   createPlannedContentItem,
   filterSelectableCampaignTags,
+  findCompatibleReassignmentTags,
   formatCampaignV2ApiError,
   generateBulkMockContentsForGroup,
   generateBulkMockContentsForTag,
@@ -1929,5 +1932,173 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       getCampaignScopedSiteOptions(v1Camp, globalSites).length,
       globalSites.length,
     )
+  })
+
+  it('resolves Tag removal with dependent Articles via explicit delete, compatible reassignment, or multi-assignment pruning', async () => {
+    const wp1 = resolveActionTagScript(TAGS[0]!, SITES[0], SCRIPTS) // mayhopphat.create_post (WP_SCHEMA)
+    const wp2 = resolveActionTagScript(TAGS[1]!, SITES[1], SCRIPTS) // blog2.create_post (WP_SCHEMA)
+    const fb = resolveActionTagScript(TAGS[2]!, SITES[2], SCRIPTS) // facebook.group.post (FB_SCHEMA)
+    const resolvedAll = [wp1, wp2, fb]
+    const schemaLookup = {
+      [scriptTargetKey('mayhopphat.create_post', '1.2.0')]: {
+        schema: WP_SCHEMA,
+        loading: false,
+        error: null,
+      },
+      [scriptTargetKey('facebook.group.post', '2.0.0')]: {
+        schema: FB_SCHEMA,
+        loading: false,
+        error: null,
+      },
+    }
+
+    const cSingleWp1 = createPlannedContentItem({
+      id: 'c_wp1',
+      persisted_id: 'c_wp1',
+      external_ref: 'mock-wp1',
+      target_tag_keys: ['mayhopphat.create_post'],
+      raw_source: '[title]A[/title][body]B[/body]',
+    })
+    const cSingleWp2 = createPlannedContentItem({
+      id: 'c_wp2',
+      persisted_id: 'c_wp2',
+      external_ref: 'mock-wp2',
+      target_tag_keys: ['blog2.create_post'],
+      raw_source: '[title]C[/title][body]D[/body]',
+    })
+    const cMultiLegacy = createPlannedContentItem({
+      id: 'c_multi',
+      persisted_id: 'c_multi',
+      external_ref: 'legacy-multi',
+      target_tag_keys: ['mayhopphat.create_post', 'blog2.create_post'],
+      raw_source: '[title]E[/title][body]F[/body]',
+    })
+
+    const allContents = [cSingleWp1, cSingleWp2, cMultiLegacy]
+    const selectedKeys = [
+      'mayhopphat.create_post',
+      'blog2.create_post',
+      'facebook.group.post',
+    ]
+
+    // 1. Tag with zero dependent Articles allows immediate removal
+    assert.equal(
+      countDependentContentsForTag(allContents, 'facebook.group.post').totalAffected,
+      0,
+    )
+
+    // 2. Tag with dependent Articles counts single-target & multi-assigned
+    const deps = countDependentContentsForTag(allContents, 'mayhopphat.create_post')
+    assert.equal(deps.totalAffected, 2)
+    assert.equal(deps.singleTargetCount, 1)
+    assert.equal(deps.multiTargetCount, 1)
+
+    // 3. Compatible reassignment excludes incompatible facebook.group.post
+    const compat = findCompatibleReassignmentTags({
+      removedTagKey: 'mayhopphat.create_post',
+      resolvedTags: resolvedAll,
+      schemaLookup,
+    })
+    assert.deepEqual(
+      compat.map((t) => t.tag_key),
+      ['blog2.create_post'],
+    )
+    const compatSet = new Set(compat.map((t) => t.tag_key))
+
+    // 4. Reject incompatible reassignment to facebook.group.post
+    const badReassign = applyTagRemovalResolution({
+      contents: allContents,
+      selectedTagKeys: selectedKeys,
+      removedTagKey: 'mayhopphat.create_post',
+      resolution: { mode: 'reassign', targetTagKey: 'facebook.group.post' },
+      compatibleTagKeys: compatSet,
+    })
+    assert.equal(badReassign.ok, false)
+
+    // 5. Explicit reassignment to compatible blog2.create_post preserves Content IDs
+    const goodReassign = applyTagRemovalResolution({
+      contents: allContents,
+      selectedTagKeys: selectedKeys,
+      removedTagKey: 'mayhopphat.create_post',
+      resolution: { mode: 'reassign', targetTagKey: 'blog2.create_post' },
+      compatibleTagKeys: compatSet,
+    })
+    assert.equal(goodReassign.ok, true)
+    if (!goodReassign.ok) return
+    assert.deepEqual(goodReassign.nextSelectedTagKeys, [
+      'blog2.create_post',
+      'facebook.group.post',
+    ])
+    assert.equal(goodReassign.nextContents.length, 3)
+    assert.deepEqual(goodReassign.nextContents[0]!.target_tag_keys, [
+      'blog2.create_post',
+    ])
+    assert.deepEqual(goodReassign.nextContents[2]!.target_tag_keys, [
+      'blog2.create_post',
+    ])
+
+    // 6. Explicit delete removes single-target cSingleWp1, keeps cSingleWp2, and prunes only affected assignment on cMultiLegacy
+    const delRes = applyTagRemovalResolution({
+      contents: allContents,
+      selectedTagKeys: selectedKeys,
+      removedTagKey: 'mayhopphat.create_post',
+      resolution: { mode: 'delete' },
+      compatibleTagKeys: compatSet,
+    })
+    assert.equal(delRes.ok, true)
+    if (!delRes.ok) return
+    assert.equal(delRes.nextContents.length, 2)
+    assert.equal(delRes.nextContents[0]!.id, 'c_wp2')
+    assert.equal(delRes.nextContents[1]!.id, 'c_multi')
+    assert.deepEqual(delRes.nextContents[1]!.target_tag_keys, [
+      'blog2.create_post',
+    ])
+
+    // 7. Full-plan PUT after Tag removal + delete succeeds without "not runnable" error
+    const remainingResolved = [wp2, fb]
+    const groups = groupTagsByCompatibleSchema(
+      remainingResolved,
+      schemaLookup,
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+    const step2 = validateStep2Plan({
+      groups,
+      contents: delRes.nextContents,
+      resolvedTags: remainingResolved,
+    })
+    assert.equal(step2.ok, true)
+    if (!step2.ok) return
+
+    resetMockCampaignStore()
+    const created = await mockCampaignAdapter.createCampaignV2(
+      buildCreateCampaignV2Input({
+        name: 'Tag Removal Draft',
+        run_mode: 'live',
+        resolvedTags: resolvedAll,
+        groups: groupTagsByCompatibleSchema(
+          resolvedAll,
+          schemaLookup,
+          (r) => unavailableScriptInputSchema(null, r),
+        ),
+        groupMappings: step2.groupMappings,
+        validatedContents: [],
+      }),
+    )
+    const updated = await mockCampaignAdapter.updateCampaignV2(
+      buildUpdateCampaignV2Input({
+        id: created.id,
+        revision: created.revision,
+        name: created.name,
+        run_mode: created.run_mode,
+        resolvedTags: remainingResolved,
+        groups,
+        groupMappings: step2.groupMappings,
+        validatedContents: step2.validatedContents,
+      }),
+    )
+    assert.equal(updated.action_tags?.length, 2)
+    assert.equal(updated.contents?.length, 2)
+    assert.equal(updated.revision, 2)
+    assert.equal(updated.allowed_actions.includes('start'), false)
   })
 })

@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { AlertTriangle } from 'lucide-react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Button } from '@/components/ui/button'
+import { Select } from '@/components/ui/select'
 import { Toast } from '@/components/ui/toast'
 import { useActionRegistry } from '@/features/action-tags/use-action-registry'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
 
 import {
+  applyTagRemovalResolution,
   buildCreateCampaignV2Input,
   buildUpdateCampaignV2Input,
   buildV2DraftPlanPayload,
   campaignToV2WizardState,
+  countDependentContentsForTag,
+  findCompatibleReassignmentTags,
   formatCampaignV2ApiError,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
@@ -22,6 +27,7 @@ import {
   type FormattedCampaignV2Error,
   type PlannedContentItem,
   type ResolvedActionTagPlan,
+  type TagDependentContentCounts,
 } from '../multi-tag-plan'
 import {
   canStartWithRunMode,
@@ -78,6 +84,10 @@ export function CampaignV2Wizard({
   const [apiErrorDetail, setApiErrorDetail] =
     useState<FormattedCampaignV2Error | null>(null)
   const [busy, setBusy] = useState(false)
+  const [pendingTagRemoval, setPendingTagRemoval] = useState<
+    ({ tagKey: string } & TagDependentContentCounts) | null
+  >(null)
+  const [reassignTargetKey, setReassignTargetKey] = useState<string>('')
 
   const hydratedKey = hydrated
     ? `${hydrated.campaignId}:${hydrated.revision ?? 'none'}:${hydrated.updatedAt ?? ''}`
@@ -89,6 +99,8 @@ export function CampaignV2Wizard({
     setRunMode(hydrated.runMode)
     setSelectedTagKeys(hydrated.selectedTagKeys)
     setContents(hydrated.contents)
+    setPendingTagRemoval(null)
+    setReassignTargetKey('')
     setError(null)
     setApiErrorDetail(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,7 +223,71 @@ export function CampaignV2Wizard({
     })
   }, [name, runMode, resolvedTags, groups, contents])
 
+  const compatibleReassignmentTags = useMemo(() => {
+    if (!pendingTagRemoval) return []
+    return findCompatibleReassignmentTags({
+      removedTagKey: pendingTagRemoval.tagKey,
+      resolvedTags,
+      schemaLookup,
+    })
+  }, [pendingTagRemoval, resolvedTags, schemaLookup])
+
+  const handleSelectedTagKeysChange = (nextKeys: string[]) => {
+    const removed = selectedTagKeys.find((k) => !nextKeys.includes(k))
+    if (!removed) {
+      setSelectedTagKeys(nextKeys)
+      setPendingTagRemoval(null)
+      return
+    }
+    const deps = countDependentContentsForTag(contents, removed)
+    if (deps.totalAffected === 0) {
+      setSelectedTagKeys(nextKeys)
+      setPendingTagRemoval(null)
+      return
+    }
+    const compat = findCompatibleReassignmentTags({
+      removedTagKey: removed,
+      resolvedTags,
+      schemaLookup,
+    })
+    setPendingTagRemoval({ tagKey: removed, ...deps })
+    setReassignTargetKey(compat[0]?.tag_key ?? '')
+    setError(null)
+  }
+
+  const resolveTagRemoval = (mode: 'delete' | 'reassign') => {
+    if (!pendingTagRemoval) return
+    const compatSet = new Set(
+      compatibleReassignmentTags.map((t) => t.tag_key),
+    )
+    const result = applyTagRemovalResolution({
+      contents,
+      selectedTagKeys,
+      removedTagKey: pendingTagRemoval.tagKey,
+      resolution:
+        mode === 'delete'
+          ? { mode: 'delete' }
+          : { mode: 'reassign', targetTagKey: reassignTargetKey },
+      compatibleTagKeys: compatSet,
+    })
+    if (!result.ok) {
+      setError(result.message)
+      return
+    }
+    setSelectedTagKeys(result.nextSelectedTagKeys)
+    setContents(result.nextContents)
+    setPendingTagRemoval(null)
+    setReassignTargetKey('')
+    setError(null)
+  }
+
   const goNext = () => {
+    if (pendingTagRemoval) {
+      setError(
+        `Resolve dependent Articles for "${pendingTagRemoval.tagKey}" before continuing.`,
+      )
+      return
+    }
     const check = validateStep1Plan({ name, resolvedTags })
     if (!check.ok) {
       setError(check.message)
@@ -394,22 +470,111 @@ export function CampaignV2Wizard({
       </div>
 
       {step === 1 ? (
-        <CampaignPlanStep1
-          name={name}
-          onNameChange={setName}
-          runMode={runMode}
-          onRunModeChange={setRunMode}
-          selectedTagKeys={selectedTagKeys}
-          onSelectedTagKeysChange={setSelectedTagKeys}
-          tags={actionRegistry.data.tags}
-          sites={actionRegistry.data.sites}
-          paths={actionRegistry.data.paths}
-          cmsTypes={actionRegistry.data.cms_types}
-          scripts={scriptRegistry.data.scripts}
-          resolvedTags={resolvedTags}
-          loading={actionRegistry.loading || scriptRegistry.loading}
-          disabled={busy}
-        />
+        <>
+          {pendingTagRemoval ? (
+            <div className="rounded-[var(--radius-card)] border border-warning/60 bg-warning/10 p-4 space-y-3 text-xs">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+                <div className="space-y-1">
+                  <p className="font-semibold text-foreground">
+                    Action Tag &ldquo;{pendingTagRemoval.tagKey}&rdquo; has{' '}
+                    {pendingTagRemoval.totalAffected} dependent Article(s)
+                  </p>
+                  <p className="text-muted">
+                    Existing Articles in this Draft reference{' '}
+                    <code className="font-mono">{pendingTagRemoval.tagKey}</code>{' '}
+                    ({pendingTagRemoval.singleTargetCount} single-target
+                    {pendingTagRemoval.multiTargetCount > 0
+                      ? `, ${pendingTagRemoval.multiTargetCount} multi-assigned`
+                      : ''}
+                    ). Choose how to resolve them before removing this Tag:
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-end gap-2">
+                {compatibleReassignmentTags.length > 0 ? (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="space-y-1">
+                      <span className="text-[11px] text-muted">
+                        Reassign to compatible Tag
+                      </span>
+                      <Select
+                        className="w-64"
+                        disabled={busy}
+                        value={reassignTargetKey}
+                        onChange={(e) => setReassignTargetKey(e.target.value)}
+                      >
+                        {compatibleReassignmentTags.map((t) => (
+                          <option key={t.tag_key} value={t.tag_key}>
+                            {t.site_name} · {t.tag_key}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={busy || !reassignTargetKey}
+                      onClick={() => resolveTagRemoval('reassign')}
+                    >
+                      Reassign &amp; Remove Tag
+                    </Button>
+                  </div>
+                ) : (
+                  <span className="text-[11px] text-muted">
+                    No remaining compatible Action Tag is available for
+                    reassignment.
+                  </span>
+                )}
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="text-danger"
+                  disabled={busy}
+                  onClick={() => resolveTagRemoval('delete')}
+                >
+                  {pendingTagRemoval.multiTargetCount > 0 &&
+                  pendingTagRemoval.singleTargetCount === 0
+                    ? 'Remove Affected Assignments & Tag'
+                    : 'Delete Dependent Articles & Remove Tag'}
+                </Button>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setPendingTagRemoval(null)
+                    setReassignTargetKey('')
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <CampaignPlanStep1
+            name={name}
+            onNameChange={setName}
+            runMode={runMode}
+            onRunModeChange={setRunMode}
+            selectedTagKeys={selectedTagKeys}
+            onSelectedTagKeysChange={handleSelectedTagKeysChange}
+            tags={actionRegistry.data.tags}
+            sites={actionRegistry.data.sites}
+            paths={actionRegistry.data.paths}
+            cmsTypes={actionRegistry.data.cms_types}
+            scripts={scriptRegistry.data.scripts}
+            resolvedTags={resolvedTags}
+            loading={actionRegistry.loading || scriptRegistry.loading}
+            disabled={busy}
+          />
+        </>
       ) : (
         <CampaignContentStep2
           name={name}

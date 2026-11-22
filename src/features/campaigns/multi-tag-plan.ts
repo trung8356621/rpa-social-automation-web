@@ -961,11 +961,158 @@ export function buildV2BulkDeleteUpdate(params: {
   })
   if (!built.ok) return built
 
-  return {
+    return {
     ok: true,
     input: built.input,
     deletedCount: planned.length - remaining.length,
   }
+}
+
+export type TagDependentContentCounts = {
+  totalAffected: number
+  singleTargetCount: number
+  multiTargetCount: number
+}
+
+export function countDependentContentsForTag(
+  contents: PlannedContentItem[],
+  tagKey: string,
+): TagDependentContentCounts {
+  let singleTargetCount = 0
+  let multiTargetCount = 0
+  for (const c of contents) {
+    if (!c.target_tag_keys.includes(tagKey)) continue
+    if (c.target_tag_keys.length > 1) multiTargetCount++
+    else singleTargetCount++
+  }
+  return {
+    totalAffected: singleTargetCount + multiTargetCount,
+    singleTargetCount,
+    multiTargetCount,
+  }
+}
+
+/**
+ * Find remaining runnable Action Tags whose Script schema is compatible with
+ * `removedTagKey` so dependent Articles can be safely reassigned.
+ */
+export function findCompatibleReassignmentTags(params: {
+  removedTagKey: string
+  resolvedTags: ResolvedActionTagPlan[]
+  schemaLookup: ScriptSchemaLookup
+}): ResolvedActionTagPlan[] {
+  const removed = params.resolvedTags.find(
+    (t) => t.tag_key === params.removedTagKey,
+  )
+  if (!removed?.effective_script) return []
+  const removedTKey = scriptTargetKey(
+    removed.effective_script.package_key,
+    removed.effective_script.version,
+  )
+  const removedSchema = params.schemaLookup[removedTKey]?.schema
+  const removedCompatKey = schemaCompatibilityKey(
+    removed.effective_script.package_key,
+    removed.effective_script.version,
+    removedSchema,
+  )
+
+  return params.resolvedTags.filter((t) => {
+    if (t.tag_key === params.removedTagKey) return false
+    if (!t.is_runnable || !t.effective_script) return false
+    const tKey = scriptTargetKey(
+      t.effective_script.package_key,
+      t.effective_script.version,
+    )
+    const tSchema = params.schemaLookup[tKey]?.schema
+    const compatKey = schemaCompatibilityKey(
+      t.effective_script.package_key,
+      t.effective_script.version,
+      tSchema,
+    )
+    return compatKey === removedCompatKey
+  })
+}
+
+export type TagRemovalResolution =
+  | { mode: 'delete' }
+  | { mode: 'reassign'; targetTagKey: string }
+
+/**
+ * Apply an explicit resolution when removing an Action Tag that has
+ * dependent Contents. Never silently reassigns Articles to another Site.
+ */
+export function applyTagRemovalResolution(params: {
+  contents: PlannedContentItem[]
+  selectedTagKeys: string[]
+  removedTagKey: string
+  resolution: TagRemovalResolution
+  compatibleTagKeys: ReadonlySet<string>
+}):
+  | {
+      ok: true
+      nextSelectedTagKeys: string[]
+      nextContents: PlannedContentItem[]
+    }
+  | { ok: false; message: string } {
+  if (params.resolution.mode === 'reassign') {
+    const target = params.resolution.targetTagKey.trim()
+    if (!target || target === params.removedTagKey) {
+      return {
+        ok: false,
+        message: 'Select a valid target Action Tag for reassignment.',
+      }
+    }
+    if (!params.compatibleTagKeys.has(target)) {
+      return {
+        ok: false,
+        message: `Cannot reassign to "${target}" because its Script schema is incompatible with "${params.removedTagKey}".`,
+      }
+    }
+  }
+
+  const nextSelectedTagKeys = params.selectedTagKeys.filter(
+    (k) => k !== params.removedTagKey,
+  )
+  const nextContents: PlannedContentItem[] = []
+
+  for (const item of params.contents) {
+    if (!item.target_tag_keys.includes(params.removedTagKey)) {
+      nextContents.push(item)
+      continue
+    }
+
+    const otherTags = item.target_tag_keys.filter(
+      (k) => k !== params.removedTagKey,
+    )
+    const nextAssignMap = { ...(item.persisted_assignments_by_tag ?? {}) }
+    delete nextAssignMap[params.removedTagKey]
+
+    if (params.resolution.mode === 'delete') {
+      if (otherTags.length > 0) {
+        // Multi-assigned legacy Content: preserve Content with remaining valid assignments
+        nextContents.push({
+          ...item,
+          target_tag_keys: otherTags,
+          persisted_assignments_by_tag: nextAssignMap,
+        })
+      }
+      // Single-target Content: omit (deleted)
+      continue
+    }
+
+    // Reassign mode
+    const target = params.resolution.targetTagKey
+    const mergedTags = otherTags.includes(target)
+      ? otherTags
+      : [...otherTags, target]
+    nextContents.push({
+      ...item,
+      target_tag_keys: mergedTags,
+      persisted_assignments_by_tag: nextAssignMap,
+    })
+  }
+
+  return { ok: true, nextSelectedTagKeys, nextContents }
 }
 
 export function validateStep2Plan(params: {
@@ -1051,7 +1198,9 @@ export function validateStep2Plan(params: {
       if (!tag || !tag.is_runnable || !tag.effective_script || !group) {
         return {
           ok: false,
-          message: `${label}: Target Action Tag "${tk}" is not runnable.`,
+          message: !tag
+            ? `${label}: Target Action Tag "${tk}" was removed from the Campaign plan. Remove or reassign its Articles in Step 1.`
+            : `${label}: Target Action Tag "${tk}" is not runnable.`,
         }
       }
       groupKeysUsed.add(group.group_key)
