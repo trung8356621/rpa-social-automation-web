@@ -8,9 +8,11 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
 import type { ScriptDetail, ScriptListItem, ScriptSharingMode } from '../types'
+import { partitionScriptsIntoVariantGroups } from '../variant-groups'
 import { RemoveScriptDialog } from './RemoveScriptDialog'
 import { ScriptCard } from './ScriptCard'
 import { ScriptDetailsDrawer } from './ScriptDetailsDrawer'
+import { ScriptVariantGroupCard } from './ScriptVariantGroupCard'
 import {
   VideoPlayerModal,
   videoTargetFromScript,
@@ -96,6 +98,13 @@ export function ScriptsScreen({
   }
 
   const isLive = mode === 'live'
+  const partitioned = useMemo(
+    () =>
+      partitionScriptsIntoVariantGroups(filtered, {
+        backendSupported: false,
+      }),
+    [filtered],
+  )
 
   return (
     <div className="space-y-4">
@@ -166,18 +175,49 @@ export function ScriptsScreen({
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2 min-[1400px]:grid-cols-3">
-          {filtered.map((script) => (
-            <ScriptCard
-              key={script.package_key}
-              script={script}
-              removeEnabled={mutationsEnabled}
-              onOpenDetails={setDetail}
-              onPlayVideo={openVideo}
-              onRemove={setConfirmKey}
-              onUpdateSharing={onUpdateSharing}
-            />
-          ))}
+        <div className="space-y-6">
+          {partitioned.groups.length > 0 ? (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Action Variant Groups ({partitioned.groups.length})
+                  </h2>
+                  <p className="text-xs text-muted">
+                    {isLive
+                      ? 'Read-only preview: Backend variant group & fallback priority persistence API is not available yet.'
+                      : 'MOCK preview: configure language labels and fallback priority order per logical Action.'}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {partitioned.groups.map((group) => (
+                  <ScriptVariantGroupCard
+                    key={group.group_key}
+                    group={group}
+                    mode={mode}
+                    onOpenDetails={setDetail}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {partitioned.ungrouped.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4 min-[900px]:grid-cols-2 min-[1400px]:grid-cols-3">
+              {partitioned.ungrouped.map((script) => (
+                <ScriptCard
+                  key={script.package_key}
+                  script={script}
+                  removeEnabled={mutationsEnabled}
+                  onOpenDetails={setDetail}
+                  onPlayVideo={openVideo}
+                  onRemove={setConfirmKey}
+                  onUpdateSharing={onUpdateSharing}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
 
