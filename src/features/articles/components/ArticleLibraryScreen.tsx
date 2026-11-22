@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Eye, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { Eye, Pencil, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
@@ -33,6 +33,7 @@ import type {
   SaveLibraryArticleInput,
 } from '../types'
 import { validateSaveLibraryArticle } from '../validation'
+import { BulkMockArticleModal } from './BulkMockArticleModal'
 
 type Props = {
   articles: LibraryArticle[]
@@ -88,6 +89,7 @@ export function ArticleLibraryScreen({
   const [statusFilter, setStatusFilter] = useState('all')
 
   const [editorOpen, setEditorOpen] = useState(false)
+  const [bulkMockOpen, setBulkMockOpen] = useState(false)
   const [editingArticle, setEditingArticle] = useState<LibraryArticle | null>(null)
   const [previewArticle, setPreviewArticle] = useState<LibraryArticle | null>(null)
 
@@ -284,10 +286,20 @@ export function ArticleLibraryScreen({
             : 'Create and manage reusable Articles independently of Campaigns.'
         }
         actions={
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="size-3.5" />
-            New Article
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setBulkMockOpen(true)}
+            >
+              <Sparkles className="size-3.5" />
+              Bulk Mock
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-3.5" />
+              New Article
+            </Button>
+          </div>
         }
       />
 
@@ -674,6 +686,22 @@ export function ArticleLibraryScreen({
           </div>
         </div>
       ) : null}
+
+      <BulkMockArticleModal
+        open={bulkMockOpen}
+        onClose={() => setBulkMockOpen(false)}
+        sites={sites}
+        paths={paths}
+        selectableTags={selectableTags}
+        cmsTypes={cmsTypes}
+        scripts={scripts}
+        scriptDetails={scriptDetails}
+        getMockSchema={getMockSchema}
+        existingRefs={articles
+          .map((a) => a.external_ref)
+          .filter((r): r is string => Boolean(r))}
+        onCreateArticle={onCreate}
+      />
 
       {previewArticle ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

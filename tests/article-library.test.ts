@@ -4,6 +4,10 @@ import { resolve } from 'node:path'
 import test from 'node:test'
 
 import {
+  buildBulkMockArticleDrafts,
+  runBulkMockCreate,
+} from '../src/features/articles/bulk-mock.ts'
+import {
   extractArticlePreview,
   mapLiveCampaignArticleAssignment,
   mapLiveLibraryArticle,
@@ -355,3 +359,138 @@ test('DTO mappers and API validation error formatting', () => {
   })
   assert.match(toSafeApiMessage(err), /draft status/i)
 })
+
+test('Bulk Mock generates 5 independent Articles, saves without Campaign, and handles partial failure + safe retry without duplicates', async () => {
+  resetMockCampaignStore()
+  resetMockArticleStore()
+
+  const draftsResult = buildBulkMockArticleDrafts({
+    tag: {
+      tag_id: 1,
+      tag_key: 'mayhopphat.create_post',
+      tag_name: 'Create Post',
+      tag_enabled: true,
+      site_key: 'mayhopphat',
+      site_name: 'MayHopPhat',
+      cms_type: 'wordpress',
+      path_key: 'create_post',
+      path_name: 'Create Post',
+      effective_script: {
+        package_key: 'mayhopphat.create_post',
+        script_id: 'mayhopphat.create_post',
+        name: 'WP Create Post',
+        version: '1.0.0',
+        release_id: 101,
+      },
+      resolution_source: 'site_specific',
+      is_system_auth: false,
+      is_runnable: true,
+      status_reason: null,
+    },
+    schema: WP_SCHEMA,
+    count: 5,
+    existingRefs: ['mock-1-old'],
+  })
+
+  assert.equal(draftsResult.ok, true)
+  if (!draftsResult.ok) return
+  assert.equal(draftsResult.items.length, 5)
+
+  // Verify each generated article has 1 Action Tag, no campaign_id, required variables, and recognizable TEST Mock title
+  const titles = new Set<string>()
+  for (const item of draftsResult.items) {
+    assert.equal('campaign_id' in item.payload, false)
+    assert.equal(item.payload.action_tag_key, 'mayhopphat.create_post')
+    assert.equal(item.payload.status, 'ready')
+    assert.ok(item.payload.input?.wp_title)
+    assert.ok(item.payload.input?.wp_body)
+    assert.match(item.previewTitle, /TEST Mock/i)
+    titles.add(item.previewTitle)
+  }
+  assert.equal(titles.size, 5)
+
+  // Simulate partial failure on item #3 (index 2)
+  let callCount = 0
+  const createdRefs: string[] = []
+  const firstRun = await runBulkMockCreate(draftsResult.items, async (payload) => {
+    callCount++
+    if (callCount === 3) {
+      throw new ApiError('Temporary validation failure', {
+        kind: 'validation',
+        status: 422,
+      })
+    }
+    const created = await mockArticleAdapter.createArticle(payload)
+    if (created.external_ref) createdRefs.push(created.external_ref)
+    return created
+  })
+
+  assert.equal(firstRun.createdCount, 4)
+  assert.equal(firstRun.failedCount, 1)
+  assert.equal(createdRefs.length, 4)
+
+  // Retry failed: must ONLY call createFn for the 1 failed item (no duplicates for the 4 already created)
+  let retryCalls = 0
+  const retryRun = await runBulkMockCreate(firstRun.items, async (payload) => {
+    retryCalls++
+    const created = await mockArticleAdapter.createArticle(payload)
+    if (created.external_ref) createdRefs.push(created.external_ref)
+    return created
+  })
+
+  assert.equal(retryCalls, 1)
+  assert.equal(retryRun.createdCount, 5)
+  assert.equal(retryRun.failedCount, 0)
+  assert.equal(new Set(createdRefs).size, 5)
+
+  // Verify all 5 persist in Article Library and can be assigned to a Campaign Draft
+  const listed = await mockArticleAdapter.listArticles({
+    site_key: 'mayhopphat',
+    action_tag_key: 'mayhopphat.create_post',
+  })
+  const createdArticles = listed.filter((a) =>
+    createdRefs.includes(a.external_ref ?? ''),
+  )
+  assert.equal(createdArticles.length, 5)
+
+  const draftCamp = await mockCampaignAdapter.createCampaignV2({
+    name: 'Draft Using Bulk Mock Articles',
+    run_mode: 'live',
+    execution_mode: 'one_account_one_job',
+    action_tags: [
+      {
+        action_tag_id: 1,
+        action_tag_key: 'mayhopphat.create_post',
+        site_key: 'mayhopphat',
+        site_name: 'MayHopPhat',
+        cms_type: 'wordpress',
+        script_package_key: 'mayhopphat.create_post',
+        script_name: 'WP Create Post',
+        script_version: '1.0.0',
+        release_id: 101,
+        resolution_source: 'site_specific',
+        shortcode_mapping: { entries: [{ shortcode: 'wp_title', variable: 'wp_title' }] },
+      },
+    ],
+    contents: [],
+  })
+  assert.equal(draftCamp.status, 'draft')
+
+  const assigned = await mockArticleAdapter.assignCampaignArticles(
+    draftCamp.id,
+    createdArticles.map((a, i) => ({ article_id: a.id, sort_order: i + 1 })),
+  )
+  assert.equal(assigned.length, 5)
+
+  // Verify Bulk Mock button is visible in ArticleLibraryScreen
+  const screenSrc = readFileSync(
+    resolve(
+      process.cwd(),
+      'src/features/articles/components/ArticleLibraryScreen.tsx',
+    ),
+    'utf8',
+  )
+  assert.equal(screenSrc.includes('Bulk Mock'), true)
+  assert.equal(screenSrc.includes('BulkMockArticleModal'), true)
+})
+
