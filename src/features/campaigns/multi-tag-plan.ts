@@ -15,6 +15,7 @@ import {
   type ShortcodeMappingFormEntry,
 } from './shortcode-mapping.ts'
 import { assertPlainShortcodeSource } from './shortcode-source.ts'
+import { isCampaignV2 } from './validation.ts'
 import type {
   Campaign,
   CampaignActionTagPlan,
@@ -505,6 +506,112 @@ export function generateBulkMockContentsForGroup(params: {
       createPlannedContentItem({
         external_ref: ref,
         target_tag_keys: [...params.group.tag_keys],
+        raw_source: lines.join('\n'),
+      }),
+    )
+    seq++
+  }
+
+  return { ok: true, items }
+}
+
+/**
+ * Filter an Article/Content row by Site key.
+ * - For V2 Campaigns: checks canonical Content assignments (action_tag_key -> site_key),
+ *   never falling back to top-level campaign.site_key or shared Script package.
+ * - For V1 Campaigns: preserves legacy campaign.site_key filtering.
+ */
+export function matchesArticleSiteFilter(
+  row: CampaignContent,
+  campaign: Campaign | undefined,
+  siteFilter: string,
+): boolean {
+  if (!siteFilter || siteFilter === 'all') return true
+  if (campaign && isCampaignV2(campaign)) {
+    const tagSiteMap = new Map(
+      (campaign.action_tags ?? []).map((t) => [t.action_tag_key, t.site_key]),
+    )
+    return (row.assignments ?? []).some((a) => {
+      const mappedSite = tagSiteMap.get(a.action_tag_key)
+      if (mappedSite) return mappedSite === siteFilter
+      return a.action_tag_key.startsWith(`${siteFilter}.`)
+    })
+  }
+  return campaign?.site_key === siteFilter
+}
+
+/**
+ * Generate N distinct mock Content items for ONE selected target Action Tag.
+ * Each generated Content item has exactly ONE target_tag_keys entry.
+ * Never distributes across multiple Sites/Tags and never invents Script variables.
+ */
+export function generateBulkMockContentsForTag(params: {
+  tag: ResolvedActionTagPlan
+  schema: ScriptInputSchema
+  count: number
+  existingRefs?: Iterable<string>
+  startSeq?: number
+}): { ok: true; items: PlannedContentItem[] } | { ok: false; message: string } {
+  const count = Math.floor(params.count)
+  if (!Number.isFinite(count) || count < 1) {
+    return { ok: false, message: 'Quantity must be at least 1.' }
+  }
+  if (!params.tag.effective_script) {
+    return {
+      ok: false,
+      message: `Action Tag "${params.tag.tag_key}" has no resolved Script.`,
+    }
+  }
+  const auto = buildAutoShortcodeMapping(params.schema)
+  if (!auto.ok) {
+    return {
+      ok: false,
+      message: `${params.tag.tag_key}: ${auto.error}`,
+    }
+  }
+
+  const usedRefs = new Set<string>()
+  if (params.existingRefs) {
+    for (const r of params.existingRefs) {
+      const trimmed = r.trim()
+      if (trimmed) usedRefs.add(trimmed)
+    }
+  }
+
+  const vars = allScriptVariables(params.schema).filter(
+    (v) => v.type !== 'secret',
+  )
+  const items: PlannedContentItem[] = []
+  let seq = Math.max(1, params.startSeq ?? 1)
+  const batchTag = Date.now().toString(36).slice(-4)
+
+  for (let i = 0; i < count; i++) {
+    let ref = `mock-${seq}-${batchTag}`
+    while (usedRefs.has(ref)) {
+      seq++
+      ref = `mock-${seq}-${batchTag}`
+    }
+    usedRefs.add(ref)
+
+    const lines: string[] = []
+    for (const v of vars) {
+      let sample: string
+      if (v.type === 'number') {
+        sample = String(seq)
+      } else if (v.type === 'boolean') {
+        sample = seq % 2 === 0 ? 'false' : 'true'
+      } else if (v.key === 'title') {
+        sample = `TEST Mock Title #${seq} (${params.tag.site_key} · ${ref})`
+      } else {
+        sample = `TEST Mock ${v.key} #${seq} (${params.tag.site_key} · ${ref})`
+      }
+      lines.push(`[${v.key}]${sample}[/${v.key}]`)
+    }
+
+    items.push(
+      createPlannedContentItem({
+        external_ref: ref,
+        target_tag_keys: [params.tag.tag_key],
         raw_source: lines.join('\n'),
       }),
     )

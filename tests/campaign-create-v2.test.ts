@@ -27,11 +27,13 @@ import {
   filterSelectableCampaignTags,
   formatCampaignV2ApiError,
   generateBulkMockContentsForGroup,
+  generateBulkMockContentsForTag,
   generateMockContentForGroup,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
   inspectV2UpdateSupport,
   isSystemAuthenticationTag,
+  matchesArticleSiteFilter,
   resolveActionTagScript,
   resolveActionTagWithPin,
   scriptTargetKey,
@@ -1472,5 +1474,181 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
       fmtClient.message,
       'mock-1: Assign at least one target Action Tag.',
     )
+  })
+
+  it('enforces one-article-one-tag ownership for bulk mock, manual articles, site filtering, and mock cleanup across 4 Sites sharing 1 Script', async () => {
+    const fourSites: Site[] = [1, 2, 3, 4].map((n) => ({
+      id: 300 + n,
+      key: `site${n}`,
+      name: `Site ${n}`,
+      base_url: `https://site${n}.example`,
+      cms_type: 'wordpress',
+    }))
+    const fourTags: ActionTagItem[] = [1, 2, 3, 4].map((n) => ({
+      id: 400 + n,
+      tag_key: `site${n}.create_post`,
+      site_key: `site${n}`,
+      site_name: `Site ${n}`,
+      path_key: 'create_post',
+      path_name: 'Create Post',
+      name: `Site ${n} Create Post`,
+      scripts_count: 1,
+      ready: true,
+      enabled: true,
+    }))
+    const sharedScript: ScriptListItem = {
+      package_key: 'site1.create_post',
+      script_id: 'site1.create_post',
+      name: 'WP Create Post',
+      action_tag_key: 'site1.create_post',
+      version: '1.0.0',
+      release_id: 701,
+      status: 'published',
+      assets_complete: true,
+      video_demo_status: 'ready',
+      has_playable_video: true,
+      has_thumbnail: true,
+      video_media_id: 1,
+      thumbnail_media_id: 2,
+      thumbnail_url: null,
+      video_url: null,
+      last_sync_label: 'now',
+      updated_by_label: 'staff',
+      sharing_mode: 'cms_global',
+      global_scope: 'wordpress:create_post',
+    }
+    const titleSchema: ScriptInputSchema = {
+      fields: [],
+      test_mode_compatible: null,
+      title_required: true,
+      body_required: false,
+      schema_available: true,
+      title_supported: true,
+      body_supported: false,
+      unavailable_reason: null,
+    }
+    const schemaLookup = {
+      [scriptTargetKey('site1.create_post', '1.0.0')]: {
+        schema: titleSchema,
+        loading: false,
+        error: null,
+      },
+    }
+    const resolved4 = fourTags.map((t, idx) =>
+      resolveActionTagScript(t, fourSites[idx], [sharedScript]),
+    )
+    const groups = groupTagsByCompatibleSchema(
+      resolved4,
+      schemaLookup,
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+
+    resetMockCampaignStore()
+    const camp = await mockCampaignAdapter.createCampaignV2(
+      buildCreateCampaignV2Input({
+        name: 'One Article One Tag',
+        run_mode: 'live',
+        resolvedTags: resolved4,
+        groups,
+        groupMappings: {
+          [groups[0]!.group_key]: {
+            entries: [{ shortcode: 'title', variable: 'title' }],
+          },
+        },
+        validatedContents: [],
+      }),
+    )
+
+    // 1. Generate 20 mocks ONLY for site1.create_post
+    const gen20 = generateBulkMockContentsForTag({
+      tag: resolved4[0]!,
+      schema: titleSchema,
+      count: 20,
+    })
+    assert.equal(gen20.ok, true)
+    if (!gen20.ok) return
+    assert.equal(gen20.items.length, 20)
+    assert.deepEqual(gen20.items[0]!.target_tag_keys, ['site1.create_post'])
+
+    const plan1 = buildV2PlanUpdateFromCampaign({
+      campaign: camp,
+      contents: gen20.items,
+      schemaLookup,
+    })
+    assert.equal(plan1.ok, true)
+    if (!plan1.ok) return
+    const saved1 = await mockCampaignAdapter.updateCampaignV2(plan1.input)
+    assert.equal(saved1.contents?.length, 20)
+    assert.equal(saved1.contents?.[0]?.assignments?.length, 1)
+    assert.equal(
+      saved1.contents?.[0]?.assignments?.[0]?.action_tag_key,
+      'site1.create_post',
+    )
+
+    // 2. Generate 10 more mocks ONLY for site2.create_post
+    const existing1 = campaignToV2WizardState(saved1, saved1.contents ?? []).contents
+    const gen10 = generateBulkMockContentsForTag({
+      tag: resolved4[1]!,
+      schema: titleSchema,
+      count: 10,
+      existingRefs: existing1.map((c) => c.external_ref),
+      startSeq: 21,
+    })
+    assert.equal(gen10.ok, true)
+    if (!gen10.ok) return
+    assert.deepEqual(gen10.items[0]!.target_tag_keys, ['site2.create_post'])
+
+    // Also add 1 non-mock manual article for site3.create_post
+    const manualItem = createPlannedContentItem({
+      external_ref: 'manual-site3-1',
+      target_tag_keys: ['site3.create_post'],
+      raw_source: '[title]Manual Site 3 Post[/title]',
+    })
+
+    const plan2 = buildV2PlanUpdateFromCampaign({
+      campaign: saved1,
+      contents: [...existing1, ...gen10.items, manualItem],
+      schemaLookup,
+    })
+    assert.equal(plan2.ok, true)
+    if (!plan2.ok) return
+    const saved2 = await mockCampaignAdapter.updateCampaignV2(plan2.input)
+    assert.equal(saved2.contents?.length, 31)
+
+    // 3. Site filter uses canonical V2 assignments (not top-level campaign.site_key)
+    const rows = saved2.contents ?? []
+    assert.equal(
+      rows.filter((r) => matchesArticleSiteFilter(r, saved2, 'site1')).length,
+      20,
+    )
+    assert.equal(
+      rows.filter((r) => matchesArticleSiteFilter(r, saved2, 'site2')).length,
+      10,
+    )
+    assert.equal(
+      rows.filter((r) => matchesArticleSiteFilter(r, saved2, 'site3')).length,
+      1,
+    )
+    assert.equal(
+      rows.filter((r) => matchesArticleSiteFilter(r, saved2, 'site4')).length,
+      0,
+    )
+
+    // 4. Clear mock-* articles removes only mock-* while preserving manual-site3-1 and Action Tags
+    const nonMocks = campaignToV2WizardState(saved2, rows).contents.filter(
+      (c) => !c.external_ref.startsWith('mock-'),
+    )
+    const cleanupPlan = buildV2PlanUpdateFromCampaign({
+      campaign: saved2,
+      contents: nonMocks,
+      schemaLookup,
+    })
+    assert.equal(cleanupPlan.ok, true)
+    if (!cleanupPlan.ok) return
+    const cleaned = await mockCampaignAdapter.updateCampaignV2(cleanupPlan.input)
+    assert.equal(cleaned.contents?.length, 1)
+    assert.equal(cleaned.contents?.[0]?.external_ref, 'manual-site3-1')
+    assert.equal(cleaned.action_tags?.length, 4)
+    assert.equal(cleaned.allowed_actions.includes('start'), false)
   })
 })

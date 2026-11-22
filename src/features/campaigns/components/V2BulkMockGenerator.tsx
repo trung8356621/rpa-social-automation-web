@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Sparkles } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Sparkles, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,39 +9,58 @@ import { Select } from '@/components/ui/select'
 import {
   formatCampaignV2ApiError,
   type FormattedCampaignV2Error,
-  type SchemaMappingGroup,
 } from '../multi-tag-plan'
+import type { CampaignActionTagPlan } from '../types'
 
 const PRESET_COUNTS = [1, 10, 20, 50, 100] as const
 
+export type V2MockTagOption = {
+  tag: CampaignActionTagPlan
+  schemaReady: boolean
+  loading: boolean
+}
+
 type Props = {
-  groups: SchemaMappingGroup[]
+  tagOptions: V2MockTagOption[]
+  mockCount?: number
   disabled?: boolean
-  onGenerateAndSave: (
-    count: number,
-    groupKey: string | 'all',
-  ) => Promise<void>
+  onGenerateAndSave: (count: number, actionTagKey: string) => Promise<void>
+  onClearMocks?: () => Promise<void>
   onReloadCampaign?: () => Promise<void>
 }
 
 export function V2BulkMockGenerator({
-  groups,
+  tagOptions,
+  mockCount = 0,
   disabled = false,
   onGenerateAndSave,
+  onClearMocks,
   onReloadCampaign,
 }: Props) {
   const [count, setCount] = useState<number>(20)
-  const [targetGroupKey, setTargetGroupKey] = useState<string>('all')
+  const [selectedTagKey, setSelectedTagKey] = useState<string>(
+    tagOptions[0]?.tag.action_tag_key ?? '',
+  )
   const [busy, setBusy] = useState(false)
   const [errorDetail, setErrorDetail] =
     useState<FormattedCampaignV2Error | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
-  const anyLoading = groups.some((g) => g.loading)
-  const readyGroups = groups.filter((g) => g.schema.schema_available)
+  useEffect(() => {
+    if (tagOptions.length === 0) {
+      setSelectedTagKey('')
+      return
+    }
+    if (!tagOptions.some((o) => o.tag.action_tag_key === selectedTagKey)) {
+      setSelectedTagKey(tagOptions[0]!.tag.action_tag_key)
+    }
+  }, [tagOptions, selectedTagKey])
+
+  const selectedOption =
+    tagOptions.find((o) => o.tag.action_tag_key === selectedTagKey) ?? null
 
   const handleGenerate = async () => {
-    if (busy || disabled) return
+    if (busy || disabled || !selectedTagKey) return
     const qty = Math.floor(count)
     if (!Number.isFinite(qty) || qty < 1) {
       setErrorDetail({
@@ -61,10 +80,32 @@ export function V2BulkMockGenerator({
     setErrorDetail(null)
     setStatusMessage(null)
     try {
-      await onGenerateAndSave(qty, targetGroupKey)
+      await onGenerateAndSave(qty, selectedTagKey)
       setStatusMessage(
-        `Generated and saved ${qty} mock article(s) via V2 Draft PUT.`,
+        `Generated and saved ${qty} mock article(s) for ${selectedTagKey} via V2 Draft PUT.`,
       )
+    } catch (err) {
+      setErrorDetail(formatCampaignV2ApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleClearMocks = async () => {
+    if (!onClearMocks || busy || disabled || mockCount <= 0) return
+    if (
+      !window.confirm(
+        `Remove ${mockCount} generated mock article(s) (external_ref starting with "mock-") from this V2 Draft Campaign? Non-mock articles and Action Tags will be preserved.`,
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setErrorDetail(null)
+    setStatusMessage(null)
+    try {
+      await onClearMocks()
+      setStatusMessage(`Removed ${mockCount} mock article(s) via V2 Draft PUT.`)
     } catch (err) {
       setErrorDetail(formatCampaignV2ApiError(err))
     } finally {
@@ -91,14 +132,47 @@ export function V2BulkMockGenerator({
             Generate Mock Articles (Campaign V2)
           </h2>
           <p className="text-[11px] text-muted">
-            Generates N distinct sample Contents using automatic pinned Script
-            variable mappings and saves in one V2 Draft PUT without overwriting
-            existing Content.
+            One Article targets exactly one selected Site / Action Tag. Generates
+            N distinct sample Contents using that Tag&apos;s pinned Script
+            schema and saves in one V2 Draft PUT.
           </p>
         </div>
+        {mockCount > 0 && onClearMocks ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-danger"
+            disabled={disabled || busy}
+            onClick={() => void handleClearMocks()}
+          >
+            <Trash2 className="size-3.5" />
+            Clear Mock Articles ({mockCount})
+          </Button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[18rem] flex-1 space-y-1">
+          <Label htmlFor="v2_mock_target_tag">Target Site / Action Tag</Label>
+          <Select
+            id="v2_mock_target_tag"
+            disabled={disabled || busy || tagOptions.length === 0}
+            value={selectedTagKey}
+            onChange={(e) => setSelectedTagKey(e.target.value)}
+          >
+            {tagOptions.length === 0 ? (
+              <option value="">No Action Tags in Campaign</option>
+            ) : null}
+            {tagOptions.map(({ tag }) => (
+              <option key={tag.action_tag_key} value={tag.action_tag_key}>
+                {tag.site_name} · {tag.action_tag_key} ({tag.script_name} v
+                {tag.script_version})
+              </option>
+            ))}
+          </Select>
+        </div>
+
         <div className="space-y-1">
           <Label htmlFor="v2_mock_qty">Quantity</Label>
           <div className="flex items-center gap-1.5">
@@ -127,30 +201,15 @@ export function V2BulkMockGenerator({
           </div>
         </div>
 
-        <div className="min-w-[16rem] flex-1 space-y-1">
-          <Label htmlFor="v2_mock_scope">Target Scope</Label>
-          <Select
-            id="v2_mock_scope"
-            disabled={disabled || busy || groups.length === 0}
-            value={targetGroupKey}
-            onChange={(e) => setTargetGroupKey(e.target.value)}
-          >
-            <option value="all">
-              All compatible Script groups ({groups.length})
-            </option>
-            {groups.map((g) => (
-              <option key={g.group_key} value={g.group_key}>
-                {g.script_name} v{g.script_version} ({g.tag_keys.join(', ')})
-              </option>
-            ))}
-          </Select>
-        </div>
-
         <Button
           type="button"
           size="sm"
           disabled={
-            disabled || busy || anyLoading || readyGroups.length === 0
+            disabled ||
+            busy ||
+            !selectedOption ||
+            selectedOption.loading ||
+            !selectedOption.schemaReady
           }
           onClick={() => void handleGenerate()}
         >

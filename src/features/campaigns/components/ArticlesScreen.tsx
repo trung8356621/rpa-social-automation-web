@@ -18,7 +18,9 @@ import { resolveArticlesListState } from '../articles-list-state'
 import { checkContentLength, siteContentPolicy } from '../content-limit'
 import {
   formatCampaignV2ApiError,
-  type SchemaMappingGroup,
+  matchesArticleSiteFilter,
+  scriptTargetKey,
+  type ScriptSchemaLookup,
 } from '../multi-tag-plan'
 import { buildAutoShortcodeMapping } from '../shortcode-mapping'
 import { contentListPreview } from '../shortcode-source'
@@ -41,7 +43,7 @@ import type {
 import { ManualArticleEditor } from './ManualArticleEditor'
 import { MockArticleGenerator } from './MockArticleGenerator'
 import { ShortcodeArticleEditor } from './ShortcodeArticleEditor'
-import { V2BulkMockGenerator } from './V2BulkMockGenerator'
+import { V2BulkMockGenerator, type V2MockTagOption } from './V2BulkMockGenerator'
 
 type ContentSaveOpts = {
   schema: ScriptInputSchema
@@ -75,11 +77,10 @@ type Props = {
   contentsError?: string | null
   schemaLoading?: boolean
   schemaError?: string | null
-  v2Groups?: SchemaMappingGroup[]
-  onV2BulkMockSave?: (
-    count: number,
-    groupKey: string | 'all',
-  ) => Promise<void>
+  v2TagOptions?: V2MockTagOption[]
+  v2SchemaLookup?: ScriptSchemaLookup
+  onV2BulkMockSave?: (count: number, actionTagKey: string) => Promise<void>
+  onV2ClearMocks?: () => Promise<void>
   onV2SaveContent?: (draft: {
     editingId: string | null
     externalRef: string
@@ -118,8 +119,10 @@ export function ArticlesScreen({
   contentsError = null,
   schemaLoading = false,
   schemaError = null,
-  v2Groups = [],
+  v2TagOptions = [],
+  v2SchemaLookup = {},
   onV2BulkMockSave,
+  onV2ClearMocks,
   onV2SaveContent,
   onV2DeleteContent,
   onReloadCampaign,
@@ -132,7 +135,7 @@ export function ArticlesScreen({
   const [creating, setCreating] = useState(false)
   const [previewId, setPreviewId] = useState<string | null>(null)
   const [externalRef, setExternalRef] = useState('')
-  const [v2TargetTags, setV2TargetTags] = useState<string[]>([])
+  const [v2TargetTag, setV2TargetTag] = useState<string>('')
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [rawSource, setRawSource] = useState('')
@@ -172,7 +175,7 @@ export function ArticlesScreen({
     return contents.filter((c) => {
       if (campaignId && c.campaign_id !== campaignId) return false
       const camp = campaigns.find((x) => x.id === c.campaign_id)
-      if (siteFilter !== 'all' && camp?.site_key !== siteFilter) return false
+      if (!matchesArticleSiteFilter(c, camp, siteFilter)) return false
       if (statusFilter !== 'all' && c.status !== statusFilter) return false
       if (!q) return true
       const hay = [
@@ -192,7 +195,7 @@ export function ArticlesScreen({
 
   const resetForm = () => {
     setExternalRef('')
-    setV2TargetTags([])
+    setV2TargetTag('')
     setTitle('')
     setBody('')
     setRawSource('')
@@ -206,8 +209,8 @@ export function ArticlesScreen({
   const openCreate = () => {
     resetForm()
     if (isV2Campaign) {
-      const firstGroup = v2Groups[0]
-      setV2TargetTags(firstGroup ? [...firstGroup.tag_keys] : [])
+      const firstTag = v2TagOptions[0]?.tag.action_tag_key ?? ''
+      setV2TargetTag(firstTag)
       setExternalRef(`post-${filtered.length + 1}`)
       setCreating(true)
       return
@@ -230,7 +233,7 @@ export function ArticlesScreen({
     setEditingId(row.id)
     setExternalRef(row.external_ref)
     if (isV2Campaign) {
-      setV2TargetTags((row.assignments ?? []).map((a) => a.action_tag_key))
+      setV2TargetTag(row.assignments?.[0]?.action_tag_key ?? '')
       setRawSource(row.raw_source ?? '')
       setFormError(null)
       onCampaignChange(row.campaign_id)
@@ -252,8 +255,8 @@ export function ArticlesScreen({
     }
     if (isV2Campaign) {
       if (!onV2SaveContent) return
-      if (v2TargetTags.length === 0) {
-        setFormError('Select at least one target Action Tag.')
+      if (!v2TargetTag) {
+        setFormError('Select a target Site / Action Tag.')
         return
       }
       if (!rawSource.trim()) {
@@ -267,7 +270,7 @@ export function ArticlesScreen({
           editingId,
           externalRef,
           rawSource,
-          targetTagKeys: v2TargetTags,
+          targetTagKeys: [v2TargetTag],
         })
         resetForm()
       } catch (err) {
@@ -454,15 +457,28 @@ export function ArticlesScreen({
         <Select
           className="w-40"
           value={siteFilter}
-          onChange={(e) => setSiteFilter(e.target.value)}
+          onChange={(e) => {
+            setSiteFilter(e.target.value)
+            setPage(1)
+          }}
           aria-label="Platform filter"
         >
-          <option value="all">All platforms</option>
-          {sites.map((s) => (
-            <option key={s.key} value={s.key}>
-              {s.name}
-            </option>
-          ))}
+          <option value="all">All sites</option>
+          {(() => {
+            const siteMap = new Map(sites.map((s) => [s.key, s.name]))
+            if (isV2Campaign && campaign?.action_tags) {
+              for (const t of campaign.action_tags) {
+                if (!siteMap.has(t.site_key)) {
+                  siteMap.set(t.site_key, t.site_name || t.site_key)
+                }
+              }
+            }
+            return Array.from(siteMap.entries()).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))
+          })()}
         </Select>
         <Select
           className="w-44"
@@ -510,9 +526,17 @@ export function ArticlesScreen({
       campaign?.status === 'draft' &&
       onV2BulkMockSave ? (
         <V2BulkMockGenerator
-          groups={v2Groups}
+          tagOptions={v2TagOptions}
+          mockCount={
+            contents.filter(
+              (c) =>
+                c.campaign_id === campaignId &&
+                c.external_ref.trim().startsWith('mock-'),
+            ).length
+          }
           disabled={busy}
           onGenerateAndSave={onV2BulkMockSave}
+          onClearMocks={onV2ClearMocks}
           onReloadCampaign={onReloadCampaign}
         />
       ) : null}
@@ -549,53 +573,45 @@ export function ArticlesScreen({
                 />
               </div>
               <div className="space-y-1">
-                <span className="text-xs text-muted">Target Action Tags</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {(campaign.action_tags ?? []).map((t) => {
-                    const checked = v2TargetTags.includes(t.action_tag_key)
-                    return (
-                      <button
-                        key={t.action_tag_key}
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          setV2TargetTags((prev) =>
-                            checked
-                              ? prev.filter((k) => k !== t.action_tag_key)
-                              : [...prev, t.action_tag_key],
-                          )
-                        }
-                        className={`rounded-[var(--radius-control)] border px-2.5 py-1 text-xs ${
-                          checked
-                            ? 'border-primary bg-primary/10 font-medium text-primary'
-                            : 'border-border bg-surface text-muted'
-                        }`}
-                      >
-                        <span className="font-mono">{t.action_tag_key}</span>
-                      </button>
-                    )
-                  })}
-                </div>
+                <span className="text-xs text-muted">
+                  Target Site / Action Tag
+                </span>
+                <Select
+                  disabled={busy}
+                  value={v2TargetTag}
+                  onChange={(e) => setV2TargetTag(e.target.value)}
+                >
+                  <option value="">Select target Action Tag…</option>
+                  {(campaign.action_tags ?? []).map((t) => (
+                    <option key={t.action_tag_key} value={t.action_tag_key}>
+                      {t.site_name} · {t.action_tag_key} ({t.script_name} v
+                      {t.script_version})
+                    </option>
+                  ))}
+                </Select>
               </div>
               {(() => {
-                const matchedGroup =
-                  v2Groups.find((g) =>
-                    g.tag_keys.some((tk) => v2TargetTags.includes(tk)),
-                  ) ?? v2Groups[0]
-                const auto = matchedGroup
-                  ? buildAutoShortcodeMapping(matchedGroup.schema)
-                  : null
+                const selectedPlanTag = (campaign.action_tags ?? []).find(
+                  (t) => t.action_tag_key === v2TargetTag,
+                )
+                const tKey = selectedPlanTag
+                  ? scriptTargetKey(
+                      selectedPlanTag.script_package_key,
+                      selectedPlanTag.script_version,
+                    )
+                  : ''
+                const schemaEntry = tKey ? v2SchemaLookup[tKey] : undefined
+                const auto =
+                  schemaEntry?.schema?.schema_available
+                    ? buildAutoShortcodeMapping(schemaEntry.schema)
+                    : null
                 const mapping =
                   auto && auto.ok
                     ? auto.mapping
-                    : matchedGroup
-                      ? (campaign.action_tags?.find((a) =>
-                          matchedGroup.tag_keys.includes(a.action_tag_key),
-                        )?.shortcode_mapping ?? { entries: [] })
-                      : { entries: [] }
+                    : (selectedPlanTag?.shortcode_mapping ?? { entries: [] })
                 return (
                   <ShortcodeArticleEditor
-                    key={editingId ?? 'v2-new'}
+                    key={`${editingId ?? 'v2-new'}-${v2TargetTag}`}
                     rawSource={rawSource}
                     mapping={mapping}
                     disabled={busy}
@@ -779,9 +795,15 @@ export function ArticlesScreen({
                             title={tagTitle || undefined}
                           >
                             {rowV2 ? (
-                              <Badge variant="neutral">
-                                {tagCount} tag{tagCount === 1 ? '' : 's'}
-                              </Badge>
+                              tagCount === 1 ? (
+                                <Badge variant="neutral">
+                                  {row.assignments![0]!.action_tag_key}
+                                </Badge>
+                              ) : (
+                                <Badge variant="neutral">
+                                  {tagCount} tag{tagCount === 1 ? '' : 's'}
+                                </Badge>
+                              )
                             ) : (
                               <>
                                 {row.source_format}

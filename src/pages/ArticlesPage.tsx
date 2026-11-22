@@ -11,8 +11,8 @@ import {
   CampaignV2ClientError,
   campaignToV2WizardState,
   createPlannedContentItem,
-  generateBulkMockContentsForGroup,
-  groupTagsByCompatibleSchema,
+  generateBulkMockContentsForTag,
+  scriptTargetKey,
   type PlannedContentItem,
   type ResolvedActionTagPlan,
 } from '@/features/campaigns/multi-tag-plan'
@@ -223,42 +223,17 @@ export function ArticlesPage() {
     return errs.length > 0 ? errs.join(' · ') : null
   }, [isV2, v2SchemaLookup])
 
-  const v2Groups = useMemo(() => {
+  const v2TagOptions = useMemo(() => {
     if (!isV2 || !activeCampaign?.action_tags?.length) return []
-    const resolved: ResolvedActionTagPlan[] = activeCampaign.action_tags.map(
-      (t) => ({
-        plan_tag_uuid: t.plan_tag_uuid ?? null,
-        tag_id: t.action_tag_id,
-        tag_key: t.action_tag_key,
-        tag_name: t.action_tag_key,
-        tag_enabled: true,
-        site_key: t.site_key,
-        site_name: t.site_name,
-        cms_type: t.cms_type,
-        path_key: '',
-        path_name: '',
-        effective_script: t.script_package_key
-          ? {
-              package_key: t.script_package_key,
-              script_id: t.script_package_key,
-              name: t.script_name || t.script_package_key,
-              version: t.script_version,
-              release_id: t.release_id ?? 0,
-            }
-          : null,
-        resolution_source: t.resolution_source,
-        is_system_auth: false,
-        is_runnable: Boolean(
-          t.script_package_key && t.resolution_source !== 'missing',
-        ),
-        status_reason: null,
-      }),
-    )
-    return groupTagsByCompatibleSchema(
-      resolved,
-      v2SchemaLookup,
-      (reason) => unavailableScriptInputSchema(null, reason),
-    )
+    return activeCampaign.action_tags.map((tag) => {
+      const tKey = scriptTargetKey(tag.script_package_key, tag.script_version)
+      const entry = v2SchemaLookup[tKey]
+      return {
+        tag,
+        schemaReady: Boolean(entry?.schema?.schema_available),
+        loading: Boolean(entry?.loading),
+      }
+    })
   }, [isV2, activeCampaign, v2SchemaLookup])
 
   const reloadActiveCampaign = async () => {
@@ -297,19 +272,54 @@ export function ArticlesPage() {
 
   const handleV2BulkMockSave = async (
     count: number,
-    groupKey: string | 'all',
+    actionTagKey: string,
   ) => {
     if (!activeCampaign || !isV2) {
       throw new CampaignV2ClientError('Select a Campaign V2 Draft first.')
     }
-    const targetGroups =
-      groupKey === 'all'
-        ? v2Groups.filter((g) => g.schema.schema_available)
-        : v2Groups.filter((g) => g.group_key === groupKey)
-    if (targetGroups.length === 0) {
+    const targetTag = activeCampaign.action_tags?.find(
+      (t) => t.action_tag_key === actionTagKey,
+    )
+    if (!targetTag) {
       throw new CampaignV2ClientError(
-        'No compatible Script group with loaded schema.',
+        `Action Tag "${actionTagKey}" not found in Campaign.`,
       )
+    }
+    const tKey = scriptTargetKey(
+      targetTag.script_package_key,
+      targetTag.script_version,
+    )
+    const schemaEntry = v2SchemaLookup[tKey]
+    if (!schemaEntry?.schema?.schema_available) {
+      throw new CampaignV2ClientError(
+        `Script schema unavailable for ${targetTag.script_package_key} v${targetTag.script_version}.`,
+      )
+    }
+
+    const resolvedTag: ResolvedActionTagPlan = {
+      plan_tag_uuid: targetTag.plan_tag_uuid ?? null,
+      tag_id: targetTag.action_tag_id,
+      tag_key: targetTag.action_tag_key,
+      tag_name: targetTag.action_tag_key,
+      tag_enabled: true,
+      site_key: targetTag.site_key,
+      site_name: targetTag.site_name,
+      cms_type: targetTag.cms_type,
+      path_key: '',
+      path_name: '',
+      effective_script: targetTag.script_package_key
+        ? {
+            package_key: targetTag.script_package_key,
+            script_id: targetTag.script_package_key,
+            name: targetTag.script_name || targetTag.script_package_key,
+            version: targetTag.script_version,
+            release_id: targetTag.release_id ?? 0,
+          }
+        : null,
+      resolution_source: targetTag.resolution_source,
+      is_system_auth: false,
+      is_runnable: true,
+      status_reason: null,
     }
 
     const existingPlanned = campaignToV2WizardState(
@@ -317,30 +327,28 @@ export function ArticlesPage() {
       activeCampaignContents,
     ).contents
     const existingRefs = new Set(existingPlanned.map((c) => c.external_ref))
-    const generated: PlannedContentItem[] = []
-    const basePerGroup = Math.floor(count / targetGroups.length)
-    let remainder = count % targetGroups.length
-    let seq = existingPlanned.length + 1
+    const res = generateBulkMockContentsForTag({
+      tag: resolvedTag,
+      schema: schemaEntry.schema,
+      count,
+      existingRefs,
+      startSeq: existingPlanned.length + 1,
+    })
+    if (!res.ok) throw new CampaignV2ClientError(res.message)
 
-    for (const g of targetGroups) {
-      const qty = basePerGroup + (remainder > 0 ? 1 : 0)
-      if (remainder > 0) remainder--
-      if (qty <= 0) continue
-      const res = generateBulkMockContentsForGroup({
-        group: g,
-        count: qty,
-        existingRefs,
-        startSeq: seq,
-      })
-      if (!res.ok) throw new CampaignV2ClientError(res.message)
-      for (const item of res.items) {
-        existingRefs.add(item.external_ref)
-        generated.push(item)
-      }
-      seq += qty
-    }
+    await persistV2Contents([...existingPlanned, ...res.items])
+  }
 
-    await persistV2Contents([...existingPlanned, ...generated])
+  const handleV2ClearMockContents = async () => {
+    if (!activeCampaign || !isV2) return
+    const existingPlanned = campaignToV2WizardState(
+      activeCampaign,
+      activeCampaignContents,
+    ).contents
+    const kept = existingPlanned.filter(
+      (c) => !c.external_ref.trim().startsWith('mock-'),
+    )
+    await persistV2Contents(kept)
   }
 
   const handleV2SaveSingleContent = async (draft: {
@@ -428,8 +436,10 @@ export function ArticlesPage() {
           (isV2 && Object.values(v2SchemaLookup).some((e) => e.loading))
         }
         schemaError={isV2 ? v2SchemaError : schemaError}
-        v2Groups={v2Groups}
+        v2TagOptions={v2TagOptions}
+        v2SchemaLookup={v2SchemaLookup}
         onV2BulkMockSave={handleV2BulkMockSave}
+        onV2ClearMocks={handleV2ClearMockContents}
         onV2SaveContent={handleV2SaveSingleContent}
         onV2DeleteContent={handleV2DeleteContent}
         onReloadCampaign={reloadActiveCampaign}
