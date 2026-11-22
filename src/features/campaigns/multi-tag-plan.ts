@@ -10,8 +10,8 @@ import { findCmsGlobalScriptForActionTag } from '../script-registry/sharing.ts'
 import type { ScriptListItem } from '../script-registry/types.ts'
 import {
   allScriptVariables,
+  buildAutoShortcodeMapping,
   emptyShortcodeMappingEntry,
-  validateShortcodeMappingForm,
   type ShortcodeMappingFormEntry,
 } from './shortcode-mapping.ts'
 import { assertPlainShortcodeSource } from './shortcode-source.ts'
@@ -400,9 +400,49 @@ export type Step2ValidationResult =
     }
   | { ok: false; message: string }
 
+export function generateMockContentForGroup(
+  group: SchemaMappingGroup,
+  index: number,
+): { ok: true; item: PlannedContentItem } | { ok: false; message: string } {
+  const auto = buildAutoShortcodeMapping(group.schema)
+  if (!auto.ok) {
+    return {
+      ok: false,
+      message: `${group.script_package_key}: ${auto.error}`,
+    }
+  }
+
+  const vars = allScriptVariables(group.schema)
+  const lines: string[] = []
+  const seq = index + 1
+  for (const v of vars) {
+    if (v.type === 'secret') continue
+    let sample: string
+    if (v.type === 'number') {
+      sample = String(seq)
+    } else if (v.type === 'boolean') {
+      sample = 'true'
+    } else if (v.key === 'title') {
+      sample = `[TEST] Sample Title #${seq} (${group.script_package_key})`
+    } else {
+      sample = `[TEST] Sample ${v.key} #${seq} for ${group.script_package_key} v${group.script_version}`
+    }
+    lines.push(`[${v.key}]${sample}[/${v.key}]`)
+  }
+
+  return {
+    ok: true,
+    item: createPlannedContentItem({
+      external_ref: `mock-${seq}`,
+      target_tag_keys: [...group.tag_keys],
+      raw_source: lines.join('\n'),
+    }),
+  }
+}
+
 export function validateStep2Plan(params: {
   groups: SchemaMappingGroup[]
-  mappingsByGroupKey: Record<string, ShortcodeMappingFormEntry[]>
+  mappingsByGroupKey?: Record<string, ShortcodeMappingFormEntry[]>
   contents: PlannedContentItem[]
   resolvedTags: ResolvedActionTagPlan[]
 }): Step2ValidationResult {
@@ -432,15 +472,14 @@ export function validateStep2Plan(params: {
           `Script schema unavailable for ${group.script_package_key} v${group.script_version}.`,
       }
     }
-    const entries = params.mappingsByGroupKey[group.group_key] ?? []
-    const mapped = validateShortcodeMappingForm(entries, group.schema)
-    if (!mapped.ok) {
+    const auto = buildAutoShortcodeMapping(group.schema)
+    if (!auto.ok) {
       return {
         ok: false,
-        message: `${group.script_package_key}: ${mapped.message}`,
+        message: `${group.script_package_key}: ${auto.error}`,
       }
     }
-    groupMappings[group.group_key] = mapped.mapping
+    groupMappings[group.group_key] = auto.mapping
     for (const tk of group.tag_keys) {
       tagToGroup.set(tk, group)
     }

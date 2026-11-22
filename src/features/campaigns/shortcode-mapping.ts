@@ -55,6 +55,51 @@ export function defaultShortcodeMappingForSchema(
   return defaultShortcodeMappingForm(bodyVar)
 }
 
+export type AutoShortcodeMappingResult =
+  | { ok: true; mapping: CampaignShortcodeMapping }
+  | { ok: false; error: string }
+
+/**
+ * Deterministic automatic shortcode mapping for Campaign V2:
+ * Maps every declared Script input variable directly to `[variable_key]`.
+ * Never invents variables and never silently renames incompatible keys.
+ */
+export function buildAutoShortcodeMapping(
+  schema: ScriptInputSchema,
+): AutoShortcodeMappingResult {
+  if (!schema.schema_available) {
+    return {
+      ok: false,
+      error:
+        schema.unavailable_reason ||
+        'Script input schema unavailable. Cannot generate automatic shortcode mapping.',
+    }
+  }
+
+  const vars = allScriptVariables(schema)
+  if (vars.length === 0) {
+    return {
+      ok: false,
+      error:
+        'Published Script release declares no input variables for shortcode mapping.',
+    }
+  }
+
+  const entries: CampaignShortcodeMappingEntry[] = []
+  for (const v of vars) {
+    const key = v.key.trim()
+    if (!SHORTCODE_NAME_PATTERN.test(key)) {
+      return {
+        ok: false,
+        error: `Script variable "${v.key}" cannot be represented by the shortcode parser (must match ^[a-z][a-z0-9_]*$).`,
+      }
+    }
+    entries.push({ shortcode: key, variable: key })
+  }
+
+  return { ok: true, mapping: { entries } }
+}
+
 /**
  * All Script variables eligible for shortcode binding (includes title/body).
  * Does not invent keys — only schema-supported variables.

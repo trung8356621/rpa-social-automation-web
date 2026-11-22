@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, Plus, Trash2 } from 'lucide-react'
+import { AlertTriangle, Plus, Sparkles, Trash2 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,24 +8,27 @@ import { Label } from '@/components/ui/label'
 
 import {
   createPlannedContentItem,
+  generateMockContentForGroup,
   type BackendPersistenceSupport,
   type PlannedContentItem,
   type ResolvedActionTagPlan,
   type SchemaMappingGroup,
   type V2CampaignDraftPlanPayload,
 } from '../multi-tag-plan'
-import type { ShortcodeMappingFormEntry } from '../shortcode-mapping'
-import type { CampaignRunMode, CampaignShortcodeMapping } from '../types'
+import {
+  allScriptVariables,
+  buildAutoShortcodeMapping,
+  type ShortcodeMappingFormEntry,
+} from '../shortcode-mapping'
+import type { CampaignRunMode } from '../types'
 import { ShortcodeArticleEditor } from './ShortcodeArticleEditor'
-import { ShortcodeMappingFields } from './ShortcodeMappingFields'
 
 type Props = {
   name: string
   runMode: CampaignRunMode
   resolvedTags: ResolvedActionTagPlan[]
   groups: SchemaMappingGroup[]
-  mappingsByGroupKey: Record<string, ShortcodeMappingFormEntry[]>
-  onMappingChange: (groupKey: string, next: ShortcodeMappingFormEntry[]) => void
+  historicalMappingsByTagKey?: Record<string, ShortcodeMappingFormEntry[]>
   contents: PlannedContentItem[]
   onContentsChange: (next: PlannedContentItem[]) => void
   persistenceSupport: BackendPersistenceSupport
@@ -33,26 +36,12 @@ type Props = {
   disabled?: boolean
 }
 
-function toCampaignShortcodeMapping(
-  entries: ShortcodeMappingFormEntry[],
-): CampaignShortcodeMapping {
-  return {
-    entries: entries
-      .map((e) => ({
-        shortcode: e.shortcode.trim(),
-        variable: e.variable.trim(),
-      }))
-      .filter((e) => e.shortcode && e.variable),
-  }
-}
-
 export function CampaignContentStep2({
   name,
   runMode,
   resolvedTags,
   groups,
-  mappingsByGroupKey,
-  onMappingChange,
+  historicalMappingsByTagKey,
   contents,
   onContentsChange,
   persistenceSupport,
@@ -60,6 +49,7 @@ export function CampaignContentStep2({
   disabled = false,
 }: Props) {
   const [showPayload, setShowPayload] = useState(false)
+  const [mockError, setMockError] = useState<string | null>(null)
 
   const tagToGroup = useMemo(() => {
     const map = new Map<string, SchemaMappingGroup>()
@@ -75,6 +65,7 @@ export function CampaignContentStep2({
   )
 
   const addContent = () => {
+    setMockError(null)
     const defaultTag = runnableTags[0]?.tag_key
     onContentsChange([
       ...contents,
@@ -83,6 +74,18 @@ export function CampaignContentStep2({
         target_tag_keys: defaultTag ? [defaultTag] : [],
       }),
     ])
+  }
+
+  const generateMockArticle = (targetGroup?: SchemaMappingGroup) => {
+    const g = targetGroup ?? groups[0]
+    if (!g) return
+    const generated = generateMockContentForGroup(g, contents.length)
+    if (!generated.ok) {
+      setMockError(generated.message)
+      return
+    }
+    setMockError(null)
+    onContentsChange([...contents, generated.item])
   }
 
   const removeContent = (id: string) => {
@@ -108,52 +111,99 @@ export function CampaignContentStep2({
       <section className="rounded-[var(--radius-card)] border border-border bg-surface p-4 space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-foreground">
-            Step 2 — Shortcode Mapping by Script Schema
+            Step 2 — Automatic Script Variable Mapping
           </h2>
           <p className="text-xs text-muted">
-            Tags with compatible published Script schemas share a single mapping
-            configuration. Tags with different schemas are configured
-            separately.
+            All declared variables from each pinned Script Release are mapped
+            automatically (<code className="font-mono">[variable]</code> &rarr;{' '}
+            <code className="font-mono">variable</code>). Tags sharing a
+            compatible schema reuse one mapping group.
           </p>
         </div>
 
         <div className="space-y-4">
-          {groups.map((group) => (
-            <div
-              key={group.group_key}
-              className="rounded-[var(--radius-control)] border border-border p-3 space-y-3"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-semibold text-foreground">
-                      {group.script_name}
-                    </span>
-                    <span className="font-mono text-[11px] text-muted">
-                      {group.script_package_key} · v{group.script_version}
-                    </span>
+          {groups.map((group) => {
+            const auto = buildAutoShortcodeMapping(group.schema)
+            const vars = allScriptVariables(group.schema)
+            const hasHistoricalMismatch =
+              historicalMappingsByTagKey &&
+              auto.ok &&
+              group.tag_keys.some((tk) => {
+                const hist = historicalMappingsByTagKey[tk]
+                if (!hist?.length) return false
+                return hist.some(
+                  (h) => h.shortcode.trim() !== h.variable.trim(),
+                )
+              })
+
+            return (
+              <div
+                key={group.group_key}
+                className="rounded-[var(--radius-control)] border border-border p-3 space-y-2.5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-semibold text-foreground">
+                        {group.script_name}
+                      </span>
+                      <span className="font-mono text-[11px] text-muted">
+                        {group.script_package_key} · v{group.script_version}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[11px] text-muted">Tags:</span>
+                      {group.tag_keys.map((tk) => (
+                        <Badge key={tk} variant="neutral">
+                          {tk}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-[11px] text-muted">Tags:</span>
-                    {group.tag_keys.map((tk) => (
-                      <Badge key={tk} variant="neutral">
-                        {tk}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={disabled || group.loading || !auto.ok}
+                    onClick={() => generateMockArticle(group)}
+                  >
+                    <Sparkles className="size-3.5" />
+                    Generate Mock for Group
+                  </Button>
+                </div>
+
+                {group.loading ? (
+                  <p className="text-xs text-muted">
+                    Loading published Script variables…
+                  </p>
+                ) : !auto.ok ? (
+                  <p className="text-xs text-danger whitespace-pre-wrap">
+                    {group.error || auto.error}
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {vars.map((v) => (
+                      <Badge key={v.key} variant="neutral">
+                        <span className="font-mono">[{v.key}]</span>
+                        <span className="ml-1 opacity-75">
+                          ({v.type}
+                          {v.required ? ', required' : ''})
+                        </span>
                       </Badge>
                     ))}
                   </div>
-                </div>
-              </div>
+                )}
 
-              <ShortcodeMappingFields
-                value={mappingsByGroupKey[group.group_key] ?? []}
-                onChange={(next) => onMappingChange(group.group_key, next)}
-                schema={group.schema}
-                schemaLoading={group.loading}
-                schemaError={group.error}
-                disabled={disabled}
-              />
-            </div>
-          ))}
+                {hasHistoricalMismatch ? (
+                  <p className="text-[11px] text-warning">
+                    Existing manual mapping detected on this Draft. Existing
+                    Content text is preserved; saving uses name-based{' '}
+                    <code className="font-mono">[variable]</code> mappings.
+                  </p>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
       </section>
 
@@ -164,21 +214,34 @@ export function CampaignContentStep2({
               Content Items ({contents.length})
             </h3>
             <p className="text-xs text-muted">
-              Add one or more Content items and assign each to specific Action
-              Tags. Zero Contents is also allowed for Draft creation.
+              Add or generate mock Content items and assign each to specific
+              Action Tags. Zero Contents is also allowed for Draft creation.
             </p>
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={disabled || runnableTags.length === 0}
-            onClick={addContent}
-          >
-            <Plus className="size-3.5" />
-            Add Content
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={disabled || runnableTags.length === 0 || groups.length === 0}
+              onClick={() => generateMockArticle()}
+            >
+              <Sparkles className="size-3.5" />
+              Generate Mock Article
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={disabled || runnableTags.length === 0}
+              onClick={addContent}
+            >
+              <Plus className="size-3.5" />
+              Add Content
+            </Button>
+          </div>
         </div>
+        {mockError ? <p className="text-xs text-danger">{mockError}</p> : null}
 
         {contents.length === 0 ? (
           <p className="text-xs text-muted">
@@ -197,11 +260,13 @@ export function CampaignContentStep2({
               )
               const hasMixedSchemas = targetGroups.length > 1
               const activeGroup = targetGroups[0] ?? groups[0]
-              const activeMapping = activeGroup
-                ? toCampaignShortcodeMapping(
-                    mappingsByGroupKey[activeGroup.group_key] ?? [],
-                  )
-                : { entries: [] }
+              const autoActive = activeGroup
+                ? buildAutoShortcodeMapping(activeGroup.schema)
+                : null
+              const activeMapping =
+                autoActive && autoActive.ok
+                  ? autoActive.mapping
+                  : { entries: [] }
 
               return (
                 <div

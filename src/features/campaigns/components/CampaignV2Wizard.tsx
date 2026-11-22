@@ -27,10 +27,6 @@ import {
   canStartWithRunMode,
   unavailableScriptInputSchema,
 } from '../script-compat'
-import {
-  defaultShortcodeMappingForSchema,
-  type ShortcodeMappingFormEntry,
-} from '../shortcode-mapping'
 import type { Campaign, CampaignContent, CampaignRunMode } from '../types'
 import { useCampaigns } from '../use-campaigns'
 import { useMultiScriptSchemas } from '../use-multi-script-schemas'
@@ -75,9 +71,6 @@ export function CampaignV2Wizard({
   const [selectedTagKeys, setSelectedTagKeys] = useState<string[]>(
     hydrated?.selectedTagKeys ?? [],
   )
-  const [mappingsByGroupKey, setMappingsByGroupKey] = useState<
-    Record<string, ShortcodeMappingFormEntry[]>
-  >({})
   const [contents, setContents] = useState<PlannedContentItem[]>(
     hydrated?.contents ?? [],
   )
@@ -96,7 +89,6 @@ export function CampaignV2Wizard({
     setRunMode(hydrated.runMode)
     setSelectedTagKeys(hydrated.selectedTagKeys)
     setContents(hydrated.contents)
-    setMappingsByGroupKey({})
     setError(null)
     setApiErrorDetail(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -180,38 +172,6 @@ export function CampaignV2Wizard({
     [resolvedTags, schemaLookup],
   )
 
-  useEffect(() => {
-    setMappingsByGroupKey((prev) => {
-      let changed = false
-      const next = { ...prev }
-      for (const g of groups) {
-        if (!next[g.group_key]) {
-          const fromHydrated = g.tag_keys
-            .map((tk) => hydrated?.initialMappingsByTagKey[tk])
-            .find((m) => m && m.length > 0)
-          if (fromHydrated) {
-            next[g.group_key] = fromHydrated
-          } else {
-            next[g.group_key] = defaultShortcodeMappingForSchema(g.schema)
-          }
-          changed = true
-        } else if (
-          g.schema.schema_available &&
-          next[g.group_key]?.length === 1 &&
-          next[g.group_key]![0]?.shortcode === 'body' &&
-          !next[g.group_key]![0]?.variable
-        ) {
-          const updated = defaultShortcodeMappingForSchema(g.schema)
-          if (updated[0]?.variable) {
-            next[g.group_key] = updated
-            changed = true
-          }
-        }
-      }
-      return changed ? next : prev
-    })
-  }, [groups, hydrated])
-
   const persistenceSupport = useMemo(() => {
     if (wizardMode === 'edit') {
       return inspectV2UpdateSupport({
@@ -237,7 +197,6 @@ export function CampaignV2Wizard({
   const draftPreviewPayload = useMemo(() => {
     const step2 = validateStep2Plan({
       groups,
-      mappingsByGroupKey,
       contents,
       resolvedTags,
     })
@@ -250,7 +209,7 @@ export function CampaignV2Wizard({
       groupMappings: step2.groupMappings,
       validatedContents: step2.validatedContents,
     })
-  }, [name, runMode, resolvedTags, groups, mappingsByGroupKey, contents])
+  }, [name, runMode, resolvedTags, groups, contents])
 
   const goNext = () => {
     const check = validateStep1Plan({ name, resolvedTags })
@@ -310,7 +269,6 @@ export function CampaignV2Wizard({
 
     const step2 = validateStep2Plan({
       groups,
-      mappingsByGroupKey,
       contents,
       resolvedTags,
     })
@@ -458,10 +416,7 @@ export function CampaignV2Wizard({
           runMode={runMode}
           resolvedTags={resolvedTags}
           groups={groups}
-          mappingsByGroupKey={mappingsByGroupKey}
-          onMappingChange={(groupKey, next) =>
-            setMappingsByGroupKey((prev) => ({ ...prev, [groupKey]: next }))
-          }
+          historicalMappingsByTagKey={hydrated?.initialMappingsByTagKey}
           contents={contents}
           onContentsChange={setContents}
           persistenceSupport={persistenceSupport}

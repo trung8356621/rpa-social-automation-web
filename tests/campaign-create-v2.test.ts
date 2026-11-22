@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { describe, it } from 'node:test'
 
 import type {
@@ -22,6 +24,7 @@ import {
   createPlannedContentItem,
   filterSelectableCampaignTags,
   formatCampaignV2ApiError,
+  generateMockContentForGroup,
   groupTagsByCompatibleSchema,
   inspectBackendPersistenceSupport,
   inspectV2UpdateSupport,
@@ -37,6 +40,7 @@ import { ApiError } from '../src/lib/api/errors.ts'
 import { emptyScheduleForm, scheduleFormToApi } from '../src/features/campaigns/schedule.ts'
 import { unavailableScriptInputSchema } from '../src/features/campaigns/script-compat.ts'
 import {
+  buildAutoShortcodeMapping,
   defaultShortcodeMappingForSchema,
   emptyShortcodeMappingEntry,
   findCompatibleBodyVariable,
@@ -347,7 +351,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
         createPlannedContentItem({
           external_ref: 'fb-1',
           target_tag_keys: ['facebook.group.post'],
-          raw_source: '[body]FB Caption[/body]',
+          raw_source: '[caption]FB Caption[/caption]',
         }),
       ],
     })
@@ -431,7 +435,7 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
         createPlannedContentItem({
           external_ref: 'fb-1',
           target_tag_keys: ['facebook.group.post'],
-          raw_source: '[body]FB Post[/body]',
+          raw_source: '[caption]FB Post[/caption]',
         }),
       ],
     })
@@ -1079,5 +1083,148 @@ describe('Campaign Create V2 — Multi-Tag Planning', () => {
     assert.equal(formattedConflict.isRevisionConflict, true)
     assert.equal(formattedConflict.expectedRevision, 1)
     assert.equal(formattedConflict.currentRevision, 2)
+  })
+
+  it('auto-maps all declared Script variables, rejects unrepresentable variable names, removes manual mapping UI in V2, and generates V2 mock articles persisted via PUT', async () => {
+    // 1. Single-variable Script: title -> [title]
+    const singleTitleSchema: ScriptInputSchema = {
+      fields: [],
+      test_mode_compatible: null,
+      title_required: true,
+      body_required: false,
+      schema_available: true,
+      title_supported: true,
+      body_supported: false,
+      unavailable_reason: null,
+    }
+    const singleAuto = buildAutoShortcodeMapping(singleTitleSchema)
+    assert.equal(singleAuto.ok, true)
+    if (singleAuto.ok) {
+      assert.deepEqual(singleAuto.mapping.entries, [
+        { shortcode: 'title', variable: 'title' },
+      ])
+    }
+
+    // 2. Multi-variable Script: all variables mapped (title, body, content, count)
+    const multiSchema: ScriptInputSchema = {
+      fields: [
+        { key: 'content', type: 'text', required: true },
+        { key: 'count', type: 'number', required: false },
+      ],
+      test_mode_compatible: true,
+      title_required: true,
+      body_required: false,
+      schema_available: true,
+      title_supported: true,
+      body_supported: true,
+      unavailable_reason: null,
+    }
+    const multiAuto = buildAutoShortcodeMapping(multiSchema)
+    assert.equal(multiAuto.ok, true)
+    if (multiAuto.ok) {
+      assert.deepEqual(multiAuto.mapping.entries, [
+        { shortcode: 'title', variable: 'title' },
+        { shortcode: 'body', variable: 'body' },
+        { shortcode: 'content', variable: 'content' },
+        { shortcode: 'count', variable: 'count' },
+      ])
+    }
+
+    // 3. Variable name incompatible with shortcode parser fails closed without silent rename
+    const upperSchema: ScriptInputSchema = {
+      fields: [{ key: 'PostTitle', type: 'string', required: true }],
+      test_mode_compatible: null,
+      title_required: false,
+      body_required: false,
+      schema_available: true,
+      title_supported: false,
+      body_supported: false,
+      unavailable_reason: null,
+    }
+    const upperAuto = buildAutoShortcodeMapping(upperSchema)
+    assert.equal(upperAuto.ok, false)
+    if (!upperAuto.ok) {
+      assert.match(upperAuto.error, /PostTitle/)
+    }
+
+    // 4. CampaignContentStep2.tsx has no manual ShortcodeMappingFields controls
+    const step2Source = fs.readFileSync(
+      path.resolve('src/features/campaigns/components/CampaignContentStep2.tsx'),
+      'utf8',
+    )
+    assert.equal(step2Source.includes('ShortcodeMappingFields'), false)
+
+    // 5. Generate Mock Content for V2 group -> assigned to group's Tags -> persisted via PUT -> reloaded
+    const siteMap = new Map(SITES.map((s) => [s.key, s]))
+    const wpDirect = resolveActionTagScript(TAGS[0]!, siteMap.get('mayhopphat'), SCRIPTS)
+    const wpGlobal = resolveActionTagScript(TAGS[1]!, siteMap.get('blog2'), SCRIPTS)
+    const groups = groupTagsByCompatibleSchema(
+      [wpDirect, wpGlobal],
+      {
+        [scriptTargetKey('mayhopphat.create_post', '1.2.0')]: {
+          schema: multiSchema,
+          loading: false,
+          error: null,
+        },
+      },
+      (reason) => unavailableScriptInputSchema(null, reason),
+    )
+    assert.equal(groups.length, 1)
+    assert.deepEqual(groups[0]!.tag_keys, [
+      'mayhopphat.create_post',
+      'blog2.create_post',
+    ])
+
+    const mockGen = generateMockContentForGroup(groups[0]!, 0)
+    assert.equal(mockGen.ok, true)
+    if (!mockGen.ok) return
+    assert.equal(mockGen.item.persisted_id, null)
+    assert.deepEqual(mockGen.item.target_tag_keys, [
+      'mayhopphat.create_post',
+      'blog2.create_post',
+    ])
+    assert.match(mockGen.item.raw_source, /\[title\]\[TEST\]/)
+    assert.match(mockGen.item.raw_source, /\[content\]\[TEST\]/)
+    assert.match(mockGen.item.raw_source, /\[count\]1\[\/count\]/)
+
+    const step2 = validateStep2Plan({
+      groups,
+      contents: [mockGen.item],
+      resolvedTags: [wpDirect, wpGlobal],
+    })
+    assert.equal(step2.ok, true)
+    if (!step2.ok) return
+
+    resetMockCampaignStore()
+    const created = await mockCampaignAdapter.createCampaignV2(
+      buildCreateCampaignV2Input({
+        name: 'V2 Mock Test',
+        run_mode: 'live',
+        resolvedTags: [wpDirect, wpGlobal],
+        groups,
+        groupMappings: step2.groupMappings,
+        validatedContents: [],
+      }),
+    )
+
+    const updated = await mockCampaignAdapter.updateCampaignV2(
+      buildUpdateCampaignV2Input({
+        id: created.id,
+        revision: created.revision ?? 1,
+        name: created.name,
+        run_mode: created.run_mode,
+        resolvedTags: [wpDirect, wpGlobal],
+        groups,
+        groupMappings: step2.groupMappings,
+        validatedContents: step2.validatedContents,
+      }),
+    )
+    assert.equal(updated.revision, 2)
+    assert.equal(updated.contents?.length, 1)
+    assert.equal(updated.contents?.[0]?.assignments?.length, 2)
+
+    const reloaded = await mockCampaignAdapter.getCampaign(created.id)
+    assert.equal(reloaded.summary.total, 1)
+    assert.equal(reloaded.allowed_actions.includes('start'), false)
   })
 })

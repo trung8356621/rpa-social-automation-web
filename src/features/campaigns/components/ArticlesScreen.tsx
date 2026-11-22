@@ -357,20 +357,22 @@ export function ArticlesScreen({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
           <span>
             Plan V2 Campaign: displaying persisted Content items and per-Tag
-            assignments. Legacy V1 Article creation is disabled because V2
-            requires per-Tag assignments and Backend V2 Draft Update.
+            assignments. Use the V2 Wizard to generate mock articles or plan
+            Content and save via V2 PUT.
           </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              navigate(
-                `/social-automation/campaigns/${campaign.id}/edit?step=2`,
-              )
-            }
-          >
-            Plan Content in V2 Wizard
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                navigate(
+                  `/social-automation/campaigns/${campaign.id}/edit?step=2`,
+                )
+              }
+            >
+              Generate Mock Article / Plan Content
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -435,7 +437,7 @@ export function ArticlesScreen({
         </div>
       </div>
 
-      {campaignId && !hasShortcodeMapping ? (
+      {campaignId && !isV2Campaign && !hasShortcodeMapping ? (
         <div className="rounded-[var(--radius-card)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
           Legacy Campaign compatibility: this Campaign has no{' '}
           <code className="font-mono">shortcode_mapping</code>
@@ -448,7 +450,7 @@ export function ArticlesScreen({
         </div>
       ) : null}
 
-      {campaignId && hasShortcodeMapping ? (
+      {campaignId && !isV2Campaign && hasShortcodeMapping ? (
         <MockArticleGenerator
           disabled={!campaignId || busy}
           onPreview={(count) => onMockPreview(campaignId, count)}
