@@ -6,7 +6,9 @@ import type {
   ScriptListItem,
   ScriptSharingMode,
 } from '../types'
+import type { ScriptConfigRequestBody } from '../operational-settings'
 import type {
+  LiveScriptConfigResponse,
   LiveScriptRegistryDetailResponse,
   LiveScriptRegistryListResponse,
   LiveScriptSharingResponse,
@@ -54,6 +56,24 @@ export async function updateLiveScriptSharing(
     {
       method: 'PATCH',
       body: { sharing_mode: sharingMode },
+    },
+  )
+}
+
+/**
+ * PATCH /social-automation/api/script-registry/{id}/config
+ * Updates language_label, is_enabled, is_primary (and optional action_scope)
+ * via Staff Session + CSRF.
+ */
+export async function updateLiveScriptConfig(
+  packageKey: string,
+  body: ScriptConfigRequestBody,
+): Promise<LiveScriptConfigResponse> {
+  return staffApiRequest<LiveScriptConfigResponse>(
+    SCRIPT_REGISTRY_PATHS.config(packageKey),
+    {
+      method: 'PATCH',
+      body,
     },
   )
 }

@@ -1,3 +1,4 @@
+import { normalizeLanguageCode } from '../languages.ts'
 import {
   asSharingMode,
   mapGlobalConflict,
@@ -115,6 +116,9 @@ export function mapLiveScriptListItem(item: LiveScriptListItem): ScriptListItem 
       item.eligible_global_scope,
     ),
     global_conflict: mapGlobalConflict(item.global_conflict),
+    language_code: normalizeLanguageCode(item.language_label),
+    is_enabled: item.is_enabled == null ? true : Boolean(item.is_enabled),
+    is_primary: item.is_primary == null ? false : Boolean(item.is_primary),
   }
 }
 
@@ -204,6 +208,9 @@ export function mapLiveScriptDetail(script: LiveScriptDetail): ScriptDetail {
       script.eligible_global_scope,
     ),
     global_conflict: mapGlobalConflict(script.global_conflict),
+    language_code: normalizeLanguageCode(script.language_label),
+    is_enabled: script.is_enabled == null ? true : Boolean(script.is_enabled),
+    is_primary: script.is_primary == null ? false : Boolean(script.is_primary),
     releases,
   }
 }

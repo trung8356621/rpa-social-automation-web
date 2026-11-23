@@ -35,6 +35,9 @@ export type LiveScriptListItem = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: unknown
   global_conflict?: unknown
+  language_label?: string | null
+  is_enabled?: boolean
+  is_primary?: boolean
 }
 
 export type LiveScriptRegistryDetailResponse = {
@@ -88,6 +91,9 @@ export type LiveScriptDetail = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: unknown
   global_conflict?: unknown
+  language_label?: string | null
+  is_enabled?: boolean
+  is_primary?: boolean
   releases?: LiveScriptRelease[]
   [key: string]: unknown
 }
@@ -99,4 +105,24 @@ export type LiveScriptSharingResponse = {
   script?: LiveScriptDetail | LiveScriptListItem
   error?: string
   message?: string
+}
+
+export type LiveScriptConfigResponse = {
+  ok?: boolean
+  config?: {
+    package_key?: string
+    language_label?: string | null
+    is_enabled?: boolean
+    is_primary?: boolean
+  }
+  variant_group?: unknown
+  script?: LiveScriptDetail | null
+  error?: string
+  errors?: string[]
+  conflict?: {
+    package_key?: string
+    script_id?: string
+    name?: string
+    group_id?: string
+  }
 }

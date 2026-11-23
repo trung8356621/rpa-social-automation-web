@@ -1,9 +1,86 @@
+import { ApiError, toSafeApiMessage } from '../../lib/api/errors.ts'
 import { normalizeLanguageCode } from './languages.ts'
 import type {
   ScriptDetail,
   ScriptListItem,
   ScriptOperationalSettingsInput,
 } from './types.ts'
+
+export type ScriptConfigActionScope = 'auto' | 'cms_global' | 'site_action'
+
+export type ScriptConfigRequestBody = {
+  language_label: string
+  is_enabled: boolean
+  is_primary: boolean
+  action_scope?: ScriptConfigActionScope
+}
+
+export function buildScriptConfigRequestBody(
+  input: ScriptOperationalSettingsInput,
+  actionScope?: ScriptConfigActionScope,
+): ScriptConfigRequestBody {
+  const normalized = normalizeLanguageCode(input.language_code)
+  return {
+    language_label: normalized ?? 'DEFAULT',
+    is_enabled: Boolean(input.is_enabled),
+    is_primary: Boolean(input.is_primary),
+    ...(actionScope && actionScope !== 'auto'
+      ? { action_scope: actionScope }
+      : {}),
+  }
+}
+
+export function isScriptConfigUnavailableError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false
+  return (
+    err.status === 404 ||
+    err.status === 503 ||
+    err.kind === 'not_found' ||
+    err.code === 'schema_unavailable'
+  )
+}
+
+export function formatScriptConfigErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (
+      err.status === 404 ||
+      err.status === 503 ||
+      err.code === 'schema_unavailable'
+    ) {
+      return 'Operational Settings API unavailable on this server (404 / schema not migrated).'
+    }
+    if (err.code === 'duplicate_language_label') {
+      return 'Another enabled Script in this Action scope already uses this language label. Choose a different language or disable the conflicting Script.'
+    }
+    if (err.code === 'disabled_script_cannot_be_primary') {
+      return 'A disabled Script cannot be set as Primary. Enable the Script first.'
+    }
+    if (
+      err.code === 'incompatible_variant_scope' ||
+      err.code === 'invalid_action_scope' ||
+      err.code === 'ineligible_for_global' ||
+      err.code === 'source_action_tag_not_found'
+    ) {
+      return `Action scope conflict (${err.code}): this Script is not compatible with the requested Action scope.`
+    }
+    if (err.status === 409 || err.code === 'global_scope_conflict') {
+      const conflict = err.details?.conflict as
+        | { name?: string; package_key?: string }
+        | undefined
+      const who = conflict?.name || conflict?.package_key
+      return who
+        ? `CMS Global conflict (409): "${who}" already owns this global scope.`
+        : 'CMS Global conflict (409): another Script already owns this global scope.'
+    }
+    if (err.code === 'published_release_required') {
+      return 'A published Script Release is required before configuring operational settings.'
+    }
+    if (err.status === 401 || err.status === 403 || err.isAuthRequired) {
+      return err.message
+    }
+  }
+  return toSafeApiMessage(err)
+}
 
 export type CompatibleActionScriptRow = {
   package_key: string

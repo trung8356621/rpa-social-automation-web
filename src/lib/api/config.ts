@@ -57,6 +57,8 @@ export const SCRIPT_REGISTRY_PATHS = {
     `${SCRIPT_REGISTRY_BASE}/${encodeURIComponent(packageKey)}`,
   sharing: (packageKey: string) =>
     `${SCRIPT_REGISTRY_BASE}/${encodeURIComponent(packageKey)}/sharing`,
+  config: (packageKey: string) =>
+    `${SCRIPT_REGISTRY_BASE}/${encodeURIComponent(packageKey)}/config`,
 } as const
 
 const ACCOUNTS_BASE = '/social-automation/api/accounts'

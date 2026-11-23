@@ -7,8 +7,14 @@ import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 import {
   fetchLiveScriptRegistryDetail,
   fetchLiveScriptRegistryList,
+  updateLiveScriptConfig,
   updateLiveScriptSharing,
 } from './api/fetch-script-registry'
+import {
+  buildScriptConfigRequestBody,
+  formatScriptConfigErrorMessage,
+  isScriptConfigUnavailableError,
+} from './operational-settings'
 import { formatSharingErrorMessage } from './sharing'
 import type {
   DemoScenario,
@@ -31,6 +37,7 @@ function useScriptRegistryLive(enabled: boolean) {
   const [details, setDetails] = useState<Record<string, ScriptDetail>>({})
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [configApiUnavailable, setConfigApiUnavailable] = useState(false)
   const [toast, setToast] = useState<{
     message: string
     type: 'success' | 'error'
@@ -192,19 +199,37 @@ function useScriptRegistryLive(enabled: boolean) {
   )
 
   const updateOperationalSettings = useCallback(
-    async (_packageKey: string, _input: ScriptOperationalSettingsInput) => {
-      throw new Error(
-        'Operational Settings API is not available on the Backend yet. LIVE mutations are disabled.',
-      )
+    async (packageKey: string, input: ScriptOperationalSettingsInput) => {
+      try {
+        await updateLiveScriptConfig(
+          packageKey,
+          buildScriptConfigRequestBody(input),
+        )
+        const [freshList, freshDetail] = await Promise.all([
+          fetchLiveScriptRegistryList(),
+          fetchLiveScriptRegistryDetail(packageKey),
+        ])
+        setScripts(freshList)
+        setDetails((prev) => ({ ...prev, [packageKey]: freshDetail }))
+        setConfigApiUnavailable(false)
+        showToast('Operational settings saved.')
+      } catch (err: unknown) {
+        if (isScriptConfigUnavailableError(err)) {
+          setConfigApiUnavailable(true)
+        }
+        const msg = formatScriptConfigErrorMessage(err)
+        showToast(msg, 'error')
+        throw new Error(msg)
+      }
     },
-    [],
+    [showToast],
   )
 
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
       mutationsEnabled: false,
-      operationalSettingsSupported: false,
+      operationalSettingsSupported: !configApiUnavailable,
       authRequired,
       loading,
       error,
@@ -224,6 +249,7 @@ function useScriptRegistryLive(enabled: boolean) {
     }),
     [
       authRequired,
+      configApiUnavailable,
       detailError,
       detailLoading,
       details,
