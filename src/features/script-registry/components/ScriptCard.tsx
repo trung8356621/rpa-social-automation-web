@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import { formatLanguageBadge } from '../languages'
 import { formatGlobalConflictLabel } from '../sharing'
 import type { ScriptListItem, ScriptSharingMode } from '../types'
 import { displayScriptTitle, scriptStatusBadge } from '../types'
@@ -38,6 +39,9 @@ export function ScriptCard({
     script.has_playable_video && script.video_demo_status === 'ready'
   const isPublished = script.status === 'published'
   const isGlobal = script.sharing_mode === 'cms_global'
+  const isDisabled = script.is_enabled === false
+  const isPrimary = script.is_primary === true
+  const langBadge = formatLanguageBadge(script.language_code)
   const isIneligible = script.global_eligible === false
   const scopeLabel =
     script.global_scope || script.eligible_global_scope?.scope || null
@@ -102,7 +106,10 @@ export function ScriptCard({
           <h3 className="min-w-0 flex-1 text-sm font-semibold leading-snug text-foreground">
             <span className="line-clamp-2 break-all">{title}</span>
           </h3>
-          <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+            {isPrimary ? <Badge variant="primary">Primary</Badge> : null}
+            {langBadge ? <Badge variant="neutral">{langBadge}</Badge> : null}
+            {isDisabled ? <Badge variant="warning">Disabled</Badge> : null}
             <Badge variant={badge.variant}>{badge.label}</Badge>
             {isGlobal ? <Badge variant="primary">CMS Global</Badge> : null}
             {script.is_authentication ? (

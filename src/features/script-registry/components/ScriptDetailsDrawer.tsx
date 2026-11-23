@@ -1,26 +1,39 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Play, X } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { toSafeApiMessage } from '@/lib/api/errors'
 
+import { formatLanguageBadge, normalizeLanguageCode } from '../languages'
+import { findCompatibleScriptsForAction } from '../operational-settings'
 import type {
   ScriptDetail,
+  ScriptListItem,
+  ScriptOperationalSettingsInput,
   ScriptReleaseDetail,
   ScriptSharingMode,
 } from '../types'
 import { displayScriptTitle } from '../types'
+import { LanguageSelector } from './LanguageSelector'
 import { ScriptSharingPanel } from './ScriptSharingPanel'
 import type { VideoPlayerTarget } from './VideoPlayerModal'
 
 type ScriptDetailsDrawerProps = {
   open: boolean
   detail: ScriptDetail | null
+  allScripts?: ScriptListItem[]
+  mode?: 'mock' | 'live'
+  operationalSettingsSupported?: boolean
   onClose: () => void
   onPlayRelease: (target: VideoPlayerTarget) => void
   onUpdateSharing?: (
     packageKey: string,
     sharingMode: ScriptSharingMode,
+  ) => Promise<void>
+  onSaveOperationalSettings?: (
+    packageKey: string,
+    settings: ScriptOperationalSettingsInput,
   ) => Promise<void>
 }
 
@@ -44,10 +57,35 @@ function videoLabel(release: ScriptReleaseDetail): string {
 export function ScriptDetailsDrawer({
   open,
   detail,
+  allScripts = [],
+  mode = 'mock',
+  operationalSettingsSupported = mode === 'mock',
   onClose,
   onPlayRelease,
   onUpdateSharing,
+  onSaveOperationalSettings,
 }: ScriptDetailsDrawerProps) {
+  const [isEnabled, setIsEnabled] = useState(true)
+  const [languageCode, setLanguageCode] = useState<string | null>(null)
+  const [isPrimary, setIsPrimary] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [settingsError, setSettingsError] = useState<string | null>(null)
+  const [settingsSaved, setSettingsSaved] = useState(false)
+
+  useEffect(() => {
+    if (!detail) return
+    setIsEnabled(detail.is_enabled !== false)
+    setLanguageCode(normalizeLanguageCode(detail.language_code))
+    setIsPrimary(detail.is_primary === true)
+    setSettingsError(null)
+    setSettingsSaved(false)
+  }, [detail])
+
+  const compatibleScripts = useMemo(
+    () => (detail ? findCompatibleScriptsForAction(detail, allScripts) : []),
+    [detail, allScripts],
+  )
+
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
@@ -113,6 +151,163 @@ export function ScriptDetailsDrawer({
               {detail.description?.trim() || '—'}
             </p>
           </div>
+
+          {hasPublishedRelease ? (
+            <div className="rounded-[var(--radius-control)] border border-border bg-surface-muted/40 p-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+                  Operational Settings
+                </h3>
+                {!operationalSettingsSupported ? (
+                  <Badge variant="warning">Read-only</Badge>
+                ) : null}
+              </div>
+
+              {!operationalSettingsSupported ? (
+                <p className="rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+                  Operational Settings API is not available on this server yet.
+                  Settings are read-only in LIVE mode.
+                </p>
+              ) : null}
+
+              {settingsError ? (
+                <div
+                  role="alert"
+                  className="rounded-[var(--radius-control)] border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+                >
+                  {settingsError}
+                </div>
+              ) : null}
+
+              {settingsSaved ? (
+                <p className="text-xs text-success">Operational settings saved.</p>
+              ) : null}
+
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isEnabled}
+                  disabled={!operationalSettingsSupported || savingSettings}
+                  onChange={(e) => {
+                    setIsEnabled(e.target.checked)
+                    setSettingsSaved(false)
+                  }}
+                />
+                <span>Enabled</span>
+              </label>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="script-language-selector"
+                  className="block text-xs font-medium text-muted"
+                >
+                  Language
+                </label>
+                <LanguageSelector
+                  id="script-language-selector"
+                  value={languageCode}
+                  disabled={!operationalSettingsSupported || savingSettings}
+                  onChange={(code) => {
+                    setLanguageCode(code)
+                    setSettingsSaved(false)
+                  }}
+                />
+              </div>
+
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isPrimary}
+                  disabled={!operationalSettingsSupported || savingSettings}
+                  onChange={(e) => {
+                    setIsPrimary(e.target.checked)
+                    setSettingsSaved(false)
+                  }}
+                />
+                <span>Set as Primary Script for its Action</span>
+              </label>
+
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={
+                    !operationalSettingsSupported ||
+                    !onSaveOperationalSettings ||
+                    savingSettings
+                  }
+                  onClick={() => {
+                    if (!onSaveOperationalSettings || !operationalSettingsSupported) {
+                      return
+                    }
+                    setSavingSettings(true)
+                    setSettingsError(null)
+                    setSettingsSaved(false)
+                    void onSaveOperationalSettings(detail.package_key, {
+                      is_enabled: isEnabled,
+                      language_code: languageCode,
+                      is_primary: isPrimary,
+                    })
+                      .then(() => {
+                        setSettingsSaved(true)
+                      })
+                      .catch((err: unknown) => {
+                        setSettingsError(toSafeApiMessage(err))
+                      })
+                      .finally(() => {
+                        setSavingSettings(false)
+                      })
+                  }}
+                >
+                  {savingSettings ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {compatibleScripts.length > 0 ? (
+            <div className="space-y-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+                Compatible Scripts Sharing Action
+              </h3>
+              <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-border bg-surface-muted/60 text-[11px] text-muted">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Script</th>
+                      <th className="px-3 py-2 font-medium">Language</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Priority</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {compatibleScripts.map((row) => (
+                      <tr key={row.package_key}>
+                        <td className="px-3 py-2 font-medium text-foreground">
+                          {row.name}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant="neutral">
+                            {formatLanguageBadge(row.language_code) ?? 'DEFAULT'}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant={row.is_enabled ? 'success' : 'warning'}>
+                            {row.is_enabled ? 'Enabled' : 'Disabled'}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge variant={row.is_primary ? 'primary' : 'neutral'}>
+                            {row.priority_label}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
 
           {hasPublishedRelease ? (
             <ScriptSharingPanel

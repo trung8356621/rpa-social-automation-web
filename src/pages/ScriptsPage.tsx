@@ -2,11 +2,9 @@ import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
 import { ScriptsScreen } from '@/features/script-registry/components/ScriptsScreen'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
-import { useVariantGroups } from '@/features/script-registry/use-variant-groups'
 
 export function ScriptsPage() {
   const registry = useScriptRegistry()
-  const variantGroups = useVariantGroups()
   const isLive = registry.mode === 'live'
 
   if (registry.loading) {
@@ -87,10 +85,11 @@ export function ScriptsPage() {
         detailLoading={registry.detailLoading}
         detailError={registry.detailError}
         mutationsEnabled={registry.mutationsEnabled}
+        operationalSettingsSupported={registry.operationalSettingsSupported}
         mode={registry.mode}
         onRemoveScript={registry.removeScript}
         onUpdateSharing={registry.updateScriptSharing}
-        variantGroups={variantGroups}
+        onSaveOperationalSettings={registry.updateOperationalSettings}
       />
       <Toast toast={registry.toast} />
     </>

@@ -14,6 +14,7 @@ import type {
   DemoScenario,
   ScriptDetail,
   ScriptListItem,
+  ScriptOperationalSettingsInput,
   ScriptSharingMode,
 } from './types'
 import { useScriptRegistryMock } from './use-script-registry-mock'
@@ -190,10 +191,20 @@ function useScriptRegistryLive(enabled: boolean) {
     [showToast],
   )
 
+  const updateOperationalSettings = useCallback(
+    async (_packageKey: string, _input: ScriptOperationalSettingsInput) => {
+      throw new Error(
+        'Operational Settings API is not available on the Backend yet. LIVE mutations are disabled.',
+      )
+    },
+    [],
+  )
+
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
       mutationsEnabled: false,
+      operationalSettingsSupported: false,
       authRequired,
       loading,
       error,
@@ -209,6 +220,7 @@ function useScriptRegistryLive(enabled: boolean) {
       getDetail,
       removeScript,
       updateScriptSharing,
+      updateOperationalSettings,
     }),
     [
       authRequired,
@@ -223,6 +235,7 @@ function useScriptRegistryLive(enabled: boolean) {
       scripts,
       showToast,
       toast,
+      updateOperationalSettings,
       updateScriptSharing,
     ],
   )
@@ -243,6 +256,7 @@ export function useScriptRegistry() {
   return {
     mode: 'mock' as const satisfies RpaApiMode,
     mutationsEnabled: true,
+    operationalSettingsSupported: true,
     authRequired: false,
     detailLoading: false,
     detailError: null as string | null,

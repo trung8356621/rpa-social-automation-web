@@ -56,6 +56,10 @@ export type ScriptListItem = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: ScriptSharingScope | null
   global_conflict?: ScriptGlobalConflict
+  is_enabled?: boolean
+  language_code?: string | null
+  is_primary?: boolean
+  fallback_priority?: number | null
 }
 
 export type ScriptReleaseDetail = {
@@ -98,7 +102,17 @@ export type ScriptDetail = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: ScriptSharingScope | null
   global_conflict?: ScriptGlobalConflict
+  is_enabled?: boolean
+  language_code?: string | null
+  is_primary?: boolean
+  fallback_priority?: number | null
   releases: ScriptReleaseDetail[]
+}
+
+export type ScriptOperationalSettingsInput = {
+  is_enabled: boolean
+  language_code: string | null
+  is_primary: boolean
 }
 
 export type ScriptRegistryData = {

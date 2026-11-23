@@ -226,10 +226,7 @@ test('missing Backend API keeps LIVE mode read-only with no invented endpoints',
     ),
     'utf8',
   )
-  assert.equal(
-    screenSrc.includes('Backend variant group & fallback priority persistence API is not available yet.'),
-    true,
-  )
+  assert.equal(screenSrc.includes('Create Variant Group'), false)
 })
 
 test('LIVE Variant Group routes, DTO mapping, CRUD lifecycle, conflict, unauthorized, and unavailable state', async () => {
@@ -414,14 +411,4 @@ test('LIVE Variant Group routes, DTO mapping, CRUD lifecycle, conflict, unauthor
     formatVariantGroupApiError(err404),
     /Variant Groups API unavailable/i,
   )
-
-  const screenSrc = readFileSync(
-    resolve(
-      process.cwd(),
-      'src/features/script-registry/components/ScriptsScreen.tsx',
-    ),
-    'utf8',
-  )
-  assert.equal(screenSrc.includes('Variant Groups API unavailable:'), true)
-  assert.equal(screenSrc.includes('Create Variant Group'), true)
 })

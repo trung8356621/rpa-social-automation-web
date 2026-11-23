@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { EMPTY_SCRIPT_REGISTRY, MOCK_SCRIPT_REGISTRY } from './mock-data'
+import { applyMockOperationalSettings } from './operational-settings'
 import type {
   DemoScenario,
+  ScriptOperationalSettingsInput,
   ScriptRegistryData,
   ScriptSharingMode,
 } from './types'
@@ -157,6 +159,22 @@ export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
     [data.scripts, showToast],
   )
 
+  const updateOperationalSettings = useCallback(
+    async (packageKey: string, input: ScriptOperationalSettingsInput) => {
+      await delay(120)
+      setData((prev) =>
+        applyMockOperationalSettings(
+          prev.scripts,
+          prev.details,
+          packageKey,
+          input,
+        ),
+      )
+      showToast('Operational settings updated (MOCK local).')
+    },
+    [showToast],
+  )
+
   return {
     loading,
     error,
@@ -166,5 +184,6 @@ export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
     getDetail,
     removeScript,
     updateScriptSharing,
+    updateOperationalSettings,
   }
 }
