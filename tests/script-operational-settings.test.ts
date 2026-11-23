@@ -18,8 +18,10 @@ import {
 import {
   applyMockOperationalSettings,
   buildScriptConfigRequestBody,
+  buildScriptDescriptionRequestBody,
   findCompatibleScriptsForAction,
   formatScriptConfigErrorMessage,
+  formatScriptDescriptionErrorMessage,
   isScriptConfigUnavailableError,
   resolveEffectiveSharingForScript,
 } from '../src/features/script-registry/operational-settings.ts'
@@ -538,7 +540,57 @@ test('LIVE /config contract: payload normalization, response mapping, validation
   assert.equal(hookSrc.includes('fetchLiveScriptRegistryList()'), true)
   assert.equal(hookSrc.includes('fetchLiveScriptRegistryDetail(packageKey)'), true)
   assert.equal(hookSrc.includes('setConfigApiUnavailable(true)'), true)
-  assert.equal(hookSrc.includes('descriptionEditSupported: false'), true)
+  assert.equal(hookSrc.includes('descriptionEditSupported: !descriptionApiUnavailable'), true)
+  assert.equal(hookSrc.includes('updateLiveScriptDescription('), true)
+
+  // Description request normalization & 422 validation errors
+  assert.deepEqual(
+    buildScriptDescriptionRequestBody('  English WordPress Classic Editor flow  '),
+    { description: 'English WordPress Classic Editor flow' },
+  )
+  assert.deepEqual(buildScriptDescriptionRequestBody('   '), {
+    description: null,
+  })
+  assert.deepEqual(buildScriptDescriptionRequestBody(null), {
+    description: null,
+  })
+
+  assert.match(
+    formatScriptDescriptionErrorMessage(
+      new ApiError('Too long', {
+        kind: 'validation',
+        status: 422,
+        code: 'description_too_long',
+      }),
+    ),
+    /5,000 characters/i,
+  )
+  assert.match(
+    formatScriptDescriptionErrorMessage(
+      new ApiError('Invalid', {
+        kind: 'validation',
+        status: 422,
+        code: 'invalid_description',
+      }),
+    ),
+    /valid string or empty/i,
+  )
+  assert.match(
+    formatScriptDescriptionErrorMessage(
+      new ApiError('Required', {
+        kind: 'validation',
+        status: 422,
+        code: 'description_required',
+      }),
+    ),
+    /Description field is required/i,
+  )
+
+  const configSrc = readFileSync(
+    resolve(process.cwd(), 'src/lib/api/config.ts'),
+    'utf8',
+  )
+  assert.equal(configSrc.includes('/description'), true)
 
   // Verify ScriptDetailsDrawer has inline Description editor + explicit Enable/Disable button
   const drawerSrc = readFileSync(
@@ -551,6 +603,7 @@ test('LIVE /config contract: payload normalization, response mapping, validation
   assert.equal(drawerSrc.includes('editingDescription'), true)
   assert.equal(drawerSrc.includes('onSaveDescription'), true)
   assert.equal(drawerSrc.includes('Script description'), true)
+  assert.equal(drawerSrc.includes('savingDescription'), true)
   assert.equal(drawerSrc.includes("'Disable'"), true)
   assert.equal(drawerSrc.includes("'Enable'"), true)
   assert.equal(drawerSrc.includes("'Enabled' : 'Disabled'"), true)

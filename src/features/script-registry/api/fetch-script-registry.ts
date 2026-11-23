@@ -6,7 +6,10 @@ import type {
   ScriptListItem,
   ScriptSharingMode,
 } from '../types'
-import type { ScriptConfigRequestBody } from '../operational-settings'
+import type {
+  ScriptConfigRequestBody,
+  ScriptDescriptionRequestBody,
+} from '../operational-settings'
 import type {
   LiveScriptConfigResponse,
   LiveScriptRegistryDetailResponse,
@@ -71,6 +74,24 @@ export async function updateLiveScriptConfig(
 ): Promise<LiveScriptConfigResponse> {
   return staffApiRequest<LiveScriptConfigResponse>(
     SCRIPT_REGISTRY_PATHS.config(packageKey),
+    {
+      method: 'PATCH',
+      body,
+    },
+  )
+}
+
+/**
+ * PATCH /social-automation/api/script-registry/{id}/description
+ * Updates Script description metadata via Staff Session + CSRF without
+ * altering language, primary, enabled, or CMS Global settings.
+ */
+export async function updateLiveScriptDescription(
+  packageKey: string,
+  body: ScriptDescriptionRequestBody,
+): Promise<LiveScriptConfigResponse> {
+  return staffApiRequest<LiveScriptConfigResponse>(
+    SCRIPT_REGISTRY_PATHS.description(packageKey),
     {
       method: 'PATCH',
       body,

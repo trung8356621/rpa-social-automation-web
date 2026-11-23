@@ -42,6 +42,43 @@ export function isScriptConfigUnavailableError(err: unknown): boolean {
   )
 }
 
+export type ScriptDescriptionRequestBody = {
+  description: string | null
+}
+
+export function buildScriptDescriptionRequestBody(
+  description: string | null | undefined,
+): ScriptDescriptionRequestBody {
+  if (description == null) return { description: null }
+  const trimmed = description.trim()
+  return { description: trimmed.length > 0 ? trimmed : null }
+}
+
+export function formatScriptDescriptionErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (
+      err.status === 404 ||
+      err.status === 503 ||
+      err.code === 'schema_unavailable'
+    ) {
+      return 'Description editing API unavailable on this server (404 / schema not migrated).'
+    }
+    if (err.code === 'description_too_long') {
+      return 'Description exceeds the maximum length of 5,000 characters.'
+    }
+    if (err.code === 'invalid_description') {
+      return 'Description must be a valid string or empty.'
+    }
+    if (err.code === 'description_required') {
+      return 'Description field is required in the request.'
+    }
+    if (err.status === 401 || err.status === 403 || err.isAuthRequired) {
+      return err.message
+    }
+  }
+  return toSafeApiMessage(err)
+}
+
 export function formatScriptConfigErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     if (

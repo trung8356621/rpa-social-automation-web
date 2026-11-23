@@ -8,11 +8,14 @@ import {
   fetchLiveScriptRegistryDetail,
   fetchLiveScriptRegistryList,
   updateLiveScriptConfig,
+  updateLiveScriptDescription,
   updateLiveScriptSharing,
 } from './api/fetch-script-registry'
 import {
   buildScriptConfigRequestBody,
+  buildScriptDescriptionRequestBody,
   formatScriptConfigErrorMessage,
+  formatScriptDescriptionErrorMessage,
   isScriptConfigUnavailableError,
 } from './operational-settings'
 import { formatSharingErrorMessage } from './sharing'
@@ -38,6 +41,8 @@ function useScriptRegistryLive(enabled: boolean) {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [configApiUnavailable, setConfigApiUnavailable] = useState(false)
+  const [descriptionApiUnavailable, setDescriptionApiUnavailable] =
+    useState(false)
   const [toast, setToast] = useState<{
     message: string
     type: 'success' | 'error'
@@ -226,12 +231,30 @@ function useScriptRegistryLive(enabled: boolean) {
   )
 
   const updateScriptDescription = useCallback(
-    async (_packageKey: string, _description: string) => {
-      throw new Error(
-        'Script description update API is not available on the Backend yet.',
-      )
+    async (packageKey: string, description: string) => {
+      try {
+        await updateLiveScriptDescription(
+          packageKey,
+          buildScriptDescriptionRequestBody(description),
+        )
+        const [freshList, freshDetail] = await Promise.all([
+          fetchLiveScriptRegistryList(),
+          fetchLiveScriptRegistryDetail(packageKey),
+        ])
+        setScripts(freshList)
+        setDetails((prev) => ({ ...prev, [packageKey]: freshDetail }))
+        setDescriptionApiUnavailable(false)
+        showToast('Description saved.')
+      } catch (err: unknown) {
+        if (isScriptConfigUnavailableError(err)) {
+          setDescriptionApiUnavailable(true)
+        }
+        const msg = formatScriptDescriptionErrorMessage(err)
+        showToast(msg, 'error')
+        throw new Error(msg)
+      }
     },
-    [],
+    [showToast],
   )
 
   return useMemo(
@@ -239,7 +262,7 @@ function useScriptRegistryLive(enabled: boolean) {
       mode: 'live' as const satisfies RpaApiMode,
       mutationsEnabled: false,
       operationalSettingsSupported: !configApiUnavailable,
-      descriptionEditSupported: false,
+      descriptionEditSupported: !descriptionApiUnavailable,
       authRequired,
       loading,
       error,
@@ -261,6 +284,7 @@ function useScriptRegistryLive(enabled: boolean) {
     [
       authRequired,
       configApiUnavailable,
+      descriptionApiUnavailable,
       detailError,
       detailLoading,
       details,
