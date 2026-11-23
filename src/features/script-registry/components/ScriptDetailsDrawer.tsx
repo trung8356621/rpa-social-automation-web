@@ -5,8 +5,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { toSafeApiMessage } from '@/lib/api/errors'
 
+import type { PersistedVariantGroup } from '../api/variant-groups-contract'
 import { formatLanguageBadge, normalizeLanguageCode } from '../languages'
-import { findCompatibleScriptsForAction } from '../operational-settings'
+import {
+  findCompatibleScriptsForAction,
+  resolveEffectiveSharingForScript,
+} from '../operational-settings'
 import type {
   ScriptDetail,
   ScriptListItem,
@@ -23,6 +27,7 @@ type ScriptDetailsDrawerProps = {
   open: boolean
   detail: ScriptDetail | null
   allScripts?: ScriptListItem[]
+  persistedGroups?: PersistedVariantGroup[]
   mode?: 'mock' | 'live'
   operationalSettingsSupported?: boolean
   onClose: () => void
@@ -58,6 +63,7 @@ export function ScriptDetailsDrawer({
   open,
   detail,
   allScripts = [],
+  persistedGroups = [],
   mode = 'mock',
   operationalSettingsSupported = mode === 'mock',
   onClose,
@@ -82,9 +88,33 @@ export function ScriptDetailsDrawer({
   }, [detail])
 
   const compatibleScripts = useMemo(
-    () => (detail ? findCompatibleScriptsForAction(detail, allScripts) : []),
-    [detail, allScripts],
+    () =>
+      detail
+        ? findCompatibleScriptsForAction(detail, allScripts, persistedGroups)
+        : [],
+    [detail, allScripts, persistedGroups],
   )
+
+  const effectiveSharing = useMemo(() => {
+    if (!detail) {
+      return {
+        effectiveSharingMode: 'site_specific' as const,
+        sharingManagedAutomatically: false,
+      }
+    }
+    const listRow = allScripts.find((s) => s.package_key === detail.package_key)
+    return resolveEffectiveSharingForScript(
+      {
+        package_key: detail.package_key,
+        sharing_mode: detail.sharing_mode,
+        effective_sharing_mode: detail.effective_sharing_mode,
+        sharing_managed_automatically: detail.sharing_managed_automatically,
+        is_enabled: detail.is_enabled,
+        status: listRow?.status ?? 'published',
+      },
+      persistedGroups,
+    )
+  }, [detail, allScripts, persistedGroups])
 
   useEffect(() => {
     if (!open) return
@@ -313,6 +343,10 @@ export function ScriptDetailsDrawer({
             <ScriptSharingPanel
               packageKey={detail.package_key}
               sharingMode={detail.sharing_mode}
+              effectiveSharingMode={effectiveSharing.effectiveSharingMode}
+              sharingManagedAutomatically={
+                effectiveSharing.sharingManagedAutomatically
+              }
               globalScope={detail.global_scope}
               globalEligible={detail.global_eligible}
               globalIneligibleReason={detail.global_ineligible_reason}

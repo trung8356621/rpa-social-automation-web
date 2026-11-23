@@ -35,6 +35,8 @@ export type LiveScriptListItem = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: unknown
   global_conflict?: unknown
+  effective_sharing_mode?: string | null
+  sharing_managed_automatically?: boolean
   language_label?: string | null
   is_enabled?: boolean
   is_primary?: boolean
@@ -91,6 +93,8 @@ export type LiveScriptDetail = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: unknown
   global_conflict?: unknown
+  effective_sharing_mode?: string | null
+  sharing_managed_automatically?: boolean
   language_label?: string | null
   is_enabled?: boolean
   is_primary?: boolean

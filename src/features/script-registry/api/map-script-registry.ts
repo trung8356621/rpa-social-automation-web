@@ -116,6 +116,13 @@ export function mapLiveScriptListItem(item: LiveScriptListItem): ScriptListItem 
       item.eligible_global_scope,
     ),
     global_conflict: mapGlobalConflict(item.global_conflict),
+    effective_sharing_mode: item.effective_sharing_mode
+      ? asSharingMode(item.effective_sharing_mode)
+      : undefined,
+    sharing_managed_automatically:
+      item.sharing_managed_automatically == null
+        ? undefined
+        : Boolean(item.sharing_managed_automatically),
     language_code: normalizeLanguageCode(item.language_label),
     is_enabled: item.is_enabled == null ? true : Boolean(item.is_enabled),
     is_primary: item.is_primary == null ? false : Boolean(item.is_primary),
@@ -208,6 +215,13 @@ export function mapLiveScriptDetail(script: LiveScriptDetail): ScriptDetail {
       script.eligible_global_scope,
     ),
     global_conflict: mapGlobalConflict(script.global_conflict),
+    effective_sharing_mode: script.effective_sharing_mode
+      ? asSharingMode(script.effective_sharing_mode)
+      : undefined,
+    sharing_managed_automatically:
+      script.sharing_managed_automatically == null
+        ? undefined
+        : Boolean(script.sharing_managed_automatically),
     language_code: normalizeLanguageCode(script.language_label),
     is_enabled: script.is_enabled == null ? true : Boolean(script.is_enabled),
     is_primary: script.is_primary == null ? false : Boolean(script.is_primary),

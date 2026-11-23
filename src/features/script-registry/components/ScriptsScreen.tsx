@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
+import type { PersistedVariantGroup } from '../api/variant-groups-contract'
 import type {
   ScriptDetail,
   ScriptListItem,
@@ -24,6 +25,7 @@ import {
 
 type ScriptsScreenProps = {
   scripts: ScriptListItem[]
+  persistedGroups?: PersistedVariantGroup[]
   getDetail: (packageKey: string) => ScriptDetail | null
   detailLoading?: boolean
   detailError?: string | null
@@ -43,6 +45,7 @@ type ScriptsScreenProps = {
 
 export function ScriptsScreen({
   scripts,
+  persistedGroups = [],
   getDetail,
   detailLoading = false,
   detailError = null,
@@ -184,6 +187,7 @@ export function ScriptsScreen({
             <ScriptCard
               key={script.package_key}
               script={script}
+              persistedGroups={persistedGroups}
               removeEnabled={mutationsEnabled}
               onOpenDetails={setDetail}
               onPlayVideo={openVideo}
@@ -233,6 +237,7 @@ export function ScriptsScreen({
         open={Boolean(selectedKey && detail)}
         detail={detail}
         allScripts={scripts}
+        persistedGroups={persistedGroups}
         mode={mode}
         operationalSettingsSupported={operationalSettingsSupported}
         onClose={() => setDetail(null)}

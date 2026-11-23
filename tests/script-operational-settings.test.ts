@@ -21,7 +21,9 @@ import {
   findCompatibleScriptsForAction,
   formatScriptConfigErrorMessage,
   isScriptConfigUnavailableError,
+  resolveEffectiveSharingForScript,
 } from '../src/features/script-registry/operational-settings.ts'
+import type { PersistedVariantGroup } from '../src/features/script-registry/api/variant-groups-contract.ts'
 import { ApiError } from '../src/lib/api/errors.ts'
 import type {
   ScriptDetail,
@@ -168,9 +170,58 @@ test('operational settings enforce one primary Script per Action scope and compu
   assert.equal(newJa.language_code, 'zh-Hans')
   assert.equal(newVi.is_primary, false)
 
+  const persistedGroup: PersistedVariantGroup = {
+    id: 'grp_wp_1',
+    name: 'wordpress:create_post',
+    scope_type: 'cms_global',
+    cms_type: 'wordpress',
+    cms_template_id: 1,
+    cms_path_key: 'create_post',
+    global_scope_key: 'wordpress:create_post',
+    action_tag_key: null,
+    is_enabled: true,
+    variants: [
+      {
+        id: 'var_ja',
+        priority: 1,
+        language_label: 'ZH-HANS',
+        package_id: 2,
+        package_key: 'wp.ja',
+        script_id: 'wp.ja',
+        script_name: 'WP JA',
+        release_id: 102,
+        script_version: '1.0.0',
+        release_status: 'published',
+        content_digest: null,
+        execution_digest: null,
+        published_at: null,
+        is_enabled: true,
+      },
+      {
+        id: 'var_vi',
+        priority: 2,
+        language_label: 'VI',
+        package_id: 1,
+        package_key: 'wp.vi',
+        script_id: 'wp.vi',
+        script_name: 'WP VI',
+        release_id: 101,
+        script_version: '1.0.0',
+        release_status: 'published',
+        content_digest: null,
+        execution_digest: null,
+        published_at: null,
+        is_enabled: true,
+      },
+    ],
+    created_at: null,
+    updated_at: null,
+  }
+
   const compatible = findCompatibleScriptsForAction(
     updated.details['wp.ja']!,
     updated.scripts,
+    [persistedGroup],
   )
   assert.deepEqual(
     compatible.map((c) => [c.package_key, c.priority_label, c.language_code]),
@@ -179,6 +230,133 @@ test('operational settings enforce one primary Script per Action scope and compu
       ['wp.vi', 'Fallback #1', 'vi'],
       ['wp.fr', 'Disabled', 'fr'],
     ],
+  )
+})
+
+test('Script role clarity: ungrouped enabled same-Action scripts show Enabled (not selected), replacement workflow & effective CMS Global sharing', () => {
+  const oldVi = makeScript({
+    package_key: 'wp.vi.old',
+    name: 'WP VI Old',
+    language_code: 'vi',
+    is_primary: false,
+    is_enabled: false,
+    sharing_mode: 'site_specific',
+  })
+  const newVi = makeScript({
+    package_key: 'wp.vi.new',
+    name: 'WP VI New',
+    language_code: 'vi',
+    is_primary: true,
+    is_enabled: true,
+    sharing_mode: 'cms_global',
+  })
+  const fallbackEn = makeScript({
+    package_key: 'wp.en',
+    name: 'WP EN',
+    language_code: 'en',
+    is_primary: false,
+    is_enabled: true,
+    // Backend stores site_specific on fallback package row while it belongs to cms_global group
+    sharing_mode: 'site_specific',
+  })
+  const unselectedJa = makeScript({
+    package_key: 'wp.ja.unselected',
+    name: 'WP JA Unselected',
+    language_code: 'ja',
+    is_primary: false,
+    is_enabled: true,
+    sharing_mode: 'site_specific',
+  })
+
+  const group: PersistedVariantGroup = {
+    id: 'grp_1',
+    name: 'wordpress:create_post',
+    scope_type: 'cms_global',
+    cms_type: 'wordpress',
+    cms_template_id: 1,
+    cms_path_key: 'create_post',
+    global_scope_key: 'wordpress:create_post',
+    action_tag_key: null,
+    is_enabled: true,
+    variants: [
+      {
+        id: 'v_new',
+        priority: 1,
+        language_label: 'VI',
+        package_id: 2,
+        package_key: 'wp.vi.new',
+        script_id: 'wp.vi.new',
+        script_name: 'WP VI New',
+        release_id: 201,
+        script_version: '2.0.0',
+        release_status: 'published',
+        content_digest: null,
+        execution_digest: null,
+        published_at: null,
+        is_enabled: true,
+      },
+      {
+        id: 'v_en',
+        priority: 2,
+        language_label: 'EN',
+        package_id: 3,
+        package_key: 'wp.en',
+        script_id: 'wp.en',
+        script_name: 'WP EN',
+        release_id: 202,
+        script_version: '1.0.0',
+        release_status: 'published',
+        content_digest: null,
+        execution_digest: null,
+        published_at: null,
+        is_enabled: true,
+      },
+    ],
+    created_at: null,
+    updated_at: null,
+  }
+
+  const rows = findCompatibleScriptsForAction(
+    {
+      package_key: 'wp.vi.new',
+      global_scope: 'wordpress:create_post',
+      eligible_global_scope: null,
+      action_tag_key: 'mayhopphat.create_post',
+    },
+    [oldVi, newVi, fallbackEn, unselectedJa],
+    [group],
+  )
+
+  assert.deepEqual(
+    rows.map((r) => [r.package_key, r.role, r.priority_label, r.effective_sharing_mode, r.sharing_managed_automatically]),
+    [
+      ['wp.vi.new', 'primary', 'Primary', 'cms_global', true],
+      ['wp.en', 'fallback', 'Fallback #1', 'cms_global', true],
+      ['wp.ja.unselected', 'enabled_unselected', 'Enabled (not selected)', 'site_specific', false],
+      ['wp.vi.old', 'disabled', 'Disabled', 'site_specific', false],
+    ],
+  )
+
+  // Fallback variant inheriting cms_global group must show checked + read-only ("Managed automatically by SEO-OPS.")
+  const enSharing = resolveEffectiveSharingForScript(fallbackEn, [group])
+  assert.equal(enSharing.effectiveSharingMode, 'cms_global')
+  assert.equal(enSharing.sharingManagedAutomatically, true)
+
+  // Unselected script must NOT be marked cms_global merely for sharing the Action Tag
+  const jaSharing = resolveEffectiveSharingForScript(unselectedJa, [group])
+  assert.equal(jaSharing.effectiveSharingMode, 'site_specific')
+  assert.equal(jaSharing.sharingManagedAutomatically, false)
+
+  const sharingPanelSrc = readFileSync(
+    resolve(
+      process.cwd(),
+      'src/features/script-registry/components/ScriptSharingPanel.tsx',
+    ),
+    'utf8',
+  )
+  assert.equal(
+    sharingPanelSrc.includes('Managed automatically by SEO-OPS.'),
+    true,
   )
 })
 

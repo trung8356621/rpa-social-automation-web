@@ -56,6 +56,8 @@ export type ScriptListItem = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: ScriptSharingScope | null
   global_conflict?: ScriptGlobalConflict
+  effective_sharing_mode?: ScriptSharingMode
+  sharing_managed_automatically?: boolean
   is_enabled?: boolean
   language_code?: string | null
   is_primary?: boolean
@@ -102,6 +104,8 @@ export type ScriptDetail = {
   global_ineligible_reason?: string | null
   eligible_global_scope?: ScriptSharingScope | null
   global_conflict?: ScriptGlobalConflict
+  effective_sharing_mode?: ScriptSharingMode
+  sharing_managed_automatically?: boolean
   is_enabled?: boolean
   language_code?: string | null
   is_primary?: boolean

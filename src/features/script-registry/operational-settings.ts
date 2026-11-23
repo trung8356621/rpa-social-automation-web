@@ -1,9 +1,11 @@
 import { ApiError, toSafeApiMessage } from '../../lib/api/errors.ts'
+import type { PersistedVariantGroup } from './api/variant-groups-contract.ts'
 import { normalizeLanguageCode } from './languages.ts'
 import type {
   ScriptDetail,
   ScriptListItem,
   ScriptOperationalSettingsInput,
+  ScriptSharingMode,
 } from './types.ts'
 
 export type ScriptConfigActionScope = 'auto' | 'cms_global' | 'site_action'
@@ -82,13 +84,22 @@ export function formatScriptConfigErrorMessage(err: unknown): string {
   return toSafeApiMessage(err)
 }
 
+export type ScriptExecutionRole =
+  | 'primary'
+  | 'fallback'
+  | 'enabled_unselected'
+  | 'disabled'
+
 export type CompatibleActionScriptRow = {
   package_key: string
   name: string
   language_code: string | null
   is_enabled: boolean
   is_primary: boolean
+  role: ScriptExecutionRole
   priority_label: string
+  effective_sharing_mode: ScriptSharingMode
+  sharing_managed_automatically: boolean
 }
 
 export function resolveActionScopeKey(script: {
@@ -105,8 +116,56 @@ export function resolveActionScopeKey(script: {
 }
 
 /**
- * Find compatible Scripts sharing the same logical Action scope, ordered by
- * Primary -> Enabled Fallbacks -> Disabled, with human-readable execution priority.
+ * Resolve effective CMS Global sharing status from Backend fields and
+ * effective Variant Group membership (never inferred from Action Tag alone).
+ */
+export function resolveEffectiveSharingForScript(
+  script: Pick<
+    ScriptListItem,
+    | 'package_key'
+    | 'sharing_mode'
+    | 'effective_sharing_mode'
+    | 'sharing_managed_automatically'
+    | 'is_enabled'
+    | 'status'
+  >,
+  persistedGroups: PersistedVariantGroup[] = [],
+): {
+  effectiveSharingMode: ScriptSharingMode
+  sharingManagedAutomatically: boolean
+} {
+  if (script.effective_sharing_mode) {
+    return {
+      effectiveSharingMode: script.effective_sharing_mode,
+      sharingManagedAutomatically: Boolean(script.sharing_managed_automatically),
+    }
+  }
+
+  const enabled = script.is_enabled !== false && script.status !== 'yanked'
+  for (const g of persistedGroups) {
+    if (!g.is_enabled) continue
+    const member = g.variants.find(
+      (v) => v.package_key === script.package_key && v.is_enabled,
+    )
+    if (member && enabled) {
+      return {
+        effectiveSharingMode:
+          g.scope_type === 'cms_global' ? 'cms_global' : 'site_specific',
+        sharingManagedAutomatically: g.scope_type === 'cms_global',
+      }
+    }
+  }
+
+  return {
+    effectiveSharingMode: script.sharing_mode ?? 'site_specific',
+    sharingManagedAutomatically: Boolean(script.sharing_managed_automatically),
+  }
+}
+
+/**
+ * Find compatible Scripts sharing the same logical Action scope, using actual
+ * Backend configuration and effective group membership.
+ * Never labels every enabled same-Action Script as an automatic fallback.
  */
 export function findCompatibleScriptsForAction(
   target: Pick<
@@ -114,6 +173,7 @@ export function findCompatibleScriptsForAction(
     'package_key' | 'global_scope' | 'eligible_global_scope' | 'action_tag_key'
   >,
   allScripts: ScriptListItem[],
+  persistedGroups: PersistedVariantGroup[] = [],
 ): CompatibleActionScriptRow[] {
   const targetScope = resolveActionScopeKey(target)
   const matching = allScripts.filter((s) => {
@@ -122,17 +182,45 @@ export function findCompatibleScriptsForAction(
     return resolveActionScopeKey(s) === targetScope
   })
 
-  const sorted = [...matching].sort((a, b) => {
-    const aPrimary = a.is_primary === true ? 0 : 1
-    const bPrimary = b.is_primary === true ? 0 : 1
-    if (aPrimary !== bPrimary) return aPrimary - bPrimary
+  // Find actual Backend group containing target or matching scope
+  const activeGroup =
+    persistedGroups.find(
+      (g) =>
+        g.is_enabled &&
+        g.variants.some((v) => v.package_key === target.package_key),
+    ) ??
+    persistedGroups.find(
+      (g) =>
+        g.is_enabled &&
+        targetScope !== null &&
+        (g.global_scope_key?.toLowerCase() === targetScope ||
+          g.action_tag_key?.toLowerCase() === targetScope),
+    ) ??
+    null
 
+  const groupItemByPkg = new Map(
+    (activeGroup?.variants ?? []).map((v) => [v.package_key, v]),
+  )
+
+  const sorted = [...matching].sort((a, b) => {
     const aEnabled = a.is_enabled !== false && a.status !== 'yanked' ? 0 : 1
     const bEnabled = b.is_enabled !== false && b.status !== 'yanked' ? 0 : 1
     if (aEnabled !== bEnabled) return aEnabled - bEnabled
 
-    const aPrio = a.fallback_priority ?? Number.MAX_SAFE_INTEGER
-    const bPrio = b.fallback_priority ?? Number.MAX_SAFE_INTEGER
+    const aPrimary = a.is_primary === true ? 0 : 1
+    const bPrimary = b.is_primary === true ? 0 : 1
+    if (aPrimary !== bPrimary) return aPrimary - bPrimary
+
+    const aItem = groupItemByPkg.get(a.package_key)
+    const bItem = groupItemByPkg.get(b.package_key)
+    const aInGroup = aItem ? 0 : 1
+    const bInGroup = bItem ? 0 : 1
+    if (aInGroup !== bInGroup) return aInGroup - bInGroup
+
+    const aPrio =
+      aItem?.priority ?? a.fallback_priority ?? Number.MAX_SAFE_INTEGER
+    const bPrio =
+      bItem?.priority ?? b.fallback_priority ?? Number.MAX_SAFE_INTEGER
     if (aPrio !== bPrio) return aPrio - bPrio
 
     return a.name.localeCompare(b.name)
@@ -141,22 +229,37 @@ export function findCompatibleScriptsForAction(
   let fallbackIdx = 1
   return sorted.map((s) => {
     const enabled = s.is_enabled !== false && s.status !== 'yanked'
-    const primary = s.is_primary === true
-    let priority_label = 'Disabled'
-    if (enabled) {
-      if (primary) {
-        priority_label = 'Primary'
-      } else {
-        priority_label = `Fallback #${fallbackIdx++}`
-      }
+    const primary = enabled && s.is_primary === true
+    const groupItem = groupItemByPkg.get(s.package_key)
+    const sharing = resolveEffectiveSharingForScript(s, persistedGroups)
+
+    let role: ScriptExecutionRole = 'enabled_unselected'
+    let priority_label = 'Enabled (not selected)'
+
+    if (!enabled) {
+      role = 'disabled'
+      priority_label = 'Disabled'
+    } else if (primary) {
+      role = 'primary'
+      priority_label = 'Primary'
+    } else if (
+      (groupItem && groupItem.is_enabled) ||
+      s.fallback_priority != null
+    ) {
+      role = 'fallback'
+      priority_label = `Fallback #${fallbackIdx++}`
     }
+
     return {
       package_key: s.package_key,
       name: s.name,
       language_code: normalizeLanguageCode(s.language_code),
       is_enabled: enabled,
       is_primary: primary,
+      role,
       priority_label,
+      effective_sharing_mode: sharing.effectiveSharingMode,
+      sharing_managed_automatically: sharing.sharingManagedAutomatically,
     }
   })
 }

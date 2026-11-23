@@ -5,13 +5,16 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
+import type { PersistedVariantGroup } from '../api/variant-groups-contract'
 import { formatLanguageBadge } from '../languages'
+import { resolveEffectiveSharingForScript } from '../operational-settings'
 import { formatGlobalConflictLabel } from '../sharing'
 import type { ScriptListItem, ScriptSharingMode } from '../types'
 import { displayScriptTitle, scriptStatusBadge } from '../types'
 
 type ScriptCardProps = {
   script: ScriptListItem
+  persistedGroups?: PersistedVariantGroup[]
   removeEnabled?: boolean
   onOpenDetails: (packageKey: string) => void
   onPlayVideo: (script: ScriptListItem) => void
@@ -24,6 +27,7 @@ type ScriptCardProps = {
 
 export function ScriptCard({
   script,
+  persistedGroups = [],
   removeEnabled = true,
   onOpenDetails,
   onPlayVideo,
@@ -38,9 +42,13 @@ export function ScriptCard({
   const canPlay =
     script.has_playable_video && script.video_demo_status === 'ready'
   const isPublished = script.status === 'published'
-  const isGlobal = script.sharing_mode === 'cms_global'
+  const effectiveSharing = resolveEffectiveSharingForScript(
+    script,
+    persistedGroups,
+  )
+  const isGlobal = effectiveSharing.effectiveSharingMode === 'cms_global'
   const isDisabled = script.is_enabled === false
-  const isPrimary = script.is_primary === true
+  const isPrimary = !isDisabled && script.is_primary === true
   const langBadge = formatLanguageBadge(script.language_code)
   const isIneligible = script.global_eligible === false
   const scopeLabel =

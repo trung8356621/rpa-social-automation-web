@@ -12,6 +12,8 @@ import type {
 type ScriptSharingPanelProps = {
   packageKey: string
   sharingMode?: ScriptSharingMode
+  effectiveSharingMode?: ScriptSharingMode
+  sharingManagedAutomatically?: boolean
   globalScope?: string | null
   globalEligible?: boolean
   globalIneligibleReason?: string | null
@@ -26,6 +28,8 @@ type ScriptSharingPanelProps = {
 export function ScriptSharingPanel({
   packageKey,
   sharingMode = 'site_specific',
+  effectiveSharingMode,
+  sharingManagedAutomatically = false,
   globalScope,
   globalEligible,
   globalIneligibleReason,
@@ -36,7 +40,8 @@ export function ScriptSharingPanel({
   const [isUpdating, setIsUpdating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isGlobal = sharingMode === 'cms_global'
+  const displaySharingMode = effectiveSharingMode ?? sharingMode
+  const isGlobal = displaySharingMode === 'cms_global'
   const isIneligible = globalEligible === false
   const effectiveScope = globalScope || eligibleGlobalScope?.scope || null
   const cmsType = eligibleGlobalScope?.cms_type || null
@@ -70,7 +75,7 @@ export function ScriptSharingPanel({
           CMS Global Sharing
         </h3>
         <Badge variant={isGlobal ? 'primary' : 'neutral'}>
-          {sharingMode}
+          {displaySharingMode}
         </Badge>
       </div>
 
@@ -83,7 +88,12 @@ export function ScriptSharingPanel({
           type="checkbox"
           className="mt-0.5 size-4 rounded border-border"
           checked={isGlobal}
-          disabled={!onUpdateSharing || isUpdating || isIneligible}
+          disabled={
+            sharingManagedAutomatically ||
+            !onUpdateSharing ||
+            isUpdating ||
+            isIneligible
+          }
           onChange={(e) => void handleChange(e.target.checked)}
         />
         <span className="text-sm font-medium text-foreground">
@@ -96,6 +106,12 @@ export function ScriptSharingPanel({
         </span>
       </label>
 
+      {sharingManagedAutomatically ? (
+        <p className="mt-1.5 text-xs font-medium text-primary">
+          Managed automatically by SEO-OPS.
+        </p>
+      ) : null}
+
       <p className="mt-1.5 text-xs leading-relaxed text-muted">
         {cmsType && pathTemplate
           ? `Các Site dùng CMS Type "${cmsType}" có Path Template "${pathTemplate}" có thể kế thừa Script này khi bật CMS Global (không copy Script hay đổi Tag Key gốc).`
@@ -105,7 +121,7 @@ export function ScriptSharingPanel({
       <dl className="mt-2.5 space-y-1 border-t border-border pt-2 text-xs">
         <div className="flex justify-between gap-2">
           <dt className="text-muted">Sharing Mode</dt>
-          <dd className="font-mono text-foreground">{sharingMode}</dd>
+          <dd className="font-mono text-foreground">{displaySharingMode}</dd>
         </div>
         <div className="flex justify-between gap-2">
           <dt className="text-muted">Eligible CMS Type</dt>
