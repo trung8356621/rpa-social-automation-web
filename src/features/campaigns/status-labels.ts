@@ -42,6 +42,10 @@ export function contentStatusBadge(
       return { label: 'Running', variant: 'primary' }
     case 'success':
       return { label: 'Success', variant: 'success' }
+    case 'completed':
+      return { label: 'Completed', variant: 'success' }
+    case 'failed':
+      return { label: 'Failed', variant: 'danger' }
     case 'failed_locked':
       return { label: 'Failed Locked', variant: 'danger' }
     case 'unknown':
@@ -93,10 +97,10 @@ export function summarizeContents(
       s.waiting_resources += 1
       s.waiting += 1
     } else if (st === 'running') s.running += 1
-    else if (st === 'success') {
+    else if (st === 'success' || st === 'completed') {
       s.success += 1
       s.completed += 1
-    } else if (st === 'failed_locked') {
+    } else if (st === 'failed_locked' || st === 'failed') {
       s.failed_locked += 1
       s.failed += 1
     } else if (st === 'unknown') s.unknown += 1

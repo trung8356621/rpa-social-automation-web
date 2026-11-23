@@ -211,9 +211,24 @@ export type LiveJobAttemptRow = {
   ended_at?: string | null
   error?: string | null
   artifacts?: Array<{
-    id?: string
+    id?: string | number
+    artifact_uuid?: string | null
+    uuid?: string | null
     kind?: string
+    type?: string
     label?: string
+    name?: string
     url?: string | null
+    download_url?: string | null
+    has_binary?: boolean | null
+    role?: string | null
+    screenshot_role?: string | null
+    outcome?: string | null
+    status?: string | null
+    language_label?: string | null
+    language?: string | null
+    variant?: string | null
+    locale?: string | null
+    mime_type?: string | null
   }>
 }

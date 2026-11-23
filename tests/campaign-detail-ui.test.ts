@@ -477,7 +477,7 @@ test('mapLiveContent preserves content_uuid and nested attempts; CampaignDetailS
   assert.equal(screenSrc.includes('Current Job:'), true)
   assert.equal(screenSrc.includes('Job UUID:'), true)
   assert.equal(screenSrc.includes('Attempt UUID:'), true)
-  assert.equal(screenSrc.includes('Screenshot: '), true)
+  assert.equal(screenSrc.includes('AttemptScreenshot'), true)
   assert.equal(screenSrc.includes('onRetry(c.id, c.status)'), true)
   assert.equal(screenSrc.includes('onSkip(c.id)'), true)
   assert.equal(screenSrc.includes('onCancelContent(c.id)'), true)

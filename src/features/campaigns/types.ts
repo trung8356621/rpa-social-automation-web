@@ -170,6 +170,8 @@ export type CampaignContentStatus =
   | 'waiting_resources'
   | 'running'
   | 'success'
+  | 'completed'
+  | 'failed'
   | 'failed_locked'
   | 'unknown'
   | 'skipped'
@@ -224,9 +226,17 @@ export type CampaignContent = {
 
 export type CampaignArtifact = {
   id: string
+  artifact_uuid?: string | null
   kind: 'screenshot' | 'log' | 'other'
   label: string
   url: string | null
+  download_url?: string | null
+  has_binary?: boolean | null
+  role?: string | null
+  outcome?: 'success' | 'failure' | string | null
+  language_label?: string | null
+  variant?: string | null
+  mime_type?: string | null
 }
 
 export type CampaignJobAttempt = {

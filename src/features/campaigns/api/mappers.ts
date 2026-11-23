@@ -46,6 +46,8 @@ const CONTENT_STATUSES = new Set<CampaignContentStatus>([
   'waiting_resources',
   'running',
   'success',
+  'completed',
+  'failed',
   'failed_locked',
   'unknown',
   'skipped',
@@ -603,14 +605,33 @@ export function mapLiveJobAttempt(row: unknown): CampaignJobAttempt {
     started_at: r.started_at ?? null,
     ended_at: r.ended_at ?? null,
     error: r.error ?? errMsg ?? errCode ?? null,
-    artifacts: (r.artifacts ?? []).map((a, i) => ({
-      id: String(a.id ?? `art_${i}`),
-      kind:
-        a.kind === 'screenshot' || a.kind === 'log' || a.kind === 'other'
-          ? a.kind
-          : 'other',
-      label: String(a.label ?? 'artifact'),
-      url: a.url ?? null,
-    })),
+    artifacts: (r.artifacts ?? []).map((a, i) => {
+      const rawKind = a.kind ?? a.type
+      const mime = pickNonEmptyString(a.mime_type)
+      const kind: 'screenshot' | 'log' | 'other' =
+        rawKind === 'screenshot' || (mime && mime.startsWith('image/'))
+          ? 'screenshot'
+          : rawKind === 'log'
+            ? 'log'
+            : 'other'
+      const artifactUuid = pickNonEmptyString(a.artifact_uuid ?? a.uuid)
+      const downloadUrl = pickNonEmptyString(a.download_url)
+      return {
+        id: String(a.id ?? artifactUuid ?? `art_${i}`),
+        artifact_uuid: artifactUuid,
+        kind,
+        label: String(a.label ?? a.name ?? (kind === 'screenshot' ? 'Screenshot' : 'artifact')),
+        url: pickNonEmptyString(a.url) ?? downloadUrl ?? null,
+        download_url: downloadUrl,
+        has_binary: typeof a.has_binary === 'boolean' ? a.has_binary : null,
+        role: pickNonEmptyString(a.role ?? a.screenshot_role),
+        outcome: pickNonEmptyString(a.outcome ?? a.status),
+        language_label: pickNonEmptyString(
+          a.language_label ?? a.language ?? a.locale,
+        ),
+        variant: pickNonEmptyString(a.variant),
+        mime_type: mime,
+      }
+    }),
   }
 }

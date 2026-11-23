@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -9,6 +9,7 @@ import { toSafeApiMessage } from '@/lib/api/errors'
 import type { AccountItem } from '@/features/accounts/types'
 import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/types'
 
+import { isScreenshotArtifact } from '../campaign-artifacts'
 import {
   deriveArticleCounts,
   deriveCampaignStatusMessage,
@@ -43,6 +44,11 @@ import type {
   CampaignContent,
   CampaignJobAttempt,
 } from '../types'
+import { AttemptScreenshot } from './AttemptScreenshot'
+import {
+  ScreenshotPreviewModal,
+  type ScreenshotPreviewData,
+} from './ScreenshotPreviewModal'
 
 type Props = {
   campaign: Campaign
@@ -102,6 +108,9 @@ export function CampaignDetailScreen({
     () => new Set(),
   )
   const [techExpanded, setTechExpanded] = useState(false)
+  const [screenshotPreview, setScreenshotPreview] =
+    useState<ScreenshotPreviewData | null>(null)
+  const attemptsInFlightRef = useRef(false)
   const busy = busyAction !== null
 
   const toggleContentHistory = (contentId: string) => {
@@ -164,7 +173,9 @@ export function CampaignDetailScreen({
   )
 
   useEffect(() => {
+    if (attemptsInFlightRef.current) return
     let cancelled = false
+    attemptsInFlightRef.current = true
     void loadAttempts(campaign.id)
       .then((rows) => {
         if (!cancelled) {
@@ -174,16 +185,19 @@ export function CampaignDetailScreen({
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setAttempts([])
+          // Preserve existing attempts on temporary network failure.
           setAttemptsError(
             err instanceof Error ? err.message : 'Failed to load attempts',
           )
         }
       })
+      .finally(() => {
+        attemptsInFlightRef.current = false
+      })
     return () => {
       cancelled = true
     }
-  }, [campaign.id, loadAttempts])
+  }, [campaign.id, campaign.status, campaign.updated_at, contents, loadAttempts])
 
   const run = async (
     fn: () => Promise<unknown>,
@@ -676,30 +690,39 @@ export function CampaignDetailScreen({
                                 </dl>
 
                                 {a.artifacts.length > 0 ? (
-                                  <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
-                                    {a.artifacts.map((art) => (
-                                      <span key={art.id}>
-                                        <span className="text-muted">
-                                          {art.kind === 'screenshot'
-                                            ? 'Screenshot: '
-                                            : 'Artifact: '}
-                                        </span>
-                                        {art.url ? (
-                                          <a
-                                            href={art.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="font-mono text-primary underline"
-                                          >
-                                            {art.label}
-                                          </a>
-                                        ) : (
-                                          <span className="font-mono text-foreground">
-                                            {art.label}
+                                  <div className="mt-2.5 flex flex-wrap gap-3 text-[11px]">
+                                    {a.artifacts.map((art) =>
+                                      isScreenshotArtifact(art) ? (
+                                        <AttemptScreenshot
+                                          key={art.id}
+                                          artifact={art}
+                                          onPreview={setScreenshotPreview}
+                                        />
+                                      ) : (
+                                        <span key={art.id}>
+                                          <span className="text-muted">
+                                            Artifact:{' '}
                                           </span>
-                                        )}
-                                      </span>
-                                    ))}
+                                          {art.url &&
+                                          art.url.startsWith(
+                                            '/social-automation/api/',
+                                          ) ? (
+                                            <a
+                                              href={art.url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="font-mono text-primary underline"
+                                            >
+                                              {art.label}
+                                            </a>
+                                          ) : (
+                                            <span className="font-mono text-foreground">
+                                              {art.label}
+                                            </span>
+                                          )}
+                                        </span>
+                                      ),
+                                    )}
                                   </div>
                                 ) : null}
                               </div>
@@ -899,6 +922,11 @@ export function CampaignDetailScreen({
           ) : null}
         </section>
       ) : null}
+
+      <ScreenshotPreviewModal
+        preview={screenshotPreview}
+        onClose={() => setScreenshotPreview(null)}
+      />
     </div>
   )
 }

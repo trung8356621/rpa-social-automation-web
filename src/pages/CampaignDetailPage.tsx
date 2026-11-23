@@ -5,6 +5,10 @@ import { Button } from '@/components/ui/button'
 import { Toast } from '@/components/ui/toast'
 import { useAccounts } from '@/features/accounts/use-accounts'
 import { CampaignDetailScreen } from '@/features/campaigns/components/CampaignDetailScreen'
+import {
+  createDetailRefreshController,
+  getCampaignDetailPollIntervalMs,
+} from '@/features/campaigns/campaign-detail-polling'
 import { resolveTestModeCompatibility } from '@/features/campaigns/script-compat'
 import { useCampaigns } from '@/features/campaigns/use-campaigns'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
@@ -66,6 +70,37 @@ export function CampaignDetailPage() {
   }, [id, registry.mode, registry.loading, registry.reload])
 
   const campaign = registry.campaigns.find((c) => c.id === id) ?? null
+  const campaignStatus = campaign?.status ?? null
+
+  useEffect(() => {
+    if (!id || detailLoading) return
+    const intervalMs = getCampaignDetailPollIntervalMs(
+      campaignStatus,
+      registry.mode,
+    )
+    if (intervalMs == null) return
+
+    const controller = createDetailRefreshController({
+      loadDetail: registry.loadCampaignDetail,
+      loadContents: registry.loadContentsForCampaign,
+    })
+
+    const timerId = window.setInterval(() => {
+      void controller.refresh(id)
+    }, intervalMs)
+
+    return () => {
+      controller.dispose()
+      window.clearInterval(timerId)
+    }
+  }, [
+    id,
+    detailLoading,
+    campaignStatus,
+    registry.mode,
+    registry.loadCampaignDetail,
+    registry.loadContentsForCampaign,
+  ])
   const contents = useMemo(() => {
     const fromDetail = campaign?.contents
     if (Array.isArray(fromDetail) && fromDetail.length > 0) return fromDetail

@@ -239,13 +239,9 @@ export function useCampaigns() {
   const pauseCampaign = useCallback(
     async (id: string) => {
       const updated = await adapter.pauseCampaign(id)
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
-      )
-      showToast('Campaign paused')
-      return updated
+      return applyAndReloadCampaign(id, updated, 'Campaign paused')
     },
-    [adapter, showToast],
+    [adapter, applyAndReloadCampaign],
   )
 
   const resumeCampaign = useCallback(
@@ -259,13 +255,9 @@ export function useCampaigns() {
   const cancelCampaign = useCallback(
     async (id: string) => {
       const updated = await adapter.cancelCampaign(id)
-      setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
-      )
-      showToast('Campaign cancelled')
-      return updated
+      return applyAndReloadCampaign(id, updated, 'Campaign cancelled')
     },
-    [adapter, showToast],
+    [adapter, applyAndReloadCampaign],
   )
 
   const deleteCampaign = useCallback(
