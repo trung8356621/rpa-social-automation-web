@@ -52,7 +52,10 @@ export function formatSchedulerTimestamp(
  * Derive the 4 user-facing article counters from CampaignSummary.
  */
 export function deriveArticleCounts(summary: CampaignSummary): ArticleCounts {
-  const waiting = (summary.waiting_resources ?? 0) + (summary.pending ?? 0)
+  const waiting =
+    (summary.waiting_resources ?? 0) +
+    (summary.pending ?? 0) +
+    (summary.blocked_by_failure ?? 0)
   const running = summary.running ?? 0
   const successful = summary.success ?? 0
   const failedFromBreakdown =

@@ -11,6 +11,10 @@ import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/ty
 
 import { isScreenshotArtifact } from '../campaign-artifacts'
 import {
+  resolveContentQueueFeedback,
+  resolveEffectiveContentStatus,
+} from '../campaign-queue-status'
+import {
   deriveArticleCounts,
   deriveCampaignStatusMessage,
   formatSchedulerTimestamp,
@@ -37,7 +41,6 @@ import {
   UNKNOWN_RETRY_WARNING,
   canStartCampaign,
   isCampaignV2,
-  isPinnedAccountUnavailable,
 } from '../validation'
 import type {
   Campaign,
@@ -449,8 +452,8 @@ export function CampaignDetailScreen({
         ) : (
           <div className="divide-y divide-border">
             {contents.map((c) => {
-              const cs = contentStatusBadge(c.status)
-              const pinUnavailable = isPinnedAccountUnavailable(c)
+              const effectiveStatus = resolveEffectiveContentStatus(c)
+              const cs = contentStatusBadge(effectiveStatus)
               const site = resolveSiteForContent(campaign, c)
               const assigned = resolveAccountDisplay(
                 accounts,
@@ -466,9 +469,7 @@ export function CampaignDetailScreen({
               const contentUuid = resolveContentUuid(c)
               const contentAttempts = attemptsByContent.get(c.id) ?? []
               const historyExpanded = expandedHistoryIds.has(c.id)
-              const primaryErrorMsg =
-                c.last_error_message?.trim() ||
-                (pinUnavailable ? 'Pinned account unavailable' : null)
+              const queueFeedback = resolveContentQueueFeedback(c)
 
               return (
                 <div key={c.id} className="px-4 py-3">
@@ -510,13 +511,23 @@ export function CampaignDetailScreen({
                           </span>
                         ) : null}
                       </div>
-                      {primaryErrorMsg || c.last_error_code ? (
-                        <div className="text-xs text-danger">
-                          {primaryErrorMsg ? <span>{primaryErrorMsg}</span> : null}
-                          {c.last_error_code &&
-                          c.last_error_code !== primaryErrorMsg ? (
+                      {queueFeedback.kind !== 'none' ? (
+                        <div
+                          className={
+                            queueFeedback.kind === 'error'
+                              ? 'text-xs text-danger'
+                              : queueFeedback.kind === 'warning'
+                                ? 'text-xs text-warning'
+                                : 'text-xs text-primary'
+                          }
+                        >
+                          {queueFeedback.message ? (
+                            <span>{queueFeedback.message}</span>
+                          ) : null}
+                          {queueFeedback.code &&
+                          queueFeedback.code !== queueFeedback.message ? (
                             <span className="ml-1.5 font-mono text-[11px]">
-                              [{c.last_error_code}]
+                              [{queueFeedback.code}]
                             </span>
                           ) : null}
                         </div>
@@ -547,8 +558,9 @@ export function CampaignDetailScreen({
                           ) : null}
                           {c.status === 'failed_locked' ||
                           c.status === 'unknown' ||
-                          c.status === 'pending' ||
-                          c.status === 'waiting_resources' ? (
+                          effectiveStatus === 'pending' ||
+                          effectiveStatus === 'waiting_resources' ||
+                          effectiveStatus === 'blocked_by_failure' ? (
                             <>
                               <Button
                                 size="sm"

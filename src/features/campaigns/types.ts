@@ -42,6 +42,7 @@ export type CampaignSummary = {
   total: number
   pending: number
   waiting_resources: number
+  blocked_by_failure?: number
   running: number
   success: number
   failed_locked: number
@@ -168,6 +169,7 @@ export type CampaignContentStatus =
   | 'draft'
   | 'pending'
   | 'waiting_resources'
+  | 'blocked_by_failure'
   | 'running'
   | 'success'
   | 'completed'
@@ -216,6 +218,10 @@ export type CampaignContent = {
   last_result: string | null
   last_error_code: string | null
   last_error_message: string | null
+  /** Optional Action Tag queue metadata from Backend */
+  queue_state?: string | null
+  wait_reason?: string | null
+  blocked_reason?: string | null
   created_at: string
   updated_at: string
   /** Campaign V2 per-Tag assignments */

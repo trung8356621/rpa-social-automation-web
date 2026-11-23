@@ -37,7 +37,9 @@ export function contentStatusBadge(
     case 'pending':
       return { label: 'Pending', variant: 'neutral' }
     case 'waiting_resources':
-      return { label: 'Waiting Resources', variant: 'warning' }
+      return { label: 'Waiting Resources', variant: 'primary' }
+    case 'blocked_by_failure':
+      return { label: 'Blocked by Failure', variant: 'warning' }
     case 'running':
       return { label: 'Running', variant: 'primary' }
     case 'success':
@@ -74,6 +76,7 @@ export function emptySummary() {
     total: 0,
     pending: 0,
     waiting_resources: 0,
+    blocked_by_failure: 0,
     running: 0,
     success: 0,
     failed_locked: 0,
@@ -95,6 +98,9 @@ export function summarizeContents(
     if (st === 'pending' || st === 'draft') s.pending += 1
     else if (st === 'waiting_resources') {
       s.waiting_resources += 1
+      s.waiting += 1
+    } else if (st === 'blocked_by_failure') {
+      s.blocked_by_failure += 1
       s.waiting += 1
     } else if (st === 'running') s.running += 1
     else if (st === 'success' || st === 'completed') {

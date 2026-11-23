@@ -44,6 +44,7 @@ const CONTENT_STATUSES = new Set<CampaignContentStatus>([
   'draft',
   'pending',
   'waiting_resources',
+  'blocked_by_failure',
   'running',
   'success',
   'completed',
@@ -62,6 +63,7 @@ function asCampaignStatus(raw: unknown): CampaignStatus {
 
 function asContentStatus(raw: unknown): CampaignContentStatus {
   const s = String(raw ?? 'pending')
+  if (s === 'blocked') return 'blocked_by_failure'
   if (CONTENT_STATUSES.has(s as CampaignContentStatus)) {
     return s as CampaignContentStatus
   }
@@ -563,6 +565,11 @@ export function mapLiveContent(
     last_result: lastResult,
     last_error_code: errCode,
     last_error_message: errMsg,
+    queue_state: pickNonEmptyString(r.queue_state ?? r.queue_status),
+    wait_reason: pickNonEmptyString(r.wait_reason ?? r.resource_wait_reason),
+    blocked_reason: pickNonEmptyString(
+      r.blocked_reason ?? r.blocking_error_message ?? r.originating_error_message,
+    ),
     created_at: String(r.created_at ?? ''),
     updated_at: String(r.updated_at ?? ''),
     ...(Array.isArray(r.assignments)

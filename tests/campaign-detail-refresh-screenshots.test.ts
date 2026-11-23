@@ -73,7 +73,7 @@ describe('Campaign Detail Auto-Refresh & Screenshot Evidence', () => {
     })
     assert.deepEqual(contentStatusBadge('waiting_resources'), {
       label: 'Waiting Resources',
-      variant: 'warning',
+      variant: 'primary',
     })
   })
 

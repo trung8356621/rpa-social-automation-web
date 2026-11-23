@@ -13,6 +13,7 @@ export type LiveCampaignSummary = {
   total?: number
   pending?: number
   waiting_resources?: number
+  blocked_by_failure?: number
   running?: number
   success?: number
   failed_locked?: number
@@ -179,6 +180,13 @@ export type LiveContentRow = {
   last_result?: string | null
   last_error_code?: string | null
   last_error_message?: string | null
+  queue_state?: string | null
+  queue_status?: string | null
+  wait_reason?: string | null
+  resource_wait_reason?: string | null
+  blocked_reason?: string | null
+  blocking_error_message?: string | null
+  originating_error_message?: string | null
   assignments?: LiveContentAssignmentRow[]
   attempts?: LiveJobAttemptRow[]
   job_attempts?: LiveJobAttemptRow[]
