@@ -20,6 +20,8 @@ export const CAMPAIGN_PATHS = {
     `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents/mock-save`,
   artifact: (artifactUuid: string) =>
     `${CAMPAIGNS_BASE}/artifacts/${encodeURIComponent(artifactUuid)}`,
+  actionTagInterval: (campaignId: string, actionTagKey: string) =>
+    `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/action-tags/${encodeURIComponent(actionTagKey)}/interval`,
 } as const
 
 /**

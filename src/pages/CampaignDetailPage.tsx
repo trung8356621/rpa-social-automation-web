@@ -175,6 +175,7 @@ export function CampaignDetailPage() {
         onPause={registry.pauseCampaign}
         onResume={registry.resumeCampaign}
         onCancel={registry.cancelCampaign}
+        onUpdateActionTagInterval={registry.updateActionTagInterval}
         onRetry={registry.retryContent}
         onSkip={registry.skipContent}
         onCancelContent={registry.cancelContent}

@@ -138,6 +138,25 @@ export const liveCampaignAdapter = {
     return mapLiveCampaign(row)
   },
 
+  async updateActionTagInterval(
+    campaignId: string,
+    actionTagKey: string,
+    intervalMinutes: number,
+  ): Promise<Campaign> {
+    const res = await staffApiRequest<LiveCampaignMutationResponse>(
+      CAMPAIGN_PATHS.actionTagInterval(campaignId, actionTagKey),
+      {
+        method: 'PATCH',
+        body: { interval_minutes: intervalMinutes },
+      },
+    )
+    const row = res.data ?? res.campaign
+    if (!row) {
+      throw new Error('Update Action Tag interval response missing data.')
+    }
+    return mapLiveCampaign(row)
+  },
+
   async startCampaign(id: string): Promise<Campaign> {
     const res = await staffApiRequest<LiveCampaignMutationResponse>(
       CAMPAIGN_PATHS.start(id),

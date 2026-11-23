@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Pencil } from 'lucide-react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { toSafeApiMessage } from '@/lib/api/errors'
 
 import type { AccountItem } from '@/features/accounts/types'
 import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/types'
 
 import { isScreenshotArtifact } from '../campaign-artifacts'
+import {
+  canEditActionTagInterval,
+  validateInlineIntervalInput,
+} from '../campaign-interval-edit'
 import {
   resolveContentQueueFeedback,
   resolveEffectiveContentStatus,
@@ -70,6 +76,11 @@ type Props = {
   onPause: (id: string) => Promise<unknown>
   onResume: (id: string) => Promise<unknown>
   onCancel: (id: string) => Promise<unknown>
+  onUpdateActionTagInterval?: (
+    campaignId: string,
+    actionTagKey: string,
+    intervalMinutes: number,
+  ) => Promise<unknown>
   onRetry: (id: string, status: string) => Promise<unknown>
   onSkip: (id: string) => Promise<unknown>
   onCancelContent: (id: string) => Promise<unknown>
@@ -94,6 +105,7 @@ export function CampaignDetailScreen({
   onPause,
   onResume,
   onCancel,
+  onUpdateActionTagInterval,
   onRetry,
   onSkip,
   onCancelContent,
@@ -113,8 +125,17 @@ export function CampaignDetailScreen({
   const [techExpanded, setTechExpanded] = useState(false)
   const [screenshotPreview, setScreenshotPreview] =
     useState<ScreenshotPreviewData | null>(null)
+  const [editingTagKey, setEditingTagKey] = useState<string | null>(null)
+  const [intervalDraft, setIntervalDraft] = useState('')
+  const [intervalError, setIntervalError] = useState<string | null>(null)
+  const [savingInterval, setSavingInterval] = useState(false)
+  const savingIntervalRef = useRef(false)
   const attemptsInFlightRef = useRef(false)
   const busy = busyAction !== null
+  const canEditInterval = canEditActionTagInterval(
+    campaign,
+    Boolean(onUpdateActionTagInterval),
+  )
 
   const toggleContentHistory = (contentId: string) => {
     setExpandedHistoryIds((prev) => {
@@ -214,6 +235,27 @@ export function CampaignDetailScreen({
       setActionError(toSafeApiMessage(err))
     } finally {
       setBusyAction(null)
+    }
+  }
+
+  const handleSaveInterval = async (actionTagKey: string) => {
+    if (!onUpdateActionTagInterval || savingIntervalRef.current) return
+    const check = validateInlineIntervalInput(intervalDraft)
+    if (!check.ok) {
+      setIntervalError(check.message)
+      return
+    }
+    savingIntervalRef.current = true
+    setSavingInterval(true)
+    setIntervalError(null)
+    try {
+      await onUpdateActionTagInterval(campaign.id, actionTagKey, check.value)
+      setEditingTagKey(null)
+    } catch (err: unknown) {
+      setIntervalError(toSafeApiMessage(err))
+    } finally {
+      savingIntervalRef.current = false
+      setSavingInterval(false)
     }
   }
 
@@ -325,25 +367,97 @@ export function CampaignDetailScreen({
             Action Tags &amp; Posting Interval
           </div>
           <div className="flex flex-wrap gap-2">
-            {campaign.action_tags.map((tag) => (
-              <div
-                key={tag.action_tag_key}
-                className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border bg-surface-muted/40 px-2.5 py-1 text-xs"
-              >
-                <span className="font-mono font-medium text-foreground">
-                  {tag.action_tag_key}
-                </span>
-                <Badge variant="neutral">
-                  {tag.interval_minutes ?? 0} phút
-                </Badge>
-                {tag.next_run_at ? (
-                  <span className="text-[11px] text-muted">
-                    Next eligible:{' '}
-                    {formatSchedulerTimestamp(tag.next_run_at, '—')}
-                  </span>
-                ) : null}
-              </div>
-            ))}
+            {campaign.action_tags.map((tag) => {
+              const isEditing =
+                canEditInterval && editingTagKey === tag.action_tag_key
+              return (
+                <div
+                  key={tag.action_tag_key}
+                  className="flex flex-col gap-1 rounded-[var(--radius-control)] border border-border bg-surface-muted/40 px-2.5 py-1.5 text-xs"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono font-medium text-foreground">
+                      {tag.action_tag_key}
+                    </span>
+                    {isEditing ? (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          step={1}
+                          disabled={savingInterval}
+                          className="h-7 w-24 font-mono text-xs"
+                          aria-label={`Interval minutes for ${tag.action_tag_key}`}
+                          value={intervalDraft}
+                          onChange={(e) => {
+                            setIntervalDraft(e.target.value)
+                            if (intervalError) setIntervalError(null)
+                          }}
+                        />
+                        <span className="text-muted">phút</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={savingInterval}
+                          onClick={() =>
+                            void handleSaveInterval(tag.action_tag_key)
+                          }
+                        >
+                          {savingInterval ? 'Saving…' : 'Save'}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={savingInterval}
+                          onClick={() => {
+                            setEditingTagKey(null)
+                            setIntervalError(null)
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <Badge variant="neutral">
+                          {tag.interval_minutes ?? 0} phút
+                        </Badge>
+                        {canEditInterval ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-muted hover:text-foreground"
+                            aria-label={`Edit interval for ${tag.action_tag_key}`}
+                            onClick={() => {
+                              setEditingTagKey(tag.action_tag_key)
+                              setIntervalDraft(
+                                String(tag.interval_minutes ?? 0),
+                              )
+                              setIntervalError(null)
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        ) : null}
+                      </>
+                    )}
+                    {tag.next_run_at ? (
+                      <span className="text-[11px] text-muted">
+                        Next eligible:{' '}
+                        {formatSchedulerTimestamp(tag.next_run_at, '—')}
+                      </span>
+                    ) : null}
+                  </div>
+                  {isEditing && intervalError ? (
+                    <div role="alert" className="text-[11px] text-danger">
+                      {intervalError}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         </section>
       ) : null}

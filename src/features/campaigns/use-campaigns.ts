@@ -260,6 +260,26 @@ export function useCampaigns() {
     [adapter, applyAndReloadCampaign],
   )
 
+  const updateActionTagInterval = useCallback(
+    async (
+      campaignId: string,
+      actionTagKey: string,
+      intervalMinutes: number,
+    ) => {
+      const updated = await adapter.updateActionTagInterval(
+        campaignId,
+        actionTagKey,
+        intervalMinutes,
+      )
+      return applyAndReloadCampaign(
+        campaignId,
+        updated,
+        'Posting interval updated',
+      )
+    },
+    [adapter, applyAndReloadCampaign],
+  )
+
   const deleteCampaign = useCallback(
     async (id: string) => {
       await performCampaignDelete({
@@ -504,6 +524,7 @@ export function useCampaigns() {
     resumeCampaign,
     cancelCampaign,
     deleteCampaign,
+    updateActionTagInterval,
     createManualContent,
     updateManualContent,
     removeDraftContent,

@@ -467,6 +467,45 @@ export const mockCampaignAdapter = {
     return structuredClone(c)
   },
 
+  async updateActionTagInterval(
+    campaignId: string,
+    actionTagKey: string,
+    intervalMinutes: number,
+  ): Promise<Campaign> {
+    assertMockOnly()
+    const c = findCampaign(campaignId)
+    if (c.status !== 'draft' && c.status !== 'running' && c.status !== 'paused') {
+      throw new ApiError(
+        `Cannot edit interval when campaign status is ${c.status}.`,
+        { kind: 'conflict', status: 409, code: 'campaign_not_editable' },
+      )
+    }
+    if (
+      !Number.isInteger(intervalMinutes) ||
+      intervalMinutes < 0 ||
+      intervalMinutes > 525600
+    ) {
+      throw new ApiError('interval_minutes must be a non-negative integer.', {
+        kind: 'validation',
+        status: 422,
+        code: 'invalid_interval_minutes',
+      })
+    }
+    const tags = c.action_tags ?? []
+    const idx = tags.findIndex((t) => t.action_tag_key === actionTagKey)
+    if (idx < 0) {
+      throw new ApiError('Action Tag not found on Campaign.', {
+        kind: 'not_found',
+        status: 404,
+      })
+    }
+    tags[idx] = { ...tags[idx]!, interval_minutes: intervalMinutes }
+    c.action_tags = tags
+    c.updated_at = nowIso()
+    refreshSummaries(store)
+    return structuredClone(c)
+  },
+
   async deleteCampaign(id: string): Promise<void> {
     assertMockOnly()
     const c = store.campaigns.find((x) => x.id === id)
