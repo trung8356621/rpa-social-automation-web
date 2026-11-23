@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -7,8 +7,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
+import type {
+  AddVariantInput,
+  CreateVariantGroupInput,
+  PersistedVariantGroup,
+  UpdateVariantInput,
+} from '../api/variant-groups-api'
 import type { ScriptDetail, ScriptListItem, ScriptSharingMode } from '../types'
 import { partitionScriptsIntoVariantGroups } from '../variant-groups'
+import { CreateVariantGroupModal } from './CreateVariantGroupModal'
+import { PersistedVariantGroupCard } from './PersistedVariantGroupCard'
 import { RemoveScriptDialog } from './RemoveScriptDialog'
 import { ScriptCard } from './ScriptCard'
 import { ScriptDetailsDrawer } from './ScriptDetailsDrawer'
@@ -18,6 +26,23 @@ import {
   videoTargetFromScript,
   type VideoPlayerTarget,
 } from './VideoPlayerModal'
+
+type VariantGroupsController = {
+  groups: PersistedVariantGroup[]
+  loading: boolean
+  error: string | null
+  unavailable: boolean
+  unavailableReason: string | null
+  createGroup: (input: CreateVariantGroupInput) => Promise<unknown>
+  addVariant: (groupId: string, input: AddVariantInput) => Promise<unknown>
+  updateVariant: (
+    groupId: string,
+    variantId: string,
+    input: UpdateVariantInput,
+  ) => Promise<unknown>
+  removeVariant: (groupId: string, variantId: string) => Promise<unknown>
+  reorderVariants: (groupId: string, variantIds: string[]) => Promise<unknown>
+}
 
 type ScriptsScreenProps = {
   scripts: ScriptListItem[]
@@ -31,6 +56,7 @@ type ScriptsScreenProps = {
     packageKey: string,
     sharingMode: ScriptSharingMode,
   ) => Promise<void>
+  variantGroups?: VariantGroupsController
 }
 
 export function ScriptsScreen({
@@ -42,6 +68,7 @@ export function ScriptsScreen({
   mode = 'mock',
   onRemoveScript,
   onUpdateSharing,
+  variantGroups,
 }: ScriptsScreenProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
@@ -49,6 +76,7 @@ export function ScriptsScreen({
   const [removing, setRemoving] = useState(false)
   const [confirmKey, setConfirmKey] = useState<string | null>(null)
   const [videoTarget, setVideoTarget] = useState<VideoPlayerTarget | null>(null)
+  const [createGroupOpen, setCreateGroupOpen] = useState(false)
 
   const selectedKey = searchParams.get('detail')
   const playKey = searchParams.get('play')
@@ -98,12 +126,26 @@ export function ScriptsScreen({
   }
 
   const isLive = mode === 'live'
+  const persistedGroups = variantGroups?.groups ?? []
+  const persistedPkgKeys = useMemo(() => {
+    const set = new Set<string>()
+    for (const g of persistedGroups) {
+      for (const v of g.variants) set.add(v.package_key)
+    }
+    return set
+  }, [persistedGroups])
+
+  const ungroupedCandidates = useMemo(
+    () => filtered.filter((s) => !persistedPkgKeys.has(s.package_key)),
+    [filtered, persistedPkgKeys],
+  )
+
   const partitioned = useMemo(
     () =>
-      partitionScriptsIntoVariantGroups(filtered, {
+      partitionScriptsIntoVariantGroups(ungroupedCandidates, {
         backendSupported: false,
       }),
-    [filtered],
+    [ungroupedCandidates],
   )
 
   return (
@@ -115,7 +157,39 @@ export function ScriptsScreen({
             ? 'Catalog Script dạng card 16:9 + video demo (Staff Session LIVE).'
             : 'Catalog Script dạng card 16:9 + video demo. MOCK local — không gọi API production.'
         }
+        actions={
+          variantGroups ? (
+            <Button
+              size="sm"
+              disabled={variantGroups.unavailable}
+              onClick={() => setCreateGroupOpen(true)}
+            >
+              <Plus className="size-3.5" />
+              Create Variant Group
+            </Button>
+          ) : undefined
+        }
       />
+
+      {variantGroups?.unavailable ? (
+        <div
+          role="alert"
+          className="rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+        >
+          <span className="font-medium">Variant Groups API unavailable:</span>{' '}
+          {variantGroups.unavailableReason ||
+            'The Backend Variant Groups endpoint or schema is not available on this server. LIVE variant group mutations are disabled.'}
+        </div>
+      ) : null}
+
+      {variantGroups?.error ? (
+        <div
+          role="alert"
+          className="rounded-[var(--radius-control)] border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+        >
+          {variantGroups.error}
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="relative min-w-0 flex-1">
@@ -176,6 +250,34 @@ export function ScriptsScreen({
         </div>
       ) : (
         <div className="space-y-6">
+          {persistedGroups.length > 0 ? (
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">
+                  Variant Groups ({persistedGroups.length})
+                </h2>
+                <p className="text-xs text-muted">
+                  Logical Action groups with explicit language fallback priority.
+                </p>
+              </div>
+              <div className="space-y-3">
+                {persistedGroups.map((group) => (
+                  <PersistedVariantGroupCard
+                    key={group.id}
+                    group={group}
+                    scripts={scripts}
+                    mutationsDisabled={Boolean(variantGroups?.unavailable)}
+                    onOpenDetails={setDetail}
+                    onAddVariant={variantGroups!.addVariant}
+                    onUpdateVariant={variantGroups!.updateVariant}
+                    onRemoveVariant={variantGroups!.removeVariant}
+                    onReorderVariants={variantGroups!.reorderVariants}
+                  />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {partitioned.groups.length > 0 ? (
             <section className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -267,6 +369,16 @@ export function ScriptsScreen({
         target={videoTarget}
         onClose={() => setVideoTarget(null)}
       />
+
+      {variantGroups ? (
+        <CreateVariantGroupModal
+          open={createGroupOpen}
+          onClose={() => setCreateGroupOpen(false)}
+          scripts={scripts}
+          disabled={variantGroups.unavailable}
+          onCreate={variantGroups.createGroup}
+        />
+      ) : null}
 
       {mutationsEnabled ? (
         <RemoveScriptDialog

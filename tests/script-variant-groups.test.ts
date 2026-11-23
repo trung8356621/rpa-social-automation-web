@@ -3,7 +3,18 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
 
+import {
+  formatVariantGroupApiError,
+  isVariantGroupsApiUnavailableError,
+  mapVariantGroupDto,
+  VARIANT_GROUP_PATHS,
+} from '../src/features/script-registry/api/variant-groups-contract.ts'
+import {
+  mockVariantGroupApi,
+  resetMockVariantGroups,
+} from '../src/features/script-registry/api/mock-variant-groups-api.ts'
 import { mapLiveCampaign } from '../src/features/campaigns/api/mappers.ts'
+import { ApiError } from '../src/lib/api/errors.ts'
 import type { ScriptListItem } from '../src/features/script-registry/types.ts'
 import {
   partitionScriptsIntoVariantGroups,
@@ -219,4 +230,198 @@ test('missing Backend API keeps LIVE mode read-only with no invented endpoints',
     screenSrc.includes('Backend variant group & fallback priority persistence API is not available yet.'),
     true,
   )
+})
+
+test('LIVE Variant Group routes, DTO mapping, CRUD lifecycle, conflict, unauthorized, and unavailable state', async () => {
+  // Exact routes from seo-ops-addons-rpa@bccb621
+  assert.equal(
+    VARIANT_GROUP_PATHS.list,
+    '/social-automation/api/script-registry/variant-groups',
+  )
+  assert.equal(
+    VARIANT_GROUP_PATHS.detail('grp-1'),
+    '/social-automation/api/script-registry/variant-groups/grp-1',
+  )
+  assert.equal(
+    VARIANT_GROUP_PATHS.addVariant('grp-1'),
+    '/social-automation/api/script-registry/variant-groups/grp-1/variants',
+  )
+  assert.equal(
+    VARIANT_GROUP_PATHS.updateVariant('grp-1', 'var-1'),
+    '/social-automation/api/script-registry/variant-groups/grp-1/variants/var-1',
+  )
+  assert.equal(
+    VARIANT_GROUP_PATHS.removeVariant('grp-1', 'var-1'),
+    '/social-automation/api/script-registry/variant-groups/grp-1/variants/var-1',
+  )
+  assert.equal(
+    VARIANT_GROUP_PATHS.reorder('grp-1'),
+    '/social-automation/api/script-registry/variant-groups/grp-1/reorder',
+  )
+
+  // Map persisted GroupDTO
+  const mapped = mapVariantGroupDto({
+    id: 'grp-uuid-1',
+    name: 'WordPress Create Post',
+    scope_type: 'cms_global',
+    cms_type: 'wordpress',
+    cms_path_key: 'create_post',
+    global_scope_key: 'wordpress:create_post',
+    is_enabled: true,
+    variants: [
+      {
+        id: 'var-en',
+        priority: 2,
+        language_label: 'EN',
+        package_id: 2,
+        package_key: 'wp.create_post.en',
+        script_id: 'wp.create_post.en',
+        script_name: 'WP Create Post EN',
+        release_id: 202,
+        script_version: '1.1.0',
+        release_status: 'published',
+        is_enabled: true,
+      },
+      {
+        id: 'var-vi',
+        priority: 1,
+        language_label: 'VI',
+        package_id: 1,
+        package_key: 'wp.create_post.vi',
+        script_id: 'wp.create_post.vi',
+        script_name: 'WP Create Post VI',
+        release_id: 101,
+        script_version: '1.0.0',
+        release_status: 'published',
+        is_enabled: true,
+      },
+    ],
+  })
+  assert.equal(mapped.id, 'grp-uuid-1')
+  assert.equal(mapped.variants[0]?.language_label, 'VI')
+  assert.equal(mapped.variants[1]?.language_label, 'EN')
+
+  // Full CRUD lifecycle (Create -> Add -> Edit Label -> Reorder -> Remove)
+  resetMockVariantGroups()
+  const created = await mockVariantGroupApi.createGroup({
+    name: 'WP Create Post Group',
+    scope_type: 'cms_global',
+    global_scope_key: 'wordpress:create_post',
+    cms_type: 'wordpress',
+    cms_path_key: 'create_post',
+    variants: [
+      {
+        package_key: 'wp.create_post.vi',
+        release_id: 101,
+        script_version: '1.0.0',
+        language_label: 'VI',
+      },
+    ],
+  })
+  assert.equal(created.variants.length, 1)
+
+  const afterAdd = await mockVariantGroupApi.addVariant(created.id, {
+    package_key: 'wp.create_post.en',
+    release_id: 102,
+    script_version: '1.1.0',
+    language_label: 'EN',
+  })
+  assert.equal(afterAdd.variants.length, 2)
+
+  // Duplicate language label rejected
+  await assert.rejects(
+    () =>
+      mockVariantGroupApi.addVariant(created.id, {
+        package_key: 'wp.create_post.other',
+        language_label: 'vi',
+      }),
+    /duplicate language label/i,
+  )
+
+  // Edit language label
+  const enVariantId = afterAdd.variants[1]!.id
+  const afterEdit = await mockVariantGroupApi.updateVariant(
+    created.id,
+    enVariantId,
+    { language_label: 'EN-US' },
+  )
+  assert.equal(afterEdit.variants[1]?.language_label, 'EN-US')
+
+  // Reorder priority (EN-US first, VI second)
+  const viVariantId = afterEdit.variants[0]!.id
+  const afterReorder = await mockVariantGroupApi.reorderVariants(created.id, [
+    enVariantId,
+    viVariantId,
+  ])
+  assert.deepEqual(
+    afterReorder.variants.map((v) => [v.language_label, v.priority]),
+    [
+      ['EN-US', 1],
+      ['VI', 2],
+    ],
+  )
+
+  // Remove variant
+  const afterRemove = await mockVariantGroupApi.removeVariant(
+    created.id,
+    enVariantId,
+  )
+  assert.equal(afterRemove.variants.length, 1)
+  assert.equal(afterRemove.variants[0]?.priority, 1)
+
+  // CMS Global conflict (409)
+  await assert.rejects(
+    () =>
+      mockVariantGroupApi.createGroup({
+        name: 'Duplicate Scope Group',
+        scope_type: 'cms_global',
+        global_scope_key: 'wordpress:create_post',
+        variants: [
+          { package_key: 'wp.other', language_label: 'JA' },
+        ],
+      }),
+    /conflict/i,
+  )
+
+  // Error formatting: 409, 401/403, 404/503 unavailable
+  const conflictMsg = formatVariantGroupApiError(
+    new ApiError('Conflict', {
+      kind: 'conflict',
+      status: 409,
+      code: 'global_scope_conflict',
+      details: { conflict: { name: 'WP Create Post Group' } },
+    }),
+  )
+  assert.match(conflictMsg, /WP Create Post Group/)
+
+  const unauthMsg = formatVariantGroupApiError(
+    new ApiError('Authentication required.', {
+      kind: 'auth',
+      status: 401,
+    }),
+  )
+  assert.match(unauthMsg, /Authentication required/)
+
+  const err404 = new ApiError('Not found', { kind: 'not_found', status: 404 })
+  const err503 = new ApiError('Schema unavailable', {
+    kind: 'server',
+    status: 503,
+    code: 'schema_unavailable',
+  })
+  assert.equal(isVariantGroupsApiUnavailableError(err404), true)
+  assert.equal(isVariantGroupsApiUnavailableError(err503), true)
+  assert.match(
+    formatVariantGroupApiError(err404),
+    /Variant Groups API unavailable/i,
+  )
+
+  const screenSrc = readFileSync(
+    resolve(
+      process.cwd(),
+      'src/features/script-registry/components/ScriptsScreen.tsx',
+    ),
+    'utf8',
+  )
+  assert.equal(screenSrc.includes('Variant Groups API unavailable:'), true)
+  assert.equal(screenSrc.includes('Create Variant Group'), true)
 })
