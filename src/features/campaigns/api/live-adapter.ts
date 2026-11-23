@@ -178,6 +178,12 @@ export const liveCampaignAdapter = {
     return mapLiveCampaign(row)
   },
 
+  async deleteCampaign(id: string): Promise<void> {
+    await staffApiRequest<unknown>(CAMPAIGN_PATHS.delete(id), {
+      method: 'DELETE',
+    })
+  },
+
   async listContents(campaignId?: string): Promise<CampaignContent[]> {
     if (!campaignId) {
       throw new Error(

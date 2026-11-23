@@ -235,6 +235,10 @@ export async function staffApiRequest<T>(
       })
     }
 
+    if (response.status === 204) {
+      return undefined as T
+    }
+
     if (payload === null) {
       throw new ApiError('Invalid JSON response from staff API.', {
         kind: 'parse',

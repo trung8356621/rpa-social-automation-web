@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Trash2 } from 'lucide-react'
 
 import type { Site } from '@/features/action-tags/types'
 import { PageHeader } from '@/components/layout/PageHeader'
@@ -9,6 +9,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
+import {
+  canDeleteCampaign,
+  filterCampaigns,
+  formatDeleteErrorMessage,
+} from '../campaign-delete'
 import { formatScheduleLabel } from '../schedule'
 import {
   campaignStatusBadge,
@@ -16,6 +21,7 @@ import {
   runModeLabel,
 } from '../status-labels'
 import type { Campaign } from '../types'
+import { DeleteCampaignDialog } from './DeleteCampaignDialog'
 
 type Props = {
   campaigns: Campaign[]
@@ -24,6 +30,7 @@ type Props = {
   onPause: (id: string) => Promise<unknown>
   onResume: (id: string) => Promise<unknown>
   onCancel: (id: string) => Promise<unknown>
+  onDelete: (id: string) => Promise<unknown>
 }
 
 export function CampaignsScreen({
@@ -33,6 +40,7 @@ export function CampaignsScreen({
   onPause,
   onResume,
   onCancel,
+  onDelete,
 }: Props) {
   const [search, setSearch] = useState('')
   const [siteKey, setSiteKey] = useState('all')
@@ -40,23 +48,22 @@ export function CampaignsScreen({
   const [executionMode, setExecutionMode] = useState('all')
   const [status, setStatus] = useState('all')
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const deletingRef = useRef(false)
   const navigate = useNavigate()
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return campaigns.filter((c) => {
-      if (siteKey !== 'all' && c.site_key !== siteKey) return false
-      if (runMode !== 'all' && c.run_mode !== runMode) return false
-      if (executionMode !== 'all' && c.execution_mode !== executionMode)
-        return false
-      if (status !== 'all' && c.status !== status) return false
-      if (!q) return true
-      const hay = [c.name, c.site_key, c.site_name, c.script_name, c.id]
-        .join(' ')
-        .toLowerCase()
-      return hay.includes(q)
-    })
-  }, [campaigns, search, siteKey, runMode, executionMode, status])
+  const filtered = useMemo(
+    () =>
+      filterCampaigns(campaigns, {
+        search,
+        siteKey,
+        runMode,
+        executionMode,
+        status,
+      }),
+    [campaigns, search, siteKey, runMode, executionMode, status],
+  )
 
   const runAction = async (
     id: string,
@@ -68,6 +75,24 @@ export function CampaignsScreen({
     try {
       await fn(id)
     } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || deletingRef.current) return
+    deletingRef.current = true
+    const targetId = deleteTarget.id
+    setBusyId(targetId)
+    setDeleteError(null)
+    try {
+      await onDelete(targetId)
+      setDeleteTarget(null)
+    } catch (err) {
+      setDeleteError(formatDeleteErrorMessage(err))
+      setDeleteTarget(null)
+    } finally {
+      deletingRef.current = false
       setBusyId(null)
     }
   }
@@ -151,6 +176,23 @@ export function CampaignsScreen({
           <option value="cancelled">cancelled</option>
         </Select>
       </div>
+
+      {deleteError ? (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-[var(--radius-card)] border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger"
+        >
+          <span>{deleteError}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-danger"
+            onClick={() => setDeleteError(null)}
+          >
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
         <table className="w-full min-w-[72rem] border-collapse text-left text-sm">
@@ -297,6 +339,22 @@ export function CampaignsScreen({
                             Cancel
                           </Button>
                         ) : null}
+                        {canDeleteCampaign(c) ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-danger/40 text-danger hover:bg-danger/10"
+                            disabled={busy}
+                            aria-label={`Delete campaign ${c.name}`}
+                            onClick={() => {
+                              setDeleteError(null)
+                              setDeleteTarget(c)
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                            Delete
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -306,6 +364,16 @@ export function CampaignsScreen({
           </tbody>
         </table>
       </div>
+
+      <DeleteCampaignDialog
+        campaign={deleteTarget}
+        busy={deleteTarget ? busyId === deleteTarget.id : false}
+        onCancel={() => {
+          if (busyId) return
+          setDeleteTarget(null)
+        }}
+        onConfirm={() => void handleConfirmDelete()}
+      />
     </div>
   )
 }

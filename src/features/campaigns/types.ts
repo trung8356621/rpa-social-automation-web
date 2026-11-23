@@ -162,6 +162,7 @@ export type CampaignAction =
   | 'resume'
   | 'cancel'
   | 'edit'
+  | 'delete'
 
 export type CampaignContentStatus =
   | 'draft'

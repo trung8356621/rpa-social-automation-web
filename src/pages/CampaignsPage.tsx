@@ -50,6 +50,7 @@ export function CampaignsPage() {
         onPause={registry.pauseCampaign}
         onResume={registry.resumeCampaign}
         onCancel={registry.cancelCampaign}
+        onDelete={registry.deleteCampaign}
       />
       <Toast toast={registry.toast} />
     </>

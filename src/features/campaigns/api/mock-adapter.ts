@@ -35,6 +35,8 @@ function actionsFor(status: Campaign['status']): CampaignAction[] {
       return ['pause', 'cancel']
     case 'paused':
       return ['resume', 'cancel', 'start']
+    case 'cancelled':
+      return ['delete']
     default:
       return []
   }
@@ -451,6 +453,25 @@ export const mockCampaignAdapter = {
     c.updated_at = nowIso()
     refreshSummaries(store)
     return structuredClone(c)
+  },
+
+  async deleteCampaign(id: string): Promise<void> {
+    assertMockOnly()
+    const c = store.campaigns.find((x) => x.id === id)
+    if (!c) {
+      throw new ApiError('Campaign not found.', {
+        kind: 'not_found',
+        status: 404,
+      })
+    }
+    if (c.status !== 'cancelled') {
+      throw new ApiError('Only cancelled campaigns can be deleted.', {
+        kind: 'conflict',
+        status: 409,
+        code: 'campaign_not_cancelled',
+      })
+    }
+    store.campaigns = store.campaigns.filter((x) => x.id !== id)
   },
 
   async listContents(campaignId?: string): Promise<CampaignContent[]> {

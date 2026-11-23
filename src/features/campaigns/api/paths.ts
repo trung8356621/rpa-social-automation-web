@@ -9,6 +9,7 @@ export const CAMPAIGN_PATHS = {
   pause: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/pause`,
   resume: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/resume`,
   cancel: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}/cancel`,
+  delete: (id: string) => `${CAMPAIGNS_BASE}/${encodeURIComponent(id)}`,
   contents: (campaignId: string) =>
     `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents`,
   content: (campaignId: string, contentId: string) =>

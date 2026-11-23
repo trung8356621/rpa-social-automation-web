@@ -173,6 +173,8 @@ export function actionsForStatus(status: CampaignStatus): CampaignAction[] {
       return ['pause', 'cancel']
     case 'paused':
       return ['resume', 'cancel', 'start']
+    case 'cancelled':
+      return ['delete']
     default:
       return []
   }
@@ -184,6 +186,7 @@ const ACTIONS = new Set<CampaignAction>([
   'resume',
   'cancel',
   'edit',
+  'delete',
 ])
 
 function mapContentInput(

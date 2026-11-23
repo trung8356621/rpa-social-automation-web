@@ -5,6 +5,7 @@ import { getRpaApiMode, type RpaApiMode } from '@/lib/api/config'
 import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 
 import { getCampaignAdapter } from './api/campaign-adapter'
+import { performCampaignDelete } from './campaign-delete'
 import type {
   Campaign,
   CampaignContent,
@@ -267,6 +268,18 @@ export function useCampaigns() {
     [adapter, showToast],
   )
 
+  const deleteCampaign = useCallback(
+    async (id: string) => {
+      await performCampaignDelete({
+        id,
+        adapter,
+        setCampaigns,
+        showToast,
+      })
+    },
+    [adapter, showToast],
+  )
+
   const loadContentsForCampaign = useCallback(
     async (campaignId: string): Promise<CampaignContent[]> => {
       const seq = (contentsFetchSeq.current[campaignId] ?? 0) + 1
@@ -498,6 +511,7 @@ export function useCampaigns() {
     pauseCampaign,
     resumeCampaign,
     cancelCampaign,
+    deleteCampaign,
     createManualContent,
     updateManualContent,
     removeDraftContent,
