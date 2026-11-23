@@ -41,6 +41,7 @@ export type CampaignSchedule = {
 export type CampaignSummary = {
   total: number
   pending: number
+  waiting_interval?: number
   waiting_resources: number
   blocked_by_failure?: number
   running: number
@@ -79,6 +80,9 @@ export type CampaignActionTagPlan = {
   release_id: number | null
   resolution_source: 'site_specific' | 'cms_global' | 'missing'
   shortcode_mapping: CampaignShortcodeMapping | null
+  interval_minutes?: number | null
+  last_success_at?: string | null
+  next_run_at?: string | null
 }
 
 export type CampaignContentAssignment = {
@@ -168,6 +172,7 @@ export type CampaignAction =
 export type CampaignContentStatus =
   | 'draft'
   | 'pending'
+  | 'waiting_interval'
   | 'waiting_resources'
   | 'blocked_by_failure'
   | 'running'
@@ -222,6 +227,7 @@ export type CampaignContent = {
   queue_state?: string | null
   wait_reason?: string | null
   blocked_reason?: string | null
+  next_run_at?: string | null
   created_at: string
   updated_at: string
   /** Campaign V2 per-Tag assignments */
@@ -350,6 +356,7 @@ export type CreateCampaignV2ActionTagInput = {
   release_id?: number | null
   resolution_source: 'site_specific' | 'cms_global'
   shortcode_mapping: CampaignShortcodeMapping
+  interval_minutes?: number
 }
 
 export type CreateCampaignV2AssignmentInput = {

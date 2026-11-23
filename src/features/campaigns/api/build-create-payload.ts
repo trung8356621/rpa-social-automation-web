@@ -107,6 +107,7 @@ export type LiveCampaignV2CreateBody = {
     release_id?: number
     resolution_source: 'site_specific' | 'cms_global'
     shortcode_mapping: CampaignShortcodeMapping
+    interval_minutes: number
   }>
   contents: Array<{
     external_ref?: string
@@ -143,6 +144,12 @@ export function buildLiveCampaignV2CreateBody(
           variable: e.variable.trim(),
         })),
       },
+      interval_minutes:
+        typeof tag.interval_minutes === 'number' &&
+        Number.isFinite(tag.interval_minutes) &&
+        tag.interval_minutes >= 0
+          ? Math.trunc(tag.interval_minutes)
+          : 0,
     }
     if (tag.action_tag_id != null && tag.action_tag_id > 0) {
       row.action_tag_id = tag.action_tag_id
@@ -214,6 +221,7 @@ export type LiveCampaignV2UpdateBody = {
     release_id?: number
     resolution_source: 'site_specific' | 'cms_global'
     shortcode_mapping: CampaignShortcodeMapping
+    interval_minutes: number
   }>
   contents: Array<{
     id?: string

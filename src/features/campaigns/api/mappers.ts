@@ -43,6 +43,7 @@ const CAMPAIGN_STATUSES = new Set<CampaignStatus>([
 const CONTENT_STATUSES = new Set<CampaignContentStatus>([
   'draft',
   'pending',
+  'waiting_interval',
   'waiting_resources',
   'blocked_by_failure',
   'running',
@@ -277,6 +278,12 @@ function mapActionTagPlan(row: LiveCampaignActionTagRow): CampaignActionTagPlan 
     release_id: releaseId,
     resolution_source: mapResolutionSource(row.resolution_source),
     shortcode_mapping: mappingFromApi(row.shortcode_mapping),
+    interval_minutes:
+      row.interval_minutes != null && Number.isFinite(Number(row.interval_minutes))
+        ? Math.max(0, Math.trunc(Number(row.interval_minutes)))
+        : 0,
+    last_success_at: pickNonEmptyString(row.last_success_at),
+    next_run_at: pickNonEmptyString(row.next_run_at),
   }
 }
 
@@ -570,6 +577,7 @@ export function mapLiveContent(
     blocked_reason: pickNonEmptyString(
       r.blocked_reason ?? r.blocking_error_message ?? r.originating_error_message,
     ),
+    next_run_at: pickNonEmptyString(r.next_run_at),
     created_at: String(r.created_at ?? ''),
     updated_at: String(r.updated_at ?? ''),
     ...(Array.isArray(r.assignments)

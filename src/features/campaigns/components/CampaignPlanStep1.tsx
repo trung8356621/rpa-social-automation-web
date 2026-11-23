@@ -33,6 +33,8 @@ type Props = {
   cmsTypes: CmsTypeItem[]
   scripts: ScriptListItem[]
   resolvedTags: ResolvedActionTagPlan[]
+  intervalsByTagKey: Record<string, string>
+  onIntervalChange: (tagKey: string, value: string) => void
   loading?: boolean
   disabled?: boolean
 }
@@ -61,6 +63,8 @@ export function CampaignPlanStep1({
   cmsTypes,
   scripts,
   resolvedTags,
+  intervalsByTagKey,
+  onIntervalChange,
   loading = false,
   disabled = false,
 }: Props) {
@@ -251,6 +255,9 @@ export function CampaignPlanStep1({
                   <th className="px-3 py-2 font-medium">Effective Script</th>
                   <th className="px-3 py-2 font-medium">Release / Version</th>
                   <th className="px-3 py-2 font-medium">Resolution</th>
+                  <th className="px-3 py-2 font-medium">
+                    Khoảng cách giữa 2 bài (phút)
+                  </th>
                   <th className="px-3 py-2 font-medium text-right">Remove</th>
                 </tr>
               </thead>
@@ -311,6 +318,20 @@ export function CampaignPlanStep1({
                     </td>
                     <td className="px-3 py-2">
                       {resolutionBadge(row.resolution_source)}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        disabled={disabled}
+                        className="h-8 w-24 font-mono text-xs"
+                        aria-label={`Khoảng cách giữa 2 bài (phút) - ${row.tag_key}`}
+                        value={intervalsByTagKey[row.tag_key] ?? '0'}
+                        onChange={(e) =>
+                          onIntervalChange(row.tag_key, e.target.value)
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2 text-right">
                       <Button

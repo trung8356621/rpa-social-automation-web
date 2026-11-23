@@ -181,6 +181,12 @@ export const mockCampaignAdapter = {
       release_id: t.release_id ?? null,
       resolution_source: t.resolution_source,
       shortcode_mapping: structuredClone(t.shortcode_mapping),
+      interval_minutes:
+        typeof t.interval_minutes === 'number' &&
+        Number.isFinite(t.interval_minutes) &&
+        t.interval_minutes >= 0
+          ? Math.trunc(t.interval_minutes)
+          : 0,
     }))
 
     const rows: CampaignContent[] = input.contents.map((c, i) => ({
@@ -335,6 +341,12 @@ export const mockCampaignAdapter = {
         release_id: t.release_id ?? null,
         resolution_source: t.resolution_source,
         shortcode_mapping: structuredClone(t.shortcode_mapping),
+        interval_minutes:
+          typeof t.interval_minutes === 'number' &&
+          Number.isFinite(t.interval_minutes) &&
+          t.interval_minutes >= 0
+            ? Math.trunc(t.interval_minutes)
+            : 0,
       }
     })
 

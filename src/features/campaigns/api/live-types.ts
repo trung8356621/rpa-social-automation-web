@@ -12,6 +12,7 @@ export type LiveCampaignSchedule = {
 export type LiveCampaignSummary = {
   total?: number
   pending?: number
+  waiting_interval?: number
   waiting_resources?: number
   blocked_by_failure?: number
   running?: number
@@ -45,6 +46,9 @@ export type LiveCampaignActionTagRow = {
   shortcode_mapping?: {
     entries?: Array<{ shortcode?: string; variable?: string }>
   } | null
+  interval_minutes?: number | null
+  last_success_at?: string | null
+  next_run_at?: string | null
 }
 
 export type LiveContentAssignmentRow = {
@@ -62,6 +66,9 @@ export type LiveContentAssignmentRow = {
   shortcode_mapping?: {
     entries?: Array<{ shortcode?: string; variable?: string }>
   } | null
+  interval_minutes?: number | null
+  last_success_at?: string | null
+  next_run_at?: string | null
 }
 
 export type LiveEligibilityError = {
@@ -187,6 +194,7 @@ export type LiveContentRow = {
   blocked_reason?: string | null
   blocking_error_message?: string | null
   originating_error_message?: string | null
+  next_run_at?: string | null
   assignments?: LiveContentAssignmentRow[]
   attempts?: LiveJobAttemptRow[]
   job_attempts?: LiveJobAttemptRow[]

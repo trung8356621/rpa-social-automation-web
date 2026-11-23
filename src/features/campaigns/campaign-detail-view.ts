@@ -54,6 +54,7 @@ export function formatSchedulerTimestamp(
 export function deriveArticleCounts(summary: CampaignSummary): ArticleCounts {
   const waiting =
     (summary.waiting_resources ?? 0) +
+    (summary.waiting_interval ?? 0) +
     (summary.pending ?? 0) +
     (summary.blocked_by_failure ?? 0)
   const running = summary.running ?? 0

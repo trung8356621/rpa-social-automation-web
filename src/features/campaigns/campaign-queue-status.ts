@@ -1,3 +1,4 @@
+import { formatSchedulerTimestamp } from './campaign-detail-view.ts'
 import type { CampaignContent, CampaignContentStatus } from './types.ts'
 import { isPinnedAccountUnavailable } from './validation.ts'
 
@@ -22,6 +23,12 @@ export function resolveEffectiveContentStatus(
   ) {
     return 'blocked_by_failure'
   }
+  if (
+    content.status === 'waiting_interval' ||
+    (qs === 'waiting_interval' && content.status === 'pending')
+  ) {
+    return 'waiting_interval'
+  }
   if (qs === 'waiting_resources' && content.status === 'pending') {
     return 'waiting_resources'
   }
@@ -30,7 +37,7 @@ export function resolveEffectiveContentStatus(
 
 /**
  * Produces user-facing feedback for a Content row without presenting
- * Pending or Waiting Resources as red execution errors.
+ * Pending, Waiting Interval, or Waiting Resources as red execution errors.
  */
 export function resolveContentQueueFeedback(
   content: Pick<
@@ -39,6 +46,7 @@ export function resolveContentQueueFeedback(
     | 'queue_state'
     | 'wait_reason'
     | 'blocked_reason'
+    | 'next_run_at'
     | 'last_error_code'
     | 'last_error_message'
     | 'last_result'
@@ -48,6 +56,20 @@ export function resolveContentQueueFeedback(
 
   if (effectiveStatus === 'pending') {
     return { kind: 'none' }
+  }
+
+  if (effectiveStatus === 'waiting_interval') {
+    const formattedNext = content.next_run_at
+      ? formatSchedulerTimestamp(content.next_run_at, '')
+      : ''
+    const message = formattedNext
+      ? `Next eligible: ${formattedNext} (subject to Client/Account/Browser availability).`
+      : 'Waiting for posting interval before next eligible execution.'
+    return {
+      kind: 'info',
+      message,
+      code: null,
+    }
   }
 
   if (effectiveStatus === 'waiting_resources') {

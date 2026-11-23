@@ -82,6 +82,9 @@ export function CampaignV2Wizard({
   const [selectedTagKeys, setSelectedTagKeys] = useState<string[]>(
     hydrated?.selectedTagKeys ?? [],
   )
+  const [intervalsByTagKey, setIntervalsByTagKey] = useState<
+    Record<string, string>
+  >(() => hydrated?.initialIntervalsByTagKey ?? {})
   const [contents, setContents] = useState<PlannedContentItem[]>(
     hydrated?.contents ?? [],
   )
@@ -107,6 +110,7 @@ export function CampaignV2Wizard({
     setName(hydrated.name)
     setRunMode(hydrated.runMode)
     setSelectedTagKeys(hydrated.selectedTagKeys)
+    setIntervalsByTagKey(hydrated.initialIntervalsByTagKey)
     setContents(hydrated.contents)
     setPendingTagRemoval(null)
     setReassignTargetKey('')
@@ -363,7 +367,11 @@ export function CampaignV2Wizard({
       )
       return
     }
-    const check = validateStep1Plan({ name, resolvedTags })
+    const check = validateStep1Plan({
+      name,
+      resolvedTags,
+      intervalsByTagKey,
+    })
     if (!check.ok) {
       setError(check.message)
       setApiErrorDetail(null)
@@ -411,7 +419,11 @@ export function CampaignV2Wizard({
   const submit = async () => {
     if (busy) return
 
-    const step1 = validateStep1Plan({ name, resolvedTags })
+    const step1 = validateStep1Plan({
+      name,
+      resolvedTags,
+      intervalsByTagKey,
+    })
     if (!step1.ok) {
       setError(step1.message)
       setApiErrorDetail(null)
@@ -465,6 +477,7 @@ export function CampaignV2Wizard({
           groups,
           groupMappings: step2.groupMappings,
           validatedContents: step2.validatedContents,
+          intervalsByTagKey,
         })
         const updated = await registry.updateCampaignV2(v2Update)
         navigate(`/social-automation/campaigns/${updated.id}`)
@@ -476,6 +489,7 @@ export function CampaignV2Wizard({
           groups,
           groupMappings: step2.groupMappings,
           validatedContents: step2.validatedContents,
+          intervalsByTagKey,
         })
         const created = await registry.createCampaignV2(v2Create)
         if (selectedArticleIds.length > 0) {
@@ -655,6 +669,10 @@ export function CampaignV2Wizard({
             cmsTypes={actionRegistry.data.cms_types}
             scripts={scriptRegistry.data.scripts}
             resolvedTags={resolvedTags}
+            intervalsByTagKey={intervalsByTagKey}
+            onIntervalChange={(tagKey, value) =>
+              setIntervalsByTagKey((prev) => ({ ...prev, [tagKey]: value }))
+            }
             loading={actionRegistry.loading || scriptRegistry.loading}
             disabled={busy}
           />

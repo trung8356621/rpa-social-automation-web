@@ -316,6 +316,38 @@ export function CampaignDetailScreen({
         </div>
       </section>
 
+      {isV2 && campaign.action_tags && campaign.action_tags.length > 0 ? (
+        <section
+          aria-label="Action Tag Intervals"
+          className="rounded-[var(--radius-card)] border border-border bg-surface px-4 py-3"
+        >
+          <div className="mb-2 text-xs font-medium text-muted">
+            Action Tags &amp; Posting Interval
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {campaign.action_tags.map((tag) => (
+              <div
+                key={tag.action_tag_key}
+                className="flex flex-wrap items-center gap-2 rounded-[var(--radius-control)] border border-border bg-surface-muted/40 px-2.5 py-1 text-xs"
+              >
+                <span className="font-mono font-medium text-foreground">
+                  {tag.action_tag_key}
+                </span>
+                <Badge variant="neutral">
+                  {tag.interval_minutes ?? 0} phút
+                </Badge>
+                {tag.next_run_at ? (
+                  <span className="text-[11px] text-muted">
+                    Next eligible:{' '}
+                    {formatSchedulerTimestamp(tag.next_run_at, '—')}
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section
         aria-label="Article Summary"
         className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
@@ -559,6 +591,7 @@ export function CampaignDetailScreen({
                           {c.status === 'failed_locked' ||
                           c.status === 'unknown' ||
                           effectiveStatus === 'pending' ||
+                          effectiveStatus === 'waiting_interval' ||
                           effectiveStatus === 'waiting_resources' ||
                           effectiveStatus === 'blocked_by_failure' ? (
                             <>

@@ -354,9 +354,36 @@ export type Step1ValidationResult =
   | { ok: true }
   | { ok: false; message: string }
 
+export function parseIntervalMinutesInput(
+  raw: string | number | null | undefined,
+): { ok: true; value: number } | { ok: false; message: string } {
+  if (raw === undefined || raw === null) {
+    return { ok: true, value: 0 }
+  }
+  const s = String(raw).trim()
+  if (s === '') {
+    return { ok: true, value: 0 }
+  }
+  if (!/^\d+$/.test(s)) {
+    return {
+      ok: false,
+      message: 'Khoảng cách giữa 2 bài (phút) must be a non-negative integer (0 or greater).',
+    }
+  }
+  const n = Number(s)
+  if (!Number.isSafeInteger(n) || n < 0) {
+    return {
+      ok: false,
+      message: 'Khoảng cách giữa 2 bài (phút) must be a non-negative integer (0 or greater).',
+    }
+  }
+  return { ok: true, value: n }
+}
+
 export function validateStep1Plan(params: {
   name: string
   resolvedTags: ResolvedActionTagPlan[]
+  intervalsByTagKey?: Record<string, string | number>
 }): Step1ValidationResult {
   if (!params.name.trim()) {
     return { ok: false, message: 'Campaign Name is required.' }
@@ -373,6 +400,17 @@ export function validateStep1Plan(params: {
     return {
       ok: false,
       message: `Remove or fix unavailable Action Tags before continuing: ${names}`,
+    }
+  }
+  if (params.intervalsByTagKey) {
+    for (const tag of params.resolvedTags) {
+      const parsed = parseIntervalMinutesInput(params.intervalsByTagKey[tag.tag_key])
+      if (!parsed.ok) {
+        return {
+          ok: false,
+          message: `${tag.tag_key}: ${parsed.message}`,
+        }
+      }
     }
   }
   return { ok: true }
@@ -1303,6 +1341,7 @@ export function buildCreateCampaignV2Input(params: {
   groups: SchemaMappingGroup[]
   groupMappings: Record<string, CampaignShortcodeMapping>
   validatedContents: ValidatedContentAssociation[]
+  intervalsByTagKey?: Record<string, string | number>
 }): CreateCampaignV2Input {
   const mappingByTag = new Map<string, CampaignShortcodeMapping>()
   for (const g of params.groups) {
@@ -1341,6 +1380,12 @@ export function buildCreateCampaignV2Input(params: {
         resolution_source:
           t.resolution_source === 'cms_global' ? 'cms_global' : 'site_specific',
         shortcode_mapping: mappingByTag.get(t.tag_key) ?? { entries: [] },
+        interval_minutes: (() => {
+          const parsed = parseIntervalMinutesInput(
+            params.intervalsByTagKey?.[t.tag_key],
+          )
+          return parsed.ok ? parsed.value : 0
+        })(),
       })),
     contents: params.validatedContents.map((c) => ({
       external_ref: c.external_ref,
@@ -1373,6 +1418,7 @@ export function buildUpdateCampaignV2Input(params: {
   groups: SchemaMappingGroup[]
   groupMappings: Record<string, CampaignShortcodeMapping>
   validatedContents: ValidatedContentAssociation[]
+  intervalsByTagKey?: Record<string, string | number>
 }): UpdateCampaignV2Input {
   const mappingByTag = new Map<string, CampaignShortcodeMapping>()
   for (const g of params.groups) {
@@ -1415,6 +1461,12 @@ export function buildUpdateCampaignV2Input(params: {
         resolution_source:
           t.resolution_source === 'cms_global' ? 'cms_global' : 'site_specific',
         shortcode_mapping: mappingByTag.get(t.tag_key) ?? { entries: [] },
+        interval_minutes: (() => {
+          const parsed = parseIntervalMinutesInput(
+            params.intervalsByTagKey?.[t.tag_key],
+          )
+          return parsed.ok ? parsed.value : 0
+        })(),
       })),
     contents: params.validatedContents.map((c) => ({
       ...(c.persisted_id ? { id: c.persisted_id } : {}),
@@ -1642,6 +1694,7 @@ export type CampaignV2WizardInitialState = {
   pinnedTagsByKey: Record<string, CampaignActionTagPlan>
   contents: PlannedContentItem[]
   initialMappingsByTagKey: Record<string, ShortcodeMappingFormEntry[]>
+  initialIntervalsByTagKey: Record<string, string>
 }
 
 /**
@@ -1657,9 +1710,15 @@ export function campaignToV2WizardState(
   const pinnedTagsByKey: Record<string, CampaignActionTagPlan> = {}
   const initialMappingsByTagKey: Record<string, ShortcodeMappingFormEntry[]> =
     {}
+  const initialIntervalsByTagKey: Record<string, string> = {}
 
   for (const t of actionTags) {
     pinnedTagsByKey[t.action_tag_key] = t
+    initialIntervalsByTagKey[t.action_tag_key] = String(
+      t.interval_minutes != null && Number.isFinite(Number(t.interval_minutes))
+        ? Math.max(0, Math.trunc(Number(t.interval_minutes)))
+        : 0,
+    )
     if (t.shortcode_mapping?.entries?.length) {
       initialMappingsByTagKey[t.action_tag_key] =
         t.shortcode_mapping.entries.map((e) =>
@@ -1698,6 +1757,7 @@ export function campaignToV2WizardState(
     pinnedTagsByKey,
     contents: plannedContents,
     initialMappingsByTagKey,
+    initialIntervalsByTagKey,
   }
 }
 
