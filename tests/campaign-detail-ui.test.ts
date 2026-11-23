@@ -5,16 +5,28 @@ import test from 'node:test'
 
 import {
   mapLiveCampaign,
+  mapLiveContent,
   mapLiveJobAttempt,
 } from '../src/features/campaigns/api/mappers.ts'
 import {
   deriveArticleCounts,
   deriveCampaignStatusMessage,
   formatSchedulerTimestamp,
+  groupAttemptsByContent,
   groupErrorsBySite,
+  resolveAttemptFailureDisplay,
+  resolveContentTitle,
+  resolveContentUuid,
 } from '../src/features/campaigns/campaign-detail-view.ts'
-import type { Campaign, CampaignContent } from '../src/features/campaigns/types.ts'
-import { emptySummary } from '../src/features/campaigns/status-labels.ts'
+import type {
+  Campaign,
+  CampaignContent,
+  CampaignJobAttempt,
+} from '../src/features/campaigns/types.ts'
+import {
+  contentStatusBadge,
+  emptySummary,
+} from '../src/features/campaigns/status-labels.ts'
 
 function makeBaseCampaign(overrides?: Partial<Campaign>): Campaign {
   return {
@@ -295,4 +307,185 @@ test('CampaignDetailScreen hides technical details behind collapsed Admin-only t
   )
   assert.equal(pageSrc.includes('useSessionIdentity'), true)
   assert.equal(pageSrc.includes('isAdmin={identity.roleResolved && identity.isOwnerOrAdmin}'), true)
+})
+
+test('merges Execution History under each Content: multiple attempts chronological, no history, strict UUID mapping', () => {
+  const c1: CampaignContent = {
+    ...makeContent('6df3c762-63a0-41eb-991f-6753716feac5', 'maytuicanvas.create_post', 'SCROLL_CONTAINER_CHANGED', 'Scroll container selector changed'),
+    status: 'failed_locked',
+    raw_source: '[title]TEST Mock Title #5[/title][body]Body[/body]',
+    input: { title: null, body: null, variables: {} },
+    current_job_id: 'job-uuid-2222',
+  }
+  const c2: CampaignContent = {
+    ...makeContent('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'maytuicanvas.create_post', null, null),
+    status: 'waiting_resources',
+    input: { title: 'Waiting Article', body: null, variables: {} },
+    current_job_id: null,
+  }
+  const c3: CampaignContent = {
+    ...makeContent('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'maytuicanvas.create_post', 'AGENT_DISCONNECT', 'Agent disconnected'),
+    status: 'unknown',
+    input: { title: 'Unknown Article', body: null, variables: {} },
+    current_job_id: 'job-uuid-3333',
+  }
+
+  assert.equal(resolveContentTitle(c1), 'TEST Mock Title #5')
+  assert.equal(resolveContentUuid(c1), '6df3c762-63a0-41eb-991f-6753716feac5')
+  assert.equal(resolveContentTitle(c2), 'Waiting Article')
+
+  // Intentionally supply attempts out of chronological order + one unrelated attempt
+  const attempts: CampaignJobAttempt[] = [
+    mapLiveJobAttempt({
+      id: 'att_2',
+      attempt_uuid: 'att-uuid-0002',
+      job_uuid: 'job-uuid-2222',
+      content_id: c1.id,
+      campaign_id: 'camp_detail_1',
+      attempt: 2,
+      status: 'failed_locked',
+      step: 1,
+      error_code: 'SCROLL_CONTAINER_CHANGED',
+      error_message: 'Scroll container selector changed',
+      started_at: '2026-11-22T10:15:00Z',
+      ended_at: '2026-11-22T10:16:00Z',
+      artifacts: [
+        {
+          id: 'art_s2',
+          kind: 'screenshot',
+          label: 'step1-failure.png',
+          url: 'https://cdn.example.com/artifacts/step1-failure.png',
+        },
+      ],
+    }),
+    mapLiveJobAttempt({
+      id: 'att_1',
+      attempt_uuid: 'att-uuid-0001',
+      job_uuid: 'job-uuid-1111',
+      content_id: c1.id,
+      campaign_id: 'camp_detail_1',
+      attempt: 1,
+      status: 'failed_locked',
+      step: 1,
+      error_code: 'LOGIN_TIMEOUT',
+      error_message: 'Login timed out',
+      started_at: '2026-11-22T10:05:00Z',
+      ended_at: '2026-11-22T10:06:00Z',
+      artifacts: [],
+    }),
+    mapLiveJobAttempt({
+      id: 'att_unk',
+      attempt_uuid: 'att-uuid-0003',
+      job_uuid: 'job-uuid-3333',
+      content_id: c3.id,
+      campaign_id: 'camp_detail_1',
+      attempt: 1,
+      status: 'unknown',
+      error_code: 'AGENT_DISCONNECT',
+      error_message: 'Agent disconnected',
+      started_at: '2026-11-22T10:20:00Z',
+      ended_at: null,
+      artifacts: [],
+    }),
+    // Unrelated content_id (even with matching-looking prefix) must NEVER attach to c1/c2/c3
+    mapLiveJobAttempt({
+      id: 'att_other',
+      attempt_uuid: 'att-uuid-9999',
+      job_uuid: 'job-uuid-9999',
+      content_id: '6df3c762-63a0-41eb-991f-000000000000',
+      campaign_id: 'camp_detail_1',
+      attempt: 1,
+      status: 'failed_locked',
+      started_at: '2026-11-22T10:00:00Z',
+      artifacts: [],
+    }),
+  ]
+
+  const grouped = groupAttemptsByContent([c1, c2, c3], attempts)
+
+  // c1 has 2 attempts in chronological order (#1 then #2)
+  const c1Attempts = grouped.get(c1.id) ?? []
+  assert.equal(c1Attempts.length, 2)
+  assert.equal(c1Attempts[0]?.attempt, 1)
+  assert.equal(c1Attempts[0]?.attempt_uuid, 'att-uuid-0001')
+  assert.equal(c1Attempts[0]?.job_uuid, 'job-uuid-1111')
+  assert.equal(c1Attempts[1]?.attempt, 2)
+  assert.equal(c1Attempts[1]?.attempt_uuid, 'att-uuid-0002')
+  assert.equal(c1Attempts[1]?.job_uuid, 'job-uuid-2222')
+  assert.equal(
+    c1Attempts[1]?.artifacts[0]?.url,
+    'https://cdn.example.com/artifacts/step1-failure.png',
+  )
+
+  const failDisplay = resolveAttemptFailureDisplay(c1Attempts[1]!)
+  assert.equal(failDisplay.reason, 'Scroll container selector changed')
+  assert.equal(failDisplay.stepLabel, 'Step 1')
+  assert.equal(failDisplay.errorCode, 'SCROLL_CONTAINER_CHANGED')
+
+  // c2 (waiting_resources) has 0 attempts
+  assert.equal((grouped.get(c2.id) ?? []).length, 0)
+  assert.equal(contentStatusBadge(c2.status).label, 'Waiting Resources')
+
+  // c3 (unknown) has 1 attempt
+  const c3Attempts = grouped.get(c3.id) ?? []
+  assert.equal(c3Attempts.length, 1)
+  assert.equal(contentStatusBadge(c3.status).label, 'Unknown')
+  assert.equal(contentStatusBadge(c1.status).label, 'Failed Locked')
+})
+
+test('mapLiveContent preserves content_uuid and nested attempts; CampaignDetailScreen removes standalone Execution History table', () => {
+  const mapped = mapLiveContent({
+    id: '6df3c762-63a0-41eb-991f-6753716feac5',
+    content_uuid: '6df3c762-63a0-41eb-991f-6753716feac5',
+    campaign_id: 'camp_1',
+    status: 'failed_locked',
+    current_job_id: 'job-uuid-1',
+    attempts: [
+      {
+        id: 'att-1',
+        attempt_uuid: 'att-uuid-1',
+        job_uuid: 'job-uuid-1',
+        content_id: '6df3c762-63a0-41eb-991f-6753716feac5',
+        attempt: 1,
+        status: 'failed_locked',
+        step: 1,
+        error_code: 'SCROLL_CONTAINER_CHANGED',
+        error_message: 'Scroll container changed',
+        artifacts: [
+          {
+            id: 'art-1',
+            kind: 'screenshot',
+            label: 'failure.png',
+            url: 'https://example.com/failure.png',
+          },
+        ],
+      },
+    ],
+  })
+
+  assert.equal(mapped.content_uuid, '6df3c762-63a0-41eb-991f-6753716feac5')
+  assert.equal(mapped.attempts?.length, 1)
+  assert.equal(mapped.attempts?.[0]?.job_uuid, 'job-uuid-1')
+  assert.equal(mapped.attempts?.[0]?.attempt_uuid, 'att-uuid-1')
+
+  const screenSrc = readFileSync(
+    resolve(process.cwd(), 'src/features/campaigns/components/CampaignDetailScreen.tsx'),
+    'utf8',
+  )
+  // Content row required elements & preserved controls
+  assert.equal(screenSrc.includes('UUID: {contentUuid}'), true)
+  assert.equal(screenSrc.includes('Current Job:'), true)
+  assert.equal(screenSrc.includes('Job UUID:'), true)
+  assert.equal(screenSrc.includes('Attempt UUID:'), true)
+  assert.equal(screenSrc.includes('Screenshot: '), true)
+  assert.equal(screenSrc.includes('onRetry(c.id, c.status)'), true)
+  assert.equal(screenSrc.includes('onSkip(c.id)'), true)
+  assert.equal(screenSrc.includes('onCancelContent(c.id)'), true)
+  assert.equal(screenSrc.includes('RETRY_WARNING'), true)
+  assert.equal(screenSrc.includes('UNKNOWN_RETRY_WARNING'), true)
+
+  // Old standalone Execution History table & duplicate Content table removed
+  assert.equal(screenSrc.includes('No job attempts yet.'), false)
+  assert.equal(screenSrc.includes('Attempt / Attempt UUID'), false)
+  assert.equal(screenSrc.includes('Content Technical Payload &amp; Admin Actions'), false)
 })

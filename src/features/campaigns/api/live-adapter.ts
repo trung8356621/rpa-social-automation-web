@@ -358,16 +358,40 @@ export const liveCampaignAdapter = {
   },
 
   async listJobAttempts(campaignId: string): Promise<CampaignJobAttempt[]> {
-    // No dedicated Job Attempt history route in OpenAPI — surface content status only.
+    // Prefer nested attempts when Backend supplies them; otherwise surface
+    // content-level execution status only when an actual job/error exists.
     const contents = await this.listContents(campaignId)
+    const nested = contents.flatMap((c) =>
+      (c.attempts ?? []).map((a) => ({
+        ...a,
+        content_id: a.content_id || c.id,
+        campaign_id: a.campaign_id || campaignId,
+      })),
+    )
+    if (nested.length > 0) return nested
+
     return contents
-      .filter((c) => c.status !== 'pending' && c.status !== 'draft')
-      .map((c, i) => ({
+      .filter(
+        (c) =>
+          c.status !== 'pending' &&
+          c.status !== 'draft' &&
+          !(
+            c.status === 'waiting_resources' &&
+            !c.current_job_id &&
+            !c.last_error_code &&
+            !c.last_error_message
+          ),
+      )
+      .map((c) => ({
         id: `content-status-${c.id}`,
+        attempt_uuid: null,
+        job_uuid: c.current_job_id ?? null,
         content_id: c.id,
         campaign_id: campaignId,
-        attempt: i + 1,
+        attempt: 1,
         status: c.status,
+        error_code: c.last_error_code,
+        error_message: c.last_error_message,
         agent_label: null,
         browser_label: null,
         started_at: null,

@@ -193,6 +193,7 @@ export type TipTapDocJson = {
 
 export type CampaignContent = {
   id: string
+  content_uuid?: string | null
   campaign_id: string
   external_ref: string
   source: CampaignContentSource
@@ -216,6 +217,8 @@ export type CampaignContent = {
   updated_at: string
   /** Campaign V2 per-Tag assignments */
   assignments?: CampaignContentAssignment[]
+  /** Nested execution attempts when supplied by Backend */
+  attempts?: CampaignJobAttempt[]
 }
 
 export type CampaignArtifact = {
@@ -228,10 +231,16 @@ export type CampaignArtifact = {
 export type CampaignJobAttempt = {
   id: string
   attempt_uuid?: string | null
+  job_id?: string | null
+  job_uuid?: string | null
   content_id: string
+  content_uuid?: string | null
   campaign_id: string
   attempt: number
   status: CampaignContentStatus
+  step?: string | number | null
+  error_code?: string | null
+  error_message?: string | null
   agent_uuid?: string | null
   agent_label: string | null
   browser_uuid?: string | null

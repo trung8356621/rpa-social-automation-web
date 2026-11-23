@@ -159,6 +159,7 @@ export type LiveCampaignMutationResponse = {
 
 export type LiveContentRow = {
   id?: string | number
+  content_uuid?: string | null
   campaign_id?: string | number
   external_ref?: string
   source?: string
@@ -179,6 +180,9 @@ export type LiveContentRow = {
   last_error_code?: string | null
   last_error_message?: string | null
   assignments?: LiveContentAssignmentRow[]
+  attempts?: LiveJobAttemptRow[]
+  job_attempts?: LiveJobAttemptRow[]
+  execution_history?: LiveJobAttemptRow[]
   created_at?: string
   updated_at?: string
 }
@@ -186,10 +190,19 @@ export type LiveContentRow = {
 export type LiveJobAttemptRow = {
   id?: string | number
   attempt_uuid?: string | null
+  job_id?: string | number | null
+  job_uuid?: string | null
   content_id?: string | number
+  content_uuid?: string | null
   campaign_id?: string | number
   attempt?: number
+  attempt_number?: number
   status?: string
+  step?: string | number | null
+  step_name?: string | null
+  failed_step?: string | number | null
+  error_code?: string | null
+  error_message?: string | null
   agent_uuid?: string | null
   agent_label?: string | null
   browser_uuid?: string | null

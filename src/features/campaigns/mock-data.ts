@@ -595,6 +595,8 @@ const contentsSeed: CampaignContent[] = [
 const jobsSeed: CampaignJobAttempt[] = [
   {
     id: 'att_9001',
+    attempt_uuid: 'a0000000-0000-4000-8000-000000009001',
+    job_uuid: 'job_9001',
     content_id: 'cnt_run_1',
     campaign_id: 'camp_running',
     attempt: 1,
@@ -608,10 +610,15 @@ const jobsSeed: CampaignJobAttempt[] = [
   },
   {
     id: 'att_9100',
+    attempt_uuid: 'a0000000-0000-4000-8000-000000009100',
+    job_uuid: 'job_9100',
     content_id: 'cnt_fail_1',
     campaign_id: 'camp_failed_unknown',
     attempt: 1,
     status: 'failed_locked',
+    step: 1,
+    error_code: 'SELECTOR_TIMEOUT',
+    error_message: 'Selector timeout at step publish',
     agent_label: 'agent-mock-2',
     browser_label: 'Chrome · profile-b',
     started_at: '2026-11-02T08:10:00+07:00',
@@ -628,10 +635,14 @@ const jobsSeed: CampaignJobAttempt[] = [
   },
   {
     id: 'att_9101',
+    attempt_uuid: 'a0000000-0000-4000-8000-000000009101',
+    job_uuid: 'job_9101',
     content_id: 'cnt_unk_1',
     campaign_id: 'camp_failed_unknown',
     attempt: 1,
     status: 'unknown',
+    error_code: 'AGENT_DISCONNECT',
+    error_message: 'Agent disconnected mid-run; outcome uncertain',
     agent_label: 'agent-mock-3',
     browser_label: 'Chrome · profile-c',
     started_at: '2026-11-02T08:20:00+07:00',
@@ -641,6 +652,8 @@ const jobsSeed: CampaignJobAttempt[] = [
   },
   {
     id: 'att_9200',
+    attempt_uuid: 'a0000000-0000-4000-8000-000000009200',
+    job_uuid: 'job_9200',
     content_id: 'cnt_done_1',
     campaign_id: 'camp_completed',
     attempt: 1,

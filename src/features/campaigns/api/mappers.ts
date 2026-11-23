@@ -526,8 +526,19 @@ export function mapLiveContent(
         ? null
         : String(r.raw_source)
 
+  const rawAttempts = Array.isArray(r.attempts)
+    ? r.attempts
+    : Array.isArray(r.job_attempts)
+      ? r.job_attempts
+      : Array.isArray(r.execution_history)
+        ? r.execution_history
+        : null
+
   return {
     id: String(r.id ?? ''),
+    ...(pickNonEmptyString(r.content_uuid)
+      ? { content_uuid: pickNonEmptyString(r.content_uuid) }
+      : {}),
     campaign_id: String(r.campaign_id ?? fallbackCampaignId),
     external_ref: String(r.external_ref ?? ''),
     source: 'manual',
@@ -552,25 +563,43 @@ export function mapLiveContent(
     ...(Array.isArray(r.assignments)
       ? { assignments: r.assignments.map(mapContentAssignment) }
       : {}),
+    ...(rawAttempts
+      ? { attempts: rawAttempts.map(mapLiveJobAttempt) }
+      : {}),
   }
 }
 
 export function mapLiveJobAttempt(row: unknown): CampaignJobAttempt {
   const r = (row ?? {}) as LiveJobAttemptRow
+  const rawStep = r.step ?? r.step_name ?? r.failed_step
+  const step =
+    typeof rawStep === 'number'
+      ? rawStep
+      : typeof rawStep === 'string' && rawStep.trim()
+        ? rawStep.trim()
+        : null
+  const errCode = pickNonEmptyString(r.error_code)
+  const errMsg = pickNonEmptyString(r.error_message)
   return {
     id: String(r.id ?? ''),
     attempt_uuid: pickNonEmptyString(r.attempt_uuid),
+    job_id: r.job_id == null ? null : pickNonEmptyString(String(r.job_id)),
+    job_uuid: pickNonEmptyString(r.job_uuid),
     content_id: String(r.content_id ?? ''),
+    content_uuid: pickNonEmptyString(r.content_uuid),
     campaign_id: String(r.campaign_id ?? ''),
-    attempt: Number(r.attempt ?? 1),
+    attempt: Number(r.attempt ?? r.attempt_number ?? 1),
     status: asContentStatus(r.status),
+    step,
+    error_code: errCode,
+    error_message: errMsg,
     agent_uuid: pickNonEmptyString(r.agent_uuid),
     agent_label: r.agent_label ?? null,
     browser_uuid: pickNonEmptyString(r.browser_uuid),
     browser_label: r.browser_label ?? null,
     started_at: r.started_at ?? null,
     ended_at: r.ended_at ?? null,
-    error: r.error ?? null,
+    error: r.error ?? errMsg ?? errCode ?? null,
     artifacts: (r.artifacts ?? []).map((a, i) => ({
       id: String(a.id ?? `art_${i}`),
       kind:

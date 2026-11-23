@@ -13,14 +13,18 @@ import {
   deriveArticleCounts,
   deriveCampaignStatusMessage,
   formatSchedulerTimestamp,
+  groupAttemptsByContent,
   groupErrorsBySite,
+  resolveAttemptFailureDisplay,
+  resolveContentTitle,
+  resolveContentUuid,
+  resolveSiteForContent,
 } from '../campaign-detail-view'
 import {
   resolveAccountDisplay,
   resolveScriptDisplay,
 } from '../display-resolve'
 import { formatScheduleLabel } from '../schedule'
-import { contentListPreview } from '../shortcode-source'
 import {
   campaignStatusBadge,
   contentStatusBadge,
@@ -94,8 +98,20 @@ export function CampaignDetailScreen({
   const [actionError, setActionError] = useState<string | null>(null)
   const [attempts, setAttempts] = useState<CampaignJobAttempt[]>([])
   const [attemptsError, setAttemptsError] = useState<string | null>(null)
+  const [expandedHistoryIds, setExpandedHistoryIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [techExpanded, setTechExpanded] = useState(false)
   const busy = busyAction !== null
+
+  const toggleContentHistory = (contentId: string) => {
+    setExpandedHistoryIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(contentId)) next.delete(contentId)
+      else next.add(contentId)
+      return next
+    })
+  }
 
   const isV2 = useMemo(() => isCampaignV2(campaign), [campaign])
 
@@ -142,9 +158,12 @@ export function CampaignDetailScreen({
     () => groupErrorsBySite(campaign, contents),
     [campaign, contents],
   )
+  const attemptsByContent = useMemo(
+    () => groupAttemptsByContent(contents, attempts),
+    [contents, attempts],
+  )
 
   useEffect(() => {
-    if (!isAdmin) return
     let cancelled = false
     void loadAttempts(campaign.id)
       .then((rows) => {
@@ -164,7 +183,7 @@ export function CampaignDetailScreen({
     return () => {
       cancelled = true
     }
-  }, [campaign.id, isAdmin, loadAttempts])
+  }, [campaign.id, loadAttempts])
 
   const run = async (
     fn: () => Promise<unknown>,
@@ -389,13 +408,321 @@ export function CampaignDetailScreen({
         </ul>
       ) : null}
 
+      <section
+        aria-label="Campaign Contents"
+        className="rounded-[var(--radius-card)] border border-border bg-surface"
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold">Campaign Contents</h2>
+            <p className="text-xs text-muted">
+              Article status, identifiers, and per-content execution history.
+            </p>
+          </div>
+          <span className="font-mono text-xs text-muted">
+            {contents.length} item(s)
+          </span>
+        </div>
+
+        {contentsError ? (
+          <div className="px-4 py-4 text-center text-xs text-danger">
+            Failed to load Content list. {contentsError}
+          </div>
+        ) : contents.length === 0 ? (
+          <div className="px-4 py-4 text-center text-xs text-muted">
+            No content rows loaded (summary.total={campaign.summary.total}).
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {contents.map((c) => {
+              const cs = contentStatusBadge(c.status)
+              const pinUnavailable = isPinnedAccountUnavailable(c)
+              const site = resolveSiteForContent(campaign, c)
+              const assigned = resolveAccountDisplay(
+                accounts,
+                c.assigned_account_id ?? campaign.account_id,
+                { loading: accountsLoading },
+              )
+              const accountLabel =
+                assigned.state === 'resolved'
+                  ? assigned.label
+                  : c.assigned_account_label?.trim() ||
+                    (assigned.state === 'empty' ? null : assigned.label)
+              const contentTitle = resolveContentTitle(c)
+              const contentUuid = resolveContentUuid(c)
+              const contentAttempts = attemptsByContent.get(c.id) ?? []
+              const historyExpanded = expandedHistoryIds.has(c.id)
+              const primaryErrorMsg =
+                c.last_error_message?.trim() ||
+                (pinUnavailable ? 'Pinned account unavailable' : null)
+
+              return (
+                <div key={c.id} className="px-4 py-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-sm font-semibold text-foreground">
+                        {contentTitle}
+                      </div>
+                      <div className="font-mono text-[11px] text-muted">
+                        UUID: {contentUuid}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                        <span>
+                          Site:{' '}
+                          <span className="text-foreground">
+                            {site.site_name}
+                          </span>
+                          {site.site_key && site.site_key !== site.site_name ? (
+                            <span className="font-mono text-[11px]">
+                              {' '}
+                              ({site.site_key})
+                            </span>
+                          ) : null}
+                        </span>
+                        {accountLabel ? (
+                          <span>
+                            Account:{' '}
+                            <span className="text-foreground">
+                              {accountLabel}
+                            </span>
+                          </span>
+                        ) : null}
+                        {c.current_job_id ? (
+                          <span>
+                            Current Job:{' '}
+                            <span className="font-mono text-foreground">
+                              {c.current_job_id}
+                            </span>
+                          </span>
+                        ) : null}
+                      </div>
+                      {primaryErrorMsg || c.last_error_code ? (
+                        <div className="text-xs text-danger">
+                          {primaryErrorMsg ? <span>{primaryErrorMsg}</span> : null}
+                          {c.last_error_code &&
+                          c.last_error_code !== primaryErrorMsg ? (
+                            <span className="ml-1.5 font-mono text-[11px]">
+                              [{c.last_error_code}]
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                      <Badge variant={cs.variant}>{cs.label}</Badge>
+                      {isAdmin ? (
+                        <>
+                          {c.status === 'failed_locked' ||
+                          c.status === 'unknown' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => {
+                                const msg =
+                                  c.status === 'unknown'
+                                    ? `${UNKNOWN_RETRY_WARNING}\n\n${RETRY_WARNING}`
+                                    : RETRY_WARNING
+                                if (!window.confirm(msg)) return
+                                void run(() => onRetry(c.id, c.status))
+                              }}
+                            >
+                              Retry
+                            </Button>
+                          ) : null}
+                          {c.status === 'failed_locked' ||
+                          c.status === 'unknown' ||
+                          c.status === 'pending' ||
+                          c.status === 'waiting_resources' ? (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => {
+                                  if (!window.confirm('Skip this content?'))
+                                    return
+                                  void run(() => onSkip(c.id))
+                                }}
+                              >
+                                Skip
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-danger"
+                                disabled={busy}
+                                onClick={() => {
+                                  if (!window.confirm('Cancel this content?'))
+                                    return
+                                  void run(() => onCancelContent(c.id))
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            </>
+                          ) : null}
+                        </>
+                      ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        aria-expanded={historyExpanded}
+                        onClick={() => toggleContentHistory(c.id)}
+                      >
+                        {historyExpanded
+                          ? 'Hide History'
+                          : `Execution History (${contentAttempts.length})`}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {historyExpanded ? (
+                    <div className="mt-3 rounded-[var(--radius-control)] border border-border bg-surface-muted/40 p-3">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
+                        Execution History
+                      </div>
+                      {attemptsError ? (
+                        <p className="mb-2 text-xs text-danger">
+                          {attemptsError}
+                        </p>
+                      ) : null}
+                      {contentAttempts.length === 0 ? (
+                        <p className="text-xs text-muted">
+                          No execution attempts recorded yet.
+                        </p>
+                      ) : (
+                        <div className="space-y-2.5">
+                          {contentAttempts.map((a, idx) => {
+                            const ast = contentStatusBadge(a.status)
+                            const failure = resolveAttemptFailureDisplay(a)
+                            const attemptNumber =
+                              a.attempt > 0 ? a.attempt : idx + 1
+                            const jobUuid = a.job_uuid ?? a.job_id ?? '—'
+                            const attemptUuid = a.attempt_uuid ?? a.id ?? '—'
+                            const agentUuid =
+                              a.agent_uuid ?? a.agent_label ?? null
+                            const browserUuid =
+                              a.browser_uuid ?? a.browser_label ?? null
+
+                            return (
+                              <div
+                                key={a.attempt_uuid ?? a.id ?? `${c.id}-${idx}`}
+                                className="rounded-[var(--radius-control)] border border-border bg-surface p-2.5 text-xs"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 font-medium">
+                                    <span>Attempt #{attemptNumber}</span>
+                                    <Badge variant={ast.variant}>
+                                      {ast.label}
+                                    </Badge>
+                                  </div>
+                                  <div className="text-[11px] text-muted">
+                                    {formatSchedulerTimestamp(
+                                      a.started_at,
+                                      '—',
+                                    )}
+                                    {a.ended_at
+                                      ? ` → ${formatSchedulerTimestamp(a.ended_at, '—')}`
+                                      : ''}
+                                  </div>
+                                </div>
+
+                                {failure.reason ? (
+                                  <div className="mt-1.5 text-xs text-danger">
+                                    {failure.reason}
+                                  </div>
+                                ) : null}
+
+                                {failure.stepLabel || failure.errorCode ? (
+                                  <div className="mt-1 font-mono text-[11px] text-muted">
+                                    {[failure.stepLabel, failure.errorCode]
+                                      .filter(Boolean)
+                                      .join(' — ')}
+                                  </div>
+                                ) : null}
+
+                                <dl className="mt-2 grid gap-x-4 gap-y-1 font-mono text-[11px] text-muted sm:grid-cols-2">
+                                  <div>
+                                    <dt className="inline">Job UUID: </dt>
+                                    <dd className="inline text-foreground">
+                                      {jobUuid}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="inline">Attempt UUID: </dt>
+                                    <dd className="inline text-foreground">
+                                      {attemptUuid}
+                                    </dd>
+                                  </div>
+                                  {agentUuid ? (
+                                    <div>
+                                      <dt className="inline">Agent UUID: </dt>
+                                      <dd className="inline text-foreground">
+                                        {agentUuid}
+                                      </dd>
+                                    </div>
+                                  ) : null}
+                                  {browserUuid ? (
+                                    <div>
+                                      <dt className="inline">Browser UUID: </dt>
+                                      <dd className="inline text-foreground">
+                                        {browserUuid}
+                                      </dd>
+                                    </div>
+                                  ) : null}
+                                </dl>
+
+                                {a.artifacts.length > 0 ? (
+                                  <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
+                                    {a.artifacts.map((art) => (
+                                      <span key={art.id}>
+                                        <span className="text-muted">
+                                          {art.kind === 'screenshot'
+                                            ? 'Screenshot: '
+                                            : 'Artifact: '}
+                                        </span>
+                                        {art.url ? (
+                                          <a
+                                            href={art.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="font-mono text-primary underline"
+                                          >
+                                            {art.label}
+                                          </a>
+                                        ) : (
+                                          <span className="font-mono text-foreground">
+                                            {art.label}
+                                          </span>
+                                        )}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
       {isAdmin ? (
         <section className="rounded-[var(--radius-card)] border border-border bg-surface">
           <div className="flex items-center justify-between px-4 py-3">
             <div>
               <h2 className="text-sm font-semibold">Technical Details (Admin)</h2>
               <p className="text-xs text-muted">
-                Execution history, UUIDs, eligibility diagnostics, and payload configuration.
+                Eligibility diagnostics and payload configuration.
               </p>
             </div>
             <Button
@@ -459,70 +786,6 @@ export function CampaignDetailScreen({
                     </table>
                   </div>
                 )}
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-                  Execution History
-                </h3>
-                {attemptsError ? (
-                  <p className="text-xs text-muted">{attemptsError}</p>
-                ) : null}
-                <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border">
-                  <table className="w-full min-w-[52rem] text-left text-xs">
-                    <thead className="border-b border-border bg-surface-muted/60 text-[11px] text-muted">
-                      <tr>
-                        <th className="px-3 py-2 font-medium">Attempt / Attempt UUID</th>
-                        <th className="px-3 py-2 font-medium">Content</th>
-                        <th className="px-3 py-2 font-medium">Agent UUID</th>
-                        <th className="px-3 py-2 font-medium">Browser UUID</th>
-                        <th className="px-3 py-2 font-medium">Start / End</th>
-                        <th className="px-3 py-2 font-medium">Error</th>
-                        <th className="px-3 py-2 font-medium">Artifacts</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {attempts.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="px-3 py-4 text-center text-muted">
-                            No job attempts yet.
-                          </td>
-                        </tr>
-                      ) : (
-                        attempts.map((a) => (
-                          <tr key={a.id}>
-                            <td className="px-3 py-2 font-mono">
-                              <div>#{a.attempt}</div>
-                              <div className="text-[11px] text-muted">
-                                {a.attempt_uuid ?? a.id}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 font-mono">{a.content_id}</td>
-                            <td className="px-3 py-2 font-mono">
-                              {a.agent_uuid ?? a.agent_label ?? '—'}
-                            </td>
-                            <td className="px-3 py-2 font-mono">
-                              {a.browser_uuid ?? a.browser_label ?? '—'}
-                            </td>
-                            <td className="px-3 py-2">
-                              {a.started_at ?? '—'}
-                              <br />
-                              {a.ended_at ?? '—'}
-                            </td>
-                            <td className="px-3 py-2 text-danger">
-                              {a.error ?? '—'}
-                            </td>
-                            <td className="px-3 py-2">
-                              {a.artifacts.length === 0
-                                ? '—'
-                                : a.artifacts.map((x) => x.label).join(', ')}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
               </div>
 
               <div className="space-y-3">
@@ -631,136 +894,6 @@ export function CampaignDetailScreen({
                     </table>
                   </div>
                 ) : null}
-
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-muted">
-                    Content Technical Payload &amp; Admin Actions
-                  </h4>
-                  <div className="overflow-x-auto rounded-[var(--radius-control)] border border-border">
-                    <table className="w-full min-w-[56rem] text-left text-xs">
-                      <thead className="border-b border-border bg-surface-muted/60 text-[11px] text-muted">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">Content</th>
-                          <th className="px-3 py-2 font-medium">Status</th>
-                          <th className="px-3 py-2 font-medium">Assigned Account</th>
-                          <th className="px-3 py-2 font-medium">Current Job</th>
-                          <th className="px-3 py-2 font-medium">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {contentsError ? (
-                          <tr>
-                            <td colSpan={5} className="px-3 py-4 text-center text-danger">
-                              Failed to load Content list. {contentsError}
-                            </td>
-                          </tr>
-                        ) : contents.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="px-3 py-4 text-center text-muted">
-                              No content rows loaded (summary.total={campaign.summary.total}).
-                            </td>
-                          </tr>
-                        ) : (
-                          contents.map((c) => {
-                            const cs = contentStatusBadge(c.status)
-                            const pinUnavailable = isPinnedAccountUnavailable(c)
-                            const assigned = resolveAccountDisplay(
-                              accounts,
-                              c.assigned_account_id ?? campaign.account_id,
-                              { loading: accountsLoading },
-                            )
-                            return (
-                              <tr key={c.id}>
-                                <td className="px-3 py-2">
-                                  <div className="font-mono">{c.external_ref || c.id}</div>
-                                  <div className="text-[11px] text-muted">
-                                    {c.source_format}
-                                    {c.mapping_version != null
-                                      ? ` · v${c.mapping_version}`
-                                      : ''}
-                                  </div>
-                                  <div className="line-clamp-1 font-mono text-[11px] text-muted">
-                                    {contentListPreview(c) || '(empty)'}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2">
-                                  <Badge variant={cs.variant}>{cs.label}</Badge>
-                                  {pinUnavailable ? (
-                                    <div className="mt-1 text-[11px] text-warning">
-                                      pinned_account_unavailable
-                                    </div>
-                                  ) : null}
-                                </td>
-                                <td className="px-3 py-2 font-mono">
-                                  {assigned.state === 'empty'
-                                    ? '—'
-                                    : assigned.accountId ?? assigned.label}
-                                </td>
-                                <td className="px-3 py-2 font-mono">
-                                  {c.current_job_id ?? '—'}
-                                </td>
-                                <td className="px-3 py-2">
-                                  <div className="flex flex-wrap gap-1">
-                                    {c.status === 'failed_locked' ||
-                                    c.status === 'unknown' ? (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={busy}
-                                        onClick={() => {
-                                          const msg =
-                                            c.status === 'unknown'
-                                              ? `${UNKNOWN_RETRY_WARNING}\n\n${RETRY_WARNING}`
-                                              : RETRY_WARNING
-                                          if (!window.confirm(msg)) return
-                                          void run(() => onRetry(c.id, c.status))
-                                        }}
-                                      >
-                                        Retry
-                                      </Button>
-                                    ) : null}
-                                    {c.status === 'failed_locked' ||
-                                    c.status === 'unknown' ||
-                                    c.status === 'pending' ||
-                                    c.status === 'waiting_resources' ? (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          disabled={busy}
-                                          onClick={() => {
-                                            if (!window.confirm('Skip this content?'))
-                                              return
-                                            void run(() => onSkip(c.id))
-                                          }}
-                                        >
-                                          Skip
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="outline"
-                                          className="text-danger"
-                                          disabled={busy}
-                                          onClick={() => {
-                                            if (!window.confirm('Cancel this content?'))
-                                              return
-                                            void run(() => onCancelContent(c.id))
-                                          }}
-                                        >
-                                          Cancel
-                                        </Button>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
               </div>
             </div>
           ) : null}

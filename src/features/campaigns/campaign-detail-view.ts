@@ -1,6 +1,8 @@
+import { parseShortcodeSegments } from './shortcode-source.ts'
 import type {
   Campaign,
   CampaignContent,
+  CampaignJobAttempt,
   CampaignSummary,
 } from './types.ts'
 
@@ -115,7 +117,7 @@ export function deriveCampaignStatusMessage(
   }
 }
 
-function resolveSiteForContent(
+export function resolveSiteForContent(
   campaign: Campaign,
   content: CampaignContent,
 ): { site_key: string; site_name: string } {
@@ -207,4 +209,141 @@ export function groupErrorsBySite(
   }
 
   return Array.from(map.values())
+}
+
+/**
+ * Resolve prominent human-readable article title / content name.
+ */
+export function resolveContentTitle(content: CampaignContent): string {
+  const inputTitle = content.input.title?.trim()
+  if (inputTitle) return inputTitle
+
+  const raw = content.raw_source?.trim()
+  if (raw) {
+    const segments = parseShortcodeSegments(raw)
+    const titleSeg = segments.find(
+      (s) => s.name === 'title' && s.inner.trim().length > 0,
+    )
+    if (titleSeg) return titleSeg.inner.trim()
+  }
+
+  const ext = content.external_ref?.trim()
+  if (ext) return ext
+
+  if (raw) return raw
+  const body = content.input.body?.trim()
+  if (body) return body
+
+  return content.id
+}
+
+export function resolveContentUuid(content: CampaignContent): string {
+  return content.content_uuid?.trim() || content.id
+}
+
+function attemptTimestampMs(attempt: CampaignJobAttempt): number | null {
+  const raw = attempt.started_at?.trim() || attempt.ended_at?.trim()
+  if (!raw) return null
+  const ms = Date.parse(raw)
+  return Number.isFinite(ms) ? ms : null
+}
+
+/**
+ * Group job attempts by Content using the actual Backend Content-to-Job-to-Attempt
+ * relationship (`attempt.content_id === content.id`, or `attempt.content_uuid` when
+ * `content_id` is omitted and `content.content_uuid` matches).
+ * Never associates records by display order, article title, or fuzzy UUIDs.
+ * Returns attempts sorted chronologically per Content.
+ */
+export function groupAttemptsByContent(
+  contents: CampaignContent[],
+  attempts: CampaignJobAttempt[],
+): Map<string, CampaignJobAttempt[]> {
+  const result = new Map<string, CampaignJobAttempt[]>()
+  const byContentId = new Map<string, CampaignContent>()
+  const byContentUuid = new Map<string, CampaignContent>()
+
+  for (const c of contents) {
+    result.set(c.id, [])
+    if (c.id) byContentId.set(c.id, c)
+    if (c.content_uuid?.trim()) byContentUuid.set(c.content_uuid.trim(), c)
+  }
+
+  const seenPerContent = new Map<string, Set<string>>()
+  const append = (contentId: string, att: CampaignJobAttempt) => {
+    const list = result.get(contentId)
+    if (!list) return
+    let seen = seenPerContent.get(contentId)
+    if (!seen) {
+      seen = new Set<string>()
+      seenPerContent.set(contentId, seen)
+    }
+    const dedupeKey = att.attempt_uuid?.trim() || att.id
+    if (dedupeKey && seen.has(dedupeKey)) return
+    if (dedupeKey) seen.add(dedupeKey)
+    list.push(att)
+  }
+
+  for (const c of contents) {
+    if (Array.isArray(c.attempts)) {
+      for (const att of c.attempts) {
+        append(c.id, att)
+      }
+    }
+  }
+
+  for (const att of attempts) {
+    const cid = att.content_id?.trim()
+    if (cid && byContentId.has(cid)) {
+      append(cid, att)
+      continue
+    }
+    const cuuid = att.content_uuid?.trim()
+    if (!cid && cuuid) {
+      const matched = byContentUuid.get(cuuid)
+      if (matched) append(matched.id, att)
+    }
+  }
+
+  for (const [cid, list] of result.entries()) {
+    const indexed = list.map((item, idx) => ({ item, idx }))
+    indexed.sort((a, b) => {
+      const aMs = attemptTimestampMs(a.item)
+      const bMs = attemptTimestampMs(b.item)
+      if (aMs !== null && bMs !== null && aMs !== bMs) return aMs - bMs
+      if (aMs !== null && bMs === null) return -1
+      if (aMs === null && bMs !== null) return 1
+      if (a.item.attempt !== b.item.attempt) return a.item.attempt - b.item.attempt
+      return a.idx - b.idx
+    })
+    result.set(
+      cid,
+      indexed.map((x) => x.item),
+    )
+  }
+
+  return result
+}
+
+export function resolveAttemptFailureDisplay(attempt: CampaignJobAttempt): {
+  reason: string | null
+  stepLabel: string | null
+  errorCode: string | null
+} {
+  const errorCode = attempt.error_code?.trim() || null
+  const errorMessage = attempt.error_message?.trim() || null
+  const fallbackError = attempt.error?.trim() || null
+  const reason = errorMessage || fallbackError || errorCode || null
+
+  const rawStep =
+    attempt.step != null && String(attempt.step).trim() !== ''
+      ? String(attempt.step).trim()
+      : null
+  const stepLabel = rawStep
+    ? /^step\b/i.test(rawStep)
+      ? rawStep
+      : `Step ${rawStep}`
+    : null
+
+  return { reason, stepLabel, errorCode }
 }
