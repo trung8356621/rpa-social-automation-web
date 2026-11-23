@@ -69,7 +69,7 @@ describe('Inline Editing of Action Tag Posting Interval', () => {
     )
     assert.match(
       liveAdapterSrc,
-      /updateActionTagInterval\([\s\S]*?method:\s*'PATCH'[\s\S]*?body:\s*\{\s*interval_minutes:\s*intervalMinutes\s*\}/,
+      /updateActionTagInterval\([\s\S]*?method:\s*'PATCH'[\s\S]*?body:\s*\{\s*interval_minutes:\s*validated\s*\}/,
     )
     // Must not call full PUT update or embed Client API keys
     assert.doesNotMatch(liveAdapterSrc, /X-Client-Api-Key/)
@@ -166,22 +166,26 @@ describe('Inline Editing of Action Tag Posting Interval', () => {
     assert.equal(mapped.action_tags?.[0]?.next_run_at, '2026-11-23T18:00:00Z')
   })
 
-  it('5. Rejects negative, decimal, empty, non-numeric, and out-of-range values', () => {
+  it('5. Accepts 0..10080 and rejects >10080 (including 10081, 525600), negative, decimal, empty, and non-numeric', () => {
+    assert.equal(MAX_INTERVAL_MINUTES, 10080)
     assert.deepEqual(validateInlineIntervalInput('0'), { ok: true, value: 0 })
     assert.deepEqual(validateInlineIntervalInput('5'), { ok: true, value: 5 })
     assert.deepEqual(validateInlineIntervalInput('60'), { ok: true, value: 60 })
     assert.deepEqual(validateInlineIntervalInput('240'), { ok: true, value: 240 })
     assert.deepEqual(validateInlineIntervalInput('1440'), { ok: true, value: 1440 })
+    assert.deepEqual(validateInlineIntervalInput('10080'), { ok: true, value: 10080 })
 
     assert.equal(validateInlineIntervalInput('').ok, false)
     assert.equal(validateInlineIntervalInput('   ').ok, false)
     assert.equal(validateInlineIntervalInput('-1').ok, false)
     assert.equal(validateInlineIntervalInput('1.5').ok, false)
     assert.equal(validateInlineIntervalInput('abc').ok, false)
-    assert.equal(
-      validateInlineIntervalInput(String(MAX_INTERVAL_MINUTES + 1)).ok,
-      false,
-    )
+    const over = validateInlineIntervalInput('10081')
+    assert.equal(over.ok, false)
+    if (!over.ok) {
+      assert.equal(over.message, 'Khoảng cách tối đa là 7 ngày (10.080 phút).')
+    }
+    assert.equal(validateInlineIntervalInput('525600').ok, false)
   })
 
   it('6, 7 & 10. Duplicate requests blocked, failed PATCH retains edit state & shows error, polling does not overwrite draft', () => {

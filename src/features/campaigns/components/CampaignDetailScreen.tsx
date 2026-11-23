@@ -13,6 +13,7 @@ import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/ty
 
 import { isScreenshotArtifact } from '../campaign-artifacts'
 import {
+  MAX_INTERVAL_MINUTES,
   canEditActionTagInterval,
   validateInlineIntervalInput,
 } from '../campaign-interval-edit'
@@ -384,6 +385,7 @@ export function CampaignDetailScreen({
                         <Input
                           type="number"
                           min={0}
+                          max={MAX_INTERVAL_MINUTES}
                           step={1}
                           disabled={savingInterval}
                           className="h-7 w-24 font-mono text-xs"

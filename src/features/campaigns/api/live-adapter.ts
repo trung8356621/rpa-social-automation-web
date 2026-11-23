@@ -13,6 +13,7 @@ import type {
   UpdateCampaignInput,
   UpdateCampaignV2Input,
 } from '../types'
+import { assertValidIntervalMinutes } from '../campaign-interval-edit'
 import { buildLiveCampaignContentBody } from './build-content-payload'
 import {
   buildLiveCampaignCreateBody,
@@ -143,11 +144,12 @@ export const liveCampaignAdapter = {
     actionTagKey: string,
     intervalMinutes: number,
   ): Promise<Campaign> {
+    const validated = assertValidIntervalMinutes(intervalMinutes, actionTagKey)
     const res = await staffApiRequest<LiveCampaignMutationResponse>(
       CAMPAIGN_PATHS.actionTagInterval(campaignId, actionTagKey),
       {
         method: 'PATCH',
-        body: { interval_minutes: intervalMinutes },
+        body: { interval_minutes: validated },
       },
     )
     const row = res.data ?? res.campaign

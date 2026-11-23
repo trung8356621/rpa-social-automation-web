@@ -14,6 +14,7 @@ import type {
 } from '@/features/action-tags/types'
 import type { ScriptListItem } from '@/features/script-registry/types'
 
+import { MAX_INTERVAL_MINUTES } from '../campaign-interval-edit'
 import {
   filterSelectableCampaignTags,
   type ResolvedActionTagPlan,
@@ -323,6 +324,7 @@ export function CampaignPlanStep1({
                       <Input
                         type="number"
                         min={0}
+                        max={MAX_INTERVAL_MINUTES}
                         step={1}
                         disabled={disabled}
                         className="h-8 w-24 font-mono text-xs"

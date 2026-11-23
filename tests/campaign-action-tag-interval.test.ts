@@ -102,13 +102,14 @@ const SAMPLE_VALIDATED_CONTENTS: ValidatedContentAssociation[] = [
 describe('Action Tag Posting Interval & Sequential Queue Status', () => {
   it('1. Input defaults to 0', () => {
     assert.deepEqual(parseIntervalMinutesInput(undefined), { ok: true, value: 0 })
-    assert.deepEqual(parseIntervalMinutesInput(''), { ok: true, value: 0 })
+    assert.equal(parseIntervalMinutesInput('').ok, false)
 
     const step1Src = readFileSync(
       resolve('src/features/campaigns/components/CampaignPlanStep1.tsx'),
       'utf8',
     )
     assert.match(step1Src, /Khoảng cách giữa 2 bài \(phút\)/)
+    assert.match(step1Src, /max=\{MAX_INTERVAL_MINUTES\}/)
     assert.match(step1Src, /intervalsByTagKey\[row\.tag_key\] \?\? '0'/)
   })
 
@@ -163,18 +164,71 @@ describe('Action Tag Posting Interval & Sequential Queue Status', () => {
     assert.equal(hydrated.initialIntervalsByTagKey['sitea.create_post'], '240')
   })
 
-  it('4. Invalid or negative interval rejected and 422 invalid_interval_minutes formatted clearly', () => {
+  it('4. Invalid, negative, >10080 intervals rejected and payload builder never clamps or zeroes invalid values', () => {
+    assert.deepEqual(parseIntervalMinutesInput('0'), { ok: true, value: 0 })
+    assert.deepEqual(parseIntervalMinutesInput('240'), { ok: true, value: 240 })
+    assert.deepEqual(parseIntervalMinutesInput('1440'), { ok: true, value: 1440 })
+    assert.deepEqual(parseIntervalMinutesInput('10080'), { ok: true, value: 10080 })
+
     assert.equal(parseIntervalMinutesInput('-1').ok, false)
     assert.equal(parseIntervalMinutesInput('1.5').ok, false)
+    assert.equal(parseIntervalMinutesInput('').ok, false)
     assert.equal(parseIntervalMinutesInput('abc').ok, false)
+
+    const overMax = parseIntervalMinutesInput('10081')
+    assert.equal(overMax.ok, false)
+    if (!overMax.ok) {
+      assert.equal(overMax.message, 'Khoảng cách tối đa là 7 ngày (10.080 phút).')
+    }
+    assert.equal(parseIntervalMinutesInput('525600').ok, false)
 
     const tagA = makeResolvedTag('sitea.create_post', 'sitea', 1)
     const invalidStep1 = validateStep1Plan({
       name: 'Test',
       resolvedTags: [tagA],
-      intervalsByTagKey: { 'sitea.create_post': '-10' },
+      intervalsByTagKey: { 'sitea.create_post': '10081' },
     })
     assert.equal(invalidStep1.ok, false)
+
+    // Payload builder throws instead of silently clamping 10081 -> 10080 or converting -5 -> 0
+    assert.throws(() =>
+      buildLiveCampaignV2CreateBody({
+        plan_version: 2,
+        name: 'Bad',
+        run_mode: 'live',
+        action_tags: [
+          {
+            action_tag_key: 'sitea.create_post',
+            site_key: 'sitea',
+            script_package_key: 'sitea.create_post',
+            script_version: '1.0.0',
+            resolution_source: 'site_specific',
+            shortcode_mapping: { entries: [] },
+            interval_minutes: 10081,
+          },
+        ],
+        contents: [],
+      }),
+    )
+    assert.throws(() =>
+      buildLiveCampaignV2CreateBody({
+        plan_version: 2,
+        name: 'Bad Neg',
+        run_mode: 'live',
+        action_tags: [
+          {
+            action_tag_key: 'sitea.create_post',
+            site_key: 'sitea',
+            script_package_key: 'sitea.create_post',
+            script_version: '1.0.0',
+            resolution_source: 'site_specific',
+            shortcode_mapping: { entries: [] },
+            interval_minutes: -5,
+          },
+        ],
+        contents: [],
+      }),
+    )
 
     const formatted = formatCampaignV2ApiError(
       new ApiError('Validation failed (invalid_interval_minutes).', {

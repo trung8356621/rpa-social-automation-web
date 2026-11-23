@@ -1,4 +1,5 @@
 import { ApiError, toSafeApiMessage } from '../../lib/api/errors.ts'
+import { validateInlineIntervalInput } from './campaign-interval-edit.ts'
 import { resolveTagPublishedScriptStatus } from '../action-tags/auto-tag-lifecycle.ts'
 import type {
   ActionTagItem,
@@ -360,24 +361,7 @@ export function parseIntervalMinutesInput(
   if (raw === undefined || raw === null) {
     return { ok: true, value: 0 }
   }
-  const s = String(raw).trim()
-  if (s === '') {
-    return { ok: true, value: 0 }
-  }
-  if (!/^\d+$/.test(s)) {
-    return {
-      ok: false,
-      message: 'Khoảng cách giữa 2 bài (phút) must be a non-negative integer (0 or greater).',
-    }
-  }
-  const n = Number(s)
-  if (!Number.isSafeInteger(n) || n < 0) {
-    return {
-      ok: false,
-      message: 'Khoảng cách giữa 2 bài (phút) must be a non-negative integer (0 or greater).',
-    }
-  }
-  return { ok: true, value: n }
+  return validateInlineIntervalInput(String(raw))
 }
 
 export function validateStep1Plan(params: {
@@ -1384,7 +1368,10 @@ export function buildCreateCampaignV2Input(params: {
           const parsed = parseIntervalMinutesInput(
             params.intervalsByTagKey?.[t.tag_key],
           )
-          return parsed.ok ? parsed.value : 0
+          if (!parsed.ok) {
+            throw new Error(`${t.tag_key}: ${parsed.message}`)
+          }
+          return parsed.value
         })(),
       })),
     contents: params.validatedContents.map((c) => ({
@@ -1465,7 +1452,10 @@ export function buildUpdateCampaignV2Input(params: {
           const parsed = parseIntervalMinutesInput(
             params.intervalsByTagKey?.[t.tag_key],
           )
-          return parsed.ok ? parsed.value : 0
+          if (!parsed.ok) {
+            throw new Error(`${t.tag_key}: ${parsed.message}`)
+          }
+          return parsed.value
         })(),
       })),
     contents: params.validatedContents.map((c) => ({

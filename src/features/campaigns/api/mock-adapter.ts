@@ -1,4 +1,5 @@
 import { ApiError } from '../../../lib/api/errors.ts'
+import { MAX_INTERVAL_MINUTES } from '../campaign-interval-edit.ts'
 import { draftToScriptInput } from '../content-adapters.ts'
 import {
   createMockCampaignStore,
@@ -483,7 +484,7 @@ export const mockCampaignAdapter = {
     if (
       !Number.isInteger(intervalMinutes) ||
       intervalMinutes < 0 ||
-      intervalMinutes > 525600
+      intervalMinutes > MAX_INTERVAL_MINUTES
     ) {
       throw new ApiError('interval_minutes must be a non-negative integer.', {
         kind: 'validation',
