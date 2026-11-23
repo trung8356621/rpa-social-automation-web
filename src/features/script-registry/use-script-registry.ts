@@ -225,11 +225,21 @@ function useScriptRegistryLive(enabled: boolean) {
     [showToast],
   )
 
+  const updateScriptDescription = useCallback(
+    async (_packageKey: string, _description: string) => {
+      throw new Error(
+        'Script description update API is not available on the Backend yet.',
+      )
+    },
+    [],
+  )
+
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
       mutationsEnabled: false,
       operationalSettingsSupported: !configApiUnavailable,
+      descriptionEditSupported: false,
       authRequired,
       loading,
       error,
@@ -246,6 +256,7 @@ function useScriptRegistryLive(enabled: boolean) {
       removeScript,
       updateScriptSharing,
       updateOperationalSettings,
+      updateScriptDescription,
     }),
     [
       authRequired,
@@ -262,6 +273,7 @@ function useScriptRegistryLive(enabled: boolean) {
       showToast,
       toast,
       updateOperationalSettings,
+      updateScriptDescription,
       updateScriptSharing,
     ],
   )
@@ -283,6 +295,7 @@ export function useScriptRegistry() {
     mode: 'mock' as const satisfies RpaApiMode,
     mutationsEnabled: true,
     operationalSettingsSupported: true,
+    descriptionEditSupported: true,
     authRequired: false,
     detailLoading: false,
     detailError: null as string | null,

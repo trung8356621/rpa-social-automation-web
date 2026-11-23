@@ -538,4 +538,20 @@ test('LIVE /config contract: payload normalization, response mapping, validation
   assert.equal(hookSrc.includes('fetchLiveScriptRegistryList()'), true)
   assert.equal(hookSrc.includes('fetchLiveScriptRegistryDetail(packageKey)'), true)
   assert.equal(hookSrc.includes('setConfigApiUnavailable(true)'), true)
+  assert.equal(hookSrc.includes('descriptionEditSupported: false'), true)
+
+  // Verify ScriptDetailsDrawer has inline Description editor + explicit Enable/Disable button
+  const drawerSrc = readFileSync(
+    resolve(
+      process.cwd(),
+      'src/features/script-registry/components/ScriptDetailsDrawer.tsx',
+    ),
+    'utf8',
+  )
+  assert.equal(drawerSrc.includes('editingDescription'), true)
+  assert.equal(drawerSrc.includes('onSaveDescription'), true)
+  assert.equal(drawerSrc.includes('Script description'), true)
+  assert.equal(drawerSrc.includes("'Disable'"), true)
+  assert.equal(drawerSrc.includes("'Enable'"), true)
+  assert.equal(drawerSrc.includes("'Enabled' : 'Disabled'"), true)
 })

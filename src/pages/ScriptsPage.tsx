@@ -89,6 +89,7 @@ export function ScriptsPage() {
         detailError={registry.detailError}
         mutationsEnabled={registry.mutationsEnabled}
         operationalSettingsSupported={registry.operationalSettingsSupported}
+        descriptionEditSupported={registry.descriptionEditSupported}
         mode={registry.mode}
         onRemoveScript={registry.removeScript}
         onUpdateSharing={registry.updateScriptSharing}
@@ -96,6 +97,7 @@ export function ScriptsPage() {
           await registry.updateOperationalSettings(packageKey, settings)
           variantGroups.reload()
         }}
+        onSaveDescription={registry.updateScriptDescription}
       />
       <Toast toast={registry.toast} />
     </>

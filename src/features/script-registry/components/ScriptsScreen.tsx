@@ -31,6 +31,7 @@ type ScriptsScreenProps = {
   detailError?: string | null
   mutationsEnabled?: boolean
   operationalSettingsSupported?: boolean
+  descriptionEditSupported?: boolean
   mode?: 'mock' | 'live'
   onRemoveScript: (packageKey: string) => Promise<void>
   onUpdateSharing?: (
@@ -40,6 +41,10 @@ type ScriptsScreenProps = {
   onSaveOperationalSettings?: (
     packageKey: string,
     settings: ScriptOperationalSettingsInput,
+  ) => Promise<void>
+  onSaveDescription?: (
+    packageKey: string,
+    description: string,
   ) => Promise<void>
 }
 
@@ -52,9 +57,11 @@ export function ScriptsScreen({
   mutationsEnabled = true,
   mode = 'mock',
   operationalSettingsSupported = mode !== 'live',
+  descriptionEditSupported = mode !== 'live',
   onRemoveScript,
   onUpdateSharing,
   onSaveOperationalSettings,
+  onSaveDescription,
 }: ScriptsScreenProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
@@ -240,12 +247,14 @@ export function ScriptsScreen({
         persistedGroups={persistedGroups}
         mode={mode}
         operationalSettingsSupported={operationalSettingsSupported}
+        descriptionEditSupported={descriptionEditSupported}
         onClose={() => setDetail(null)}
         onPlayRelease={(target) =>
           setVideoTarget({ ...target, playbackMode: isLive ? 'live' : 'mock' })
         }
         onUpdateSharing={onUpdateSharing}
         onSaveOperationalSettings={onSaveOperationalSettings}
+        onSaveDescription={onSaveDescription}
       />
 
       <VideoPlayerModal

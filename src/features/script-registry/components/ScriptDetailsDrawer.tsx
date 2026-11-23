@@ -3,6 +3,7 @@ import { Play, X } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { toSafeApiMessage } from '@/lib/api/errors'
 
 import type { PersistedVariantGroup } from '../api/variant-groups-contract'
@@ -30,6 +31,7 @@ type ScriptDetailsDrawerProps = {
   persistedGroups?: PersistedVariantGroup[]
   mode?: 'mock' | 'live'
   operationalSettingsSupported?: boolean
+  descriptionEditSupported?: boolean
   onClose: () => void
   onPlayRelease: (target: VideoPlayerTarget) => void
   onUpdateSharing?: (
@@ -39,6 +41,10 @@ type ScriptDetailsDrawerProps = {
   onSaveOperationalSettings?: (
     packageKey: string,
     settings: ScriptOperationalSettingsInput,
+  ) => Promise<void>
+  onSaveDescription?: (
+    packageKey: string,
+    description: string,
   ) => Promise<void>
 }
 
@@ -66,10 +72,12 @@ export function ScriptDetailsDrawer({
   persistedGroups = [],
   mode = 'mock',
   operationalSettingsSupported = mode === 'mock',
+  descriptionEditSupported = mode === 'mock',
   onClose,
   onPlayRelease,
   onUpdateSharing,
   onSaveOperationalSettings,
+  onSaveDescription,
 }: ScriptDetailsDrawerProps) {
   const [isEnabled, setIsEnabled] = useState(true)
   const [languageCode, setLanguageCode] = useState<string | null>(null)
@@ -78,6 +86,11 @@ export function ScriptDetailsDrawer({
   const [settingsError, setSettingsError] = useState<string | null>(null)
   const [settingsSaved, setSettingsSaved] = useState(false)
 
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [savingDescription, setSavingDescription] = useState(false)
+  const [descriptionError, setDescriptionError] = useState<string | null>(null)
+
   useEffect(() => {
     if (!detail) return
     setIsEnabled(detail.is_enabled !== false)
@@ -85,6 +98,9 @@ export function ScriptDetailsDrawer({
     setIsPrimary(detail.is_primary === true)
     setSettingsError(null)
     setSettingsSaved(false)
+    setEditingDescription(false)
+    setDescriptionDraft(detail.description?.trim() ?? '')
+    setDescriptionError(null)
   }, [detail])
 
   const compatibleScripts = useMemo(
@@ -173,13 +189,95 @@ export function ScriptDetailsDrawer({
         </header>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
-          <div>
-            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-              Description
-            </h3>
-            <p className="mt-1 text-sm leading-relaxed text-foreground">
-              {detail.description?.trim() || '—'}
-            </p>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+                Description
+              </h3>
+              {!editingDescription ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!descriptionEditSupported || !onSaveDescription}
+                  onClick={() => {
+                    setDescriptionDraft(detail.description?.trim() ?? '')
+                    setDescriptionError(null)
+                    setEditingDescription(true)
+                  }}
+                >
+                  Edit
+                </Button>
+              ) : null}
+            </div>
+
+            {!descriptionEditSupported ? (
+              <p className="text-[11px] text-muted">
+                Description editing API is not available on the Backend yet.
+              </p>
+            ) : null}
+
+            {descriptionError ? (
+              <div
+                role="alert"
+                className="rounded-[var(--radius-control)] border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+              >
+                {descriptionError}
+              </div>
+            ) : null}
+
+            {editingDescription ? (
+              <div className="space-y-2">
+                <Textarea
+                  aria-label="Script description"
+                  rows={3}
+                  disabled={savingDescription}
+                  value={descriptionDraft}
+                  onChange={(e) => setDescriptionDraft(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={savingDescription}
+                    onClick={() => {
+                      setEditingDescription(false)
+                      setDescriptionDraft(detail.description?.trim() ?? '')
+                      setDescriptionError(null)
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={savingDescription || !onSaveDescription}
+                    onClick={() => {
+                      if (!onSaveDescription) return
+                      setSavingDescription(true)
+                      setDescriptionError(null)
+                      void onSaveDescription(detail.package_key, descriptionDraft)
+                        .then(() => {
+                          setEditingDescription(false)
+                        })
+                        .catch((err: unknown) => {
+                          setDescriptionError(toSafeApiMessage(err))
+                        })
+                        .finally(() => {
+                          setSavingDescription(false)
+                        })
+                    }}
+                  >
+                    {savingDescription ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm leading-relaxed text-foreground">
+                {detail.description?.trim() || '—'}
+              </p>
+            )}
           </div>
 
           {hasPublishedRelease ? (
@@ -213,18 +311,56 @@ export function ScriptDetailsDrawer({
                 <p className="text-xs text-success">Operational settings saved.</p>
               ) : null}
 
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={isEnabled}
-                  disabled={!operationalSettingsSupported || savingSettings}
-                  onChange={(e) => {
-                    setIsEnabled(e.target.checked)
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-control)] border border-border bg-surface px-3 py-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted">Status:</span>
+                  <Badge variant={isEnabled ? 'success' : 'warning'}>
+                    {isEnabled ? 'Enabled' : 'Disabled'}
+                  </Badge>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isEnabled ? 'outline' : 'default'}
+                  className={isEnabled ? 'text-danger' : undefined}
+                  disabled={
+                    !operationalSettingsSupported ||
+                    !onSaveOperationalSettings ||
+                    savingSettings
+                  }
+                  onClick={() => {
+                    if (!onSaveOperationalSettings || !operationalSettingsSupported) {
+                      return
+                    }
+                    const nextEnabled = !isEnabled
+                    setSavingSettings(true)
+                    setSettingsError(null)
                     setSettingsSaved(false)
+                    void onSaveOperationalSettings(detail.package_key, {
+                      is_enabled: nextEnabled,
+                      language_code: languageCode,
+                      is_primary: nextEnabled ? isPrimary : false,
+                    })
+                      .then(() => {
+                        setIsEnabled(nextEnabled)
+                        if (!nextEnabled) setIsPrimary(false)
+                        setSettingsSaved(true)
+                      })
+                      .catch((err: unknown) => {
+                        setSettingsError(toSafeApiMessage(err))
+                      })
+                      .finally(() => {
+                        setSavingSettings(false)
+                      })
                   }}
-                />
-                <span>Enabled</span>
-              </label>
+                >
+                  {savingSettings
+                    ? 'Updating…'
+                    : isEnabled
+                      ? 'Disable'
+                      : 'Enable'}
+                </Button>
+              </div>
 
               <div className="space-y-1">
                 <label

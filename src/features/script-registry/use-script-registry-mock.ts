@@ -175,6 +175,23 @@ export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
     [showToast],
   )
 
+  const updateScriptDescription = useCallback(
+    async (packageKey: string, description: string) => {
+      await delay(120)
+      const trimmed = description.trim() || null
+      setData((prev) => ({
+        scripts: prev.scripts,
+        details: Object.fromEntries(
+          Object.entries(prev.details).map(([k, d]) =>
+            k === packageKey ? [k, { ...d, description: trimmed }] : [k, d],
+          ),
+        ),
+      }))
+      showToast('Description updated (MOCK local).')
+    },
+    [showToast],
+  )
+
   return {
     loading,
     error,
@@ -185,5 +202,6 @@ export function useScriptRegistryMock(options: { enabled?: boolean } = {}) {
     removeScript,
     updateScriptSharing,
     updateOperationalSettings,
+    updateScriptDescription,
   }
 }
