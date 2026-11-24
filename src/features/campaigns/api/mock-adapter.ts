@@ -302,8 +302,8 @@ export const mockCampaignAdapter = {
         status: 422,
       })
     }
-    if (c.status !== 'draft') {
-      throw new ApiError('Only Draft V2 Campaigns can be edited.', {
+    if (c.status !== 'draft' && c.status !== 'paused') {
+      throw new ApiError('Only Draft or Paused V2 Campaigns can be edited.', {
         kind: 'validation',
         status: 422,
       })
@@ -319,6 +319,21 @@ export const mockCampaignAdapter = {
           current_revision: currentRevision,
         },
       })
+    }
+
+    const now = nowIso()
+    if (c.status === 'paused') {
+      const updatedPaused: Campaign = {
+        ...c,
+        execution_mode: input.execution_mode ?? c.execution_mode,
+        revision: currentRevision + 1,
+        updated_at: now,
+      }
+      store.campaigns = store.campaigns.map((x) =>
+        x.id === c.id ? updatedPaused : x,
+      )
+      refreshSummaries(store)
+      return structuredClone(updatedPaused)
     }
 
     const existingTagMap = new Map(
@@ -351,7 +366,6 @@ export const mockCampaignAdapter = {
       }
     })
 
-    const now = nowIso()
     const nextRows: CampaignContent[] = input.contents.map((row, i) => {
       const contentId = row.id?.trim() || `cnt_v2_${Date.now()}_${i}`
       return {
@@ -397,6 +411,7 @@ export const mockCampaignAdapter = {
       ...c,
       name: input.name.trim(),
       run_mode: input.run_mode,
+      execution_mode: input.execution_mode ?? c.execution_mode,
       revision: currentRevision + 1,
       site_key: firstTag?.site_key ?? c.site_key,
       site_name: firstTag?.site_name ?? c.site_name,

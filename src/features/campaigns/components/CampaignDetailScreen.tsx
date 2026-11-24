@@ -590,6 +590,17 @@ export function CampaignDetailScreen({
             {isV2 ? 'Assign Articles' : 'Manage Articles'}
           </Button>
         ) : null}
+        {campaign.status === 'paused' && isV2 ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              navigate(`/social-automation/campaigns/${campaign.id}/edit?step=2`)
+            }
+          >
+            Edit
+          </Button>
+        ) : null}
       </section>
 
       {actionError ? (

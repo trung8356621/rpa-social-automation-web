@@ -21,6 +21,7 @@ import {
   runModeLabel,
 } from '../status-labels'
 import type { Campaign } from '../types'
+import { isCampaignV2 } from '../validation'
 import { DeleteCampaignDialog } from './DeleteCampaignDialog'
 
 type Props = {
@@ -277,13 +278,16 @@ export function CampaignsScreen({
                         >
                           View
                         </Button>
-                        {c.allowed_actions.includes('edit') ? (
+                        {c.allowed_actions.includes('edit') ||
+                        (c.status === 'paused' && isCampaignV2(c)) ? (
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() =>
                               navigate(
-                                `/social-automation/campaigns/${c.id}/edit`,
+                                c.status === 'paused' && isCampaignV2(c)
+                                  ? `/social-automation/campaigns/${c.id}/edit?step=2`
+                                  : `/social-automation/campaigns/${c.id}/edit`,
                               )
                             }
                           >

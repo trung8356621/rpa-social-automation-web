@@ -26,6 +26,7 @@ import type {
   Campaign,
   CampaignActionTagPlan,
   CampaignContent,
+  CampaignExecutionMode,
   CampaignRunMode,
   CampaignShortcodeMapping,
   CreateCampaignV2Input,
@@ -1329,6 +1330,7 @@ export function inspectBackendPersistenceSupport(params: {
 export function buildCreateCampaignV2Input(params: {
   name: string
   run_mode: CampaignRunMode
+  execution_mode?: CampaignExecutionMode
   resolvedTags: ResolvedActionTagPlan[]
   groups: SchemaMappingGroup[]
   groupMappings: Record<string, CampaignShortcodeMapping>
@@ -1348,6 +1350,7 @@ export function buildCreateCampaignV2Input(params: {
     plan_version: 2,
     name: params.name.trim(),
     run_mode: params.run_mode,
+    ...(params.execution_mode ? { execution_mode: params.execution_mode } : {}),
     action_tags: params.resolvedTags
       .filter(
         (t): t is ResolvedActionTagPlan & { effective_script: ResolvedScriptRef } =>
@@ -1409,6 +1412,7 @@ export function buildUpdateCampaignV2Input(params: {
   updated_at?: string | null
   name: string
   run_mode: CampaignRunMode
+  execution_mode?: CampaignExecutionMode
   resolvedTags: ResolvedActionTagPlan[]
   groups: SchemaMappingGroup[]
   groupMappings: Record<string, CampaignShortcodeMapping>
@@ -1431,6 +1435,7 @@ export function buildUpdateCampaignV2Input(params: {
     ...(params.updated_at ? { updated_at: params.updated_at } : {}),
     name: params.name.trim(),
     run_mode: params.run_mode,
+    ...(params.execution_mode ? { execution_mode: params.execution_mode } : {}),
     action_tags: params.resolvedTags
       .filter(
         (t): t is ResolvedActionTagPlan & { effective_script: ResolvedScriptRef } =>
@@ -1688,6 +1693,7 @@ export type CampaignV2WizardInitialState = {
   updatedAt: string | null
   name: string
   runMode: CampaignRunMode
+  executionMode: CampaignExecutionMode
   selectedTagKeys: string[]
   pinnedTagsByKey: Record<string, CampaignActionTagPlan>
   contents: PlannedContentItem[]
@@ -1755,6 +1761,7 @@ export function campaignToV2WizardState(
     updatedAt: campaign.updated_at || null,
     name: campaign.name,
     runMode: campaign.run_mode,
+    executionMode: campaign.execution_mode,
     selectedTagKeys,
     pinnedTagsByKey,
     contents: plannedContents,
@@ -1813,6 +1820,15 @@ export function resolveActionTagWithPin(
  * Enables Save only when plan_version === 2, status === 'draft', canonical GET
  * Detail hydration is complete, and at least one runnable Tag is present.
  */
+export function canEditCampaignV2(
+  campaign: Pick<Campaign, 'status' | 'plan_version' | 'action_tags'>,
+): boolean {
+  return (
+    isCampaignV2(campaign) &&
+    (campaign.status === 'draft' || campaign.status === 'paused')
+  )
+}
+
 export function inspectV2UpdateSupport(params: {
   campaign: Campaign | null
   detailLoaded: boolean
@@ -1825,9 +1841,12 @@ export function inspectV2UpdateSupport(params: {
     if (params.campaign.plan_version !== 2 && !params.campaign.action_tags?.length) {
       blockers.push('Campaign is not Plan V2.')
     }
-    if (params.campaign.status !== 'draft') {
+    if (
+      params.campaign.status !== 'draft' &&
+      params.campaign.status !== 'paused'
+    ) {
       blockers.push(
-        `Only Draft V2 Campaigns can be edited (current status: ${params.campaign.status}).`,
+        `Only Draft or Paused V2 Campaigns can be edited (current status: ${params.campaign.status}).`,
       )
     }
   }

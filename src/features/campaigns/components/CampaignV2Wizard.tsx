@@ -38,11 +38,17 @@ import {
   canStartWithRunMode,
   unavailableScriptInputSchema,
 } from '../script-compat'
-import type { Campaign, CampaignContent, CampaignRunMode } from '../types'
+import type {
+  Campaign,
+  CampaignContent,
+  CampaignExecutionMode,
+  CampaignRunMode,
+} from '../types'
 import { useCampaigns } from '../use-campaigns'
 import { useMultiScriptSchemas } from '../use-multi-script-schemas'
 import { CampaignContentStep2 } from './CampaignContentStep2'
 import { CampaignPlanStep1 } from './CampaignPlanStep1'
+import { ExecutionModeCards } from './ExecutionModeCards'
 
 type Props = {
   wizardMode: 'create' | 'edit'
@@ -80,6 +86,9 @@ export function CampaignV2Wizard({
   const [runMode, setRunMode] = useState<CampaignRunMode>(
     hydrated?.runMode ?? 'live',
   )
+  const [executionMode, setExecutionMode] = useState<CampaignExecutionMode>(
+    hydrated?.executionMode ?? 'one_account_many_jobs',
+  )
   const [selectedTagKeys, setSelectedTagKeys] = useState<string[]>(
     hydrated?.selectedTagKeys ?? [],
   )
@@ -102,6 +111,10 @@ export function CampaignV2Wizard({
   const [assignmentBusy, setAssignmentBusy] = useState(false)
   const [assignmentError, setAssignmentError] = useState<string | null>(null)
 
+  const isPausedEdit =
+    wizardMode === 'edit' && initialCampaign?.status === 'paused'
+  const step1Locked = isPausedEdit
+
   const hydratedKey = hydrated
     ? `${hydrated.campaignId}:${hydrated.revision ?? 'none'}:${hydrated.updatedAt ?? ''}`
     : ''
@@ -110,6 +123,7 @@ export function CampaignV2Wizard({
     if (!hydrated) return
     setName(hydrated.name)
     setRunMode(hydrated.runMode)
+    setExecutionMode(hydrated.executionMode)
     setSelectedTagKeys(hydrated.selectedTagKeys)
     setIntervalsByTagKey(hydrated.initialIntervalDraftsByTagKey)
     setContents(hydrated.contents)
@@ -474,6 +488,7 @@ export function CampaignV2Wizard({
           updated_at: initialCampaign.updated_at || null,
           name,
           run_mode: runMode,
+          execution_mode: executionMode,
           resolvedTags,
           groups,
           groupMappings: step2.groupMappings,
@@ -486,6 +501,7 @@ export function CampaignV2Wizard({
         const v2Create = buildCreateCampaignV2Input({
           name,
           run_mode: runMode,
+          execution_mode: executionMode,
           resolvedTags,
           groups,
           groupMappings: step2.groupMappings,
@@ -663,7 +679,10 @@ export function CampaignV2Wizard({
             runMode={runMode}
             onRunModeChange={setRunMode}
             selectedTagKeys={selectedTagKeys}
-            onSelectedTagKeysChange={handleSelectedTagKeysChange}
+            onSelectedTagKeysChange={(keys) => {
+              if (step1Locked) return
+              handleSelectedTagKeysChange(keys)
+            }}
             tags={actionRegistry.data.tags}
             sites={actionRegistry.data.sites}
             paths={actionRegistry.data.paths}
@@ -671,15 +690,30 @@ export function CampaignV2Wizard({
             scripts={scriptRegistry.data.scripts}
             resolvedTags={resolvedTags}
             intervalsByTagKey={intervalsByTagKey}
-            onIntervalChange={(tagKey, draft) =>
+            onIntervalChange={(tagKey, draft) => {
+              if (step1Locked) return
               setIntervalsByTagKey((prev) => ({ ...prev, [tagKey]: draft }))
-            }
+            }}
             loading={actionRegistry.loading || scriptRegistry.loading}
-            disabled={busy}
+            disabled={busy || step1Locked}
           />
+          {step1Locked ? (
+            <p className="rounded-[var(--radius-control)] border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              Paused Campaign: Step 1 (Name, Run Mode, Action Tags, and Script
+              Resolution) is locked for inspection. Proceed to Step 2 to edit
+              Execution Mode.
+            </p>
+          ) : null}
         </>
       ) : (
         <div className="space-y-5">
+          <section className="rounded-[var(--radius-card)] border border-border bg-surface p-4">
+            <ExecutionModeCards
+              value={executionMode}
+              onChange={setExecutionMode}
+              disabled={busy}
+            />
+          </section>
           <CampaignContentStep2
             name={name}
             runMode={runMode}
@@ -783,9 +817,13 @@ export function CampaignV2Wizard({
             onClick={() => void submit()}
           >
             {wizardMode === 'edit'
-              ? busy
-                ? 'Saving V2 Draft…'
-                : 'Save V2 Draft'
+              ? isPausedEdit
+                ? busy
+                  ? 'Saving Changes…'
+                  : 'Save Changes'
+                : busy
+                  ? 'Saving V2 Draft…'
+                  : 'Save V2 Draft'
               : busy
                 ? 'Saving Draft…'
                 : 'Create Draft Campaign'}

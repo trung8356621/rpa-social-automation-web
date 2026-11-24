@@ -167,7 +167,7 @@ export function useCampaigns() {
     async (input: UpdateCampaignV2Input) => {
       const updated = await adapter.updateCampaignV2(input)
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === updated.id ? updated : c)),
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
       )
       if (Array.isArray(updated.contents)) {
         setContents((prev) => {
@@ -175,7 +175,11 @@ export function useCampaigns() {
           return [...updated.contents!, ...without]
         })
       }
-      showToast('Campaign V2 draft updated')
+      showToast(
+        updated.status === 'paused'
+          ? 'Campaign changes saved'
+          : 'Campaign V2 draft updated',
+      )
       return updated
     },
     [adapter, showToast],

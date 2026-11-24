@@ -197,7 +197,11 @@ export function CampaignEditPage() {
         wizardMode="edit"
         initialCampaign={campaign}
         initialContents={campaignContents}
-        initialStep={searchParams.get('step') === '2' ? 2 : 1}
+        initialStep={
+          searchParams.get('step') === '2' || campaign.status === 'paused'
+            ? 2
+            : 1
+        }
         detailLoaded={detailLoaded}
         onReloadLatest={loadCanonical}
       />
