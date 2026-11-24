@@ -1,5 +1,10 @@
 import { ApiError, toSafeApiMessage } from '../../lib/api/errors.ts'
-import { validateInlineIntervalInput } from './campaign-interval-edit.ts'
+import {
+  decomposeIntervalMinutes,
+  validateInlineIntervalInput,
+  validateIntervalDraft,
+  type IntervalDraft,
+} from './campaign-interval-edit.ts'
 import { resolveTagPublishedScriptStatus } from '../action-tags/auto-tag-lifecycle.ts'
 import type {
   ActionTagItem,
@@ -356,10 +361,13 @@ export type Step1ValidationResult =
   | { ok: false; message: string }
 
 export function parseIntervalMinutesInput(
-  raw: string | number | null | undefined,
+  raw: IntervalDraft | string | number | null | undefined,
 ): { ok: true; value: number } | { ok: false; message: string } {
   if (raw === undefined || raw === null) {
     return { ok: true, value: 0 }
+  }
+  if (typeof raw === 'object' && 'value' in raw && 'unit' in raw) {
+    return validateIntervalDraft(raw)
   }
   return validateInlineIntervalInput(String(raw))
 }
@@ -367,7 +375,7 @@ export function parseIntervalMinutesInput(
 export function validateStep1Plan(params: {
   name: string
   resolvedTags: ResolvedActionTagPlan[]
-  intervalsByTagKey?: Record<string, string | number>
+  intervalsByTagKey?: Record<string, IntervalDraft | string | number>
 }): Step1ValidationResult {
   if (!params.name.trim()) {
     return { ok: false, message: 'Campaign Name is required.' }
@@ -1325,7 +1333,7 @@ export function buildCreateCampaignV2Input(params: {
   groups: SchemaMappingGroup[]
   groupMappings: Record<string, CampaignShortcodeMapping>
   validatedContents: ValidatedContentAssociation[]
-  intervalsByTagKey?: Record<string, string | number>
+  intervalsByTagKey?: Record<string, IntervalDraft | string | number>
 }): CreateCampaignV2Input {
   const mappingByTag = new Map<string, CampaignShortcodeMapping>()
   for (const g of params.groups) {
@@ -1405,7 +1413,7 @@ export function buildUpdateCampaignV2Input(params: {
   groups: SchemaMappingGroup[]
   groupMappings: Record<string, CampaignShortcodeMapping>
   validatedContents: ValidatedContentAssociation[]
-  intervalsByTagKey?: Record<string, string | number>
+  intervalsByTagKey?: Record<string, IntervalDraft | string | number>
 }): UpdateCampaignV2Input {
   const mappingByTag = new Map<string, CampaignShortcodeMapping>()
   for (const g of params.groups) {
@@ -1685,6 +1693,7 @@ export type CampaignV2WizardInitialState = {
   contents: PlannedContentItem[]
   initialMappingsByTagKey: Record<string, ShortcodeMappingFormEntry[]>
   initialIntervalsByTagKey: Record<string, string>
+  initialIntervalDraftsByTagKey: Record<string, IntervalDraft>
 }
 
 /**
@@ -1701,14 +1710,17 @@ export function campaignToV2WizardState(
   const initialMappingsByTagKey: Record<string, ShortcodeMappingFormEntry[]> =
     {}
   const initialIntervalsByTagKey: Record<string, string> = {}
+  const initialIntervalDraftsByTagKey: Record<string, IntervalDraft> = {}
 
   for (const t of actionTags) {
     pinnedTagsByKey[t.action_tag_key] = t
-    initialIntervalsByTagKey[t.action_tag_key] = String(
+    const mins =
       t.interval_minutes != null && Number.isFinite(Number(t.interval_minutes))
         ? Math.max(0, Math.trunc(Number(t.interval_minutes)))
-        : 0,
-    )
+        : 0
+    initialIntervalsByTagKey[t.action_tag_key] = String(mins)
+    initialIntervalDraftsByTagKey[t.action_tag_key] =
+      decomposeIntervalMinutes(mins)
     if (t.shortcode_mapping?.entries?.length) {
       initialMappingsByTagKey[t.action_tag_key] =
         t.shortcode_mapping.entries.map((e) =>
@@ -1748,6 +1760,7 @@ export function campaignToV2WizardState(
     contents: plannedContents,
     initialMappingsByTagKey,
     initialIntervalsByTagKey,
+    initialIntervalDraftsByTagKey,
   }
 }
 

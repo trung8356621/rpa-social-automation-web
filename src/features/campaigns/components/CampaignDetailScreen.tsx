@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Select } from '@/components/ui/select'
 import { toSafeApiMessage } from '@/lib/api/errors'
 
 import type { AccountItem } from '@/features/accounts/types'
@@ -13,9 +14,14 @@ import type { ScriptDetail, ScriptListItem } from '@/features/script-registry/ty
 
 import { isScreenshotArtifact } from '../campaign-artifacts'
 import {
-  MAX_INTERVAL_MINUTES,
+  INTERVAL_UNIT_LABELS,
   canEditActionTagInterval,
-  validateInlineIntervalInput,
+  decomposeIntervalMinutes,
+  maxInputForUnit,
+  switchIntervalUnit,
+  validateIntervalDraft,
+  type IntervalDraft,
+  type IntervalUnit,
 } from '../campaign-interval-edit'
 import {
   resolveContentQueueFeedback,
@@ -127,7 +133,10 @@ export function CampaignDetailScreen({
   const [screenshotPreview, setScreenshotPreview] =
     useState<ScreenshotPreviewData | null>(null)
   const [editingTagKey, setEditingTagKey] = useState<string | null>(null)
-  const [intervalDraft, setIntervalDraft] = useState('')
+  const [intervalDraft, setIntervalDraft] = useState<IntervalDraft>({
+    value: '0',
+    unit: 'minutes',
+  })
   const [intervalError, setIntervalError] = useState<string | null>(null)
   const [savingInterval, setSavingInterval] = useState(false)
   const savingIntervalRef = useRef(false)
@@ -241,7 +250,7 @@ export function CampaignDetailScreen({
 
   const handleSaveInterval = async (actionTagKey: string) => {
     if (!onUpdateActionTagInterval || savingIntervalRef.current) return
-    const check = validateInlineIntervalInput(intervalDraft)
+    const check = validateIntervalDraft(intervalDraft)
     if (!check.ok) {
       setIntervalError(check.message)
       return
@@ -385,18 +394,45 @@ export function CampaignDetailScreen({
                         <Input
                           type="number"
                           min={0}
-                          max={MAX_INTERVAL_MINUTES}
+                          max={maxInputForUnit(intervalDraft.unit)}
                           step={1}
                           disabled={savingInterval}
-                          className="h-7 w-24 font-mono text-xs"
-                          aria-label={`Interval minutes for ${tag.action_tag_key}`}
-                          value={intervalDraft}
+                          className="h-7 w-20 font-mono text-xs"
+                          aria-label={`Interval value for ${tag.action_tag_key}`}
+                          value={intervalDraft.value}
                           onChange={(e) => {
-                            setIntervalDraft(e.target.value)
+                            setIntervalDraft((prev) => ({
+                              ...prev,
+                              value: e.target.value,
+                            }))
                             if (intervalError) setIntervalError(null)
                           }}
                         />
-                        <span className="text-muted">phút</span>
+                        <Select
+                          disabled={savingInterval}
+                          className="h-7 w-20 text-xs"
+                          aria-label={`Interval unit for ${tag.action_tag_key}`}
+                          value={intervalDraft.unit}
+                          onChange={(e) => {
+                            const nextUnit = e.target.value as IntervalUnit
+                            const res = switchIntervalUnit(
+                              intervalDraft,
+                              nextUnit,
+                            )
+                            setIntervalDraft(res.draft)
+                            setIntervalError(res.warning)
+                          }}
+                        >
+                          <option value="minutes">
+                            {INTERVAL_UNIT_LABELS.minutes}
+                          </option>
+                          <option value="hours">
+                            {INTERVAL_UNIT_LABELS.hours}
+                          </option>
+                          <option value="days">
+                            {INTERVAL_UNIT_LABELS.days}
+                          </option>
+                        </Select>
                         <Button
                           type="button"
                           size="sm"
@@ -435,7 +471,7 @@ export function CampaignDetailScreen({
                             onClick={() => {
                               setEditingTagKey(tag.action_tag_key)
                               setIntervalDraft(
-                                String(tag.interval_minutes ?? 0),
+                                decomposeIntervalMinutes(tag.interval_minutes),
                               )
                               setIntervalError(null)
                             }}

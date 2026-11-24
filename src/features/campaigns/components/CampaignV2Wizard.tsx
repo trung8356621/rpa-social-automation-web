@@ -13,6 +13,7 @@ import { useArticleLibrary } from '@/features/articles/use-article-library'
 import { useScriptRegistry } from '@/features/script-registry/use-script-registry'
 import { toSafeApiMessage } from '@/lib/api/errors'
 
+import type { IntervalDraft } from '../campaign-interval-edit'
 import {
   applyTagRemovalResolution,
   buildCreateCampaignV2Input,
@@ -83,8 +84,8 @@ export function CampaignV2Wizard({
     hydrated?.selectedTagKeys ?? [],
   )
   const [intervalsByTagKey, setIntervalsByTagKey] = useState<
-    Record<string, string>
-  >(() => hydrated?.initialIntervalsByTagKey ?? {})
+    Record<string, IntervalDraft>
+  >(() => hydrated?.initialIntervalDraftsByTagKey ?? {})
   const [contents, setContents] = useState<PlannedContentItem[]>(
     hydrated?.contents ?? [],
   )
@@ -110,7 +111,7 @@ export function CampaignV2Wizard({
     setName(hydrated.name)
     setRunMode(hydrated.runMode)
     setSelectedTagKeys(hydrated.selectedTagKeys)
-    setIntervalsByTagKey(hydrated.initialIntervalsByTagKey)
+    setIntervalsByTagKey(hydrated.initialIntervalDraftsByTagKey)
     setContents(hydrated.contents)
     setPendingTagRemoval(null)
     setReassignTargetKey('')
@@ -670,8 +671,8 @@ export function CampaignV2Wizard({
             scripts={scriptRegistry.data.scripts}
             resolvedTags={resolvedTags}
             intervalsByTagKey={intervalsByTagKey}
-            onIntervalChange={(tagKey, value) =>
-              setIntervalsByTagKey((prev) => ({ ...prev, [tagKey]: value }))
+            onIntervalChange={(tagKey, draft) =>
+              setIntervalsByTagKey((prev) => ({ ...prev, [tagKey]: draft }))
             }
             loading={actionRegistry.loading || scriptRegistry.loading}
             disabled={busy}

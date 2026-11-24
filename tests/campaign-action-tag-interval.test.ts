@@ -109,8 +109,8 @@ describe('Action Tag Posting Interval & Sequential Queue Status', () => {
       'utf8',
     )
     assert.match(step1Src, /Khoảng cách giữa 2 bài \(phút\)/)
-    assert.match(step1Src, /max=\{MAX_INTERVAL_MINUTES\}/)
-    assert.match(step1Src, /intervalsByTagKey\[row\.tag_key\] \?\? '0'/)
+    assert.match(step1Src, /max=\{maxInputForUnit\(draft\.unit\)\}/)
+    assert.match(step1Src, /intervalsByTagKey\[row\.tag_key\] \?\?/)
   })
 
   it('2 & 3. Editing/saving interval_minutes = 240 and reloading retains 240', () => {
@@ -178,7 +178,7 @@ describe('Action Tag Posting Interval & Sequential Queue Status', () => {
     const overMax = parseIntervalMinutesInput('10081')
     assert.equal(overMax.ok, false)
     if (!overMax.ok) {
-      assert.equal(overMax.message, 'Khoảng cách tối đa là 7 ngày (10.080 phút).')
+      assert.equal(overMax.message, 'Khoảng cách tối đa là 7 ngày.')
     }
     assert.equal(parseIntervalMinutesInput('525600').ok, false)
 

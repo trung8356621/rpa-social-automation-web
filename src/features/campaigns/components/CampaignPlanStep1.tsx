@@ -14,7 +14,13 @@ import type {
 } from '@/features/action-tags/types'
 import type { ScriptListItem } from '@/features/script-registry/types'
 
-import { MAX_INTERVAL_MINUTES } from '../campaign-interval-edit'
+import {
+  INTERVAL_UNIT_LABELS,
+  maxInputForUnit,
+  switchIntervalUnit,
+  type IntervalDraft,
+  type IntervalUnit,
+} from '../campaign-interval-edit'
 import {
   filterSelectableCampaignTags,
   type ResolvedActionTagPlan,
@@ -34,8 +40,8 @@ type Props = {
   cmsTypes: CmsTypeItem[]
   scripts: ScriptListItem[]
   resolvedTags: ResolvedActionTagPlan[]
-  intervalsByTagKey: Record<string, string>
-  onIntervalChange: (tagKey: string, value: string) => void
+  intervalsByTagKey: Record<string, IntervalDraft>
+  onIntervalChange: (tagKey: string, draft: IntervalDraft) => void
   loading?: boolean
   disabled?: boolean
 }
@@ -71,6 +77,7 @@ export function CampaignPlanStep1({
 }: Props) {
   const [search, setSearch] = useState('')
   const [siteFilter, setSiteFilter] = useState('')
+  const [unitWarnings, setUnitWarnings] = useState<Record<string, string>>({})
 
   const selectedSet = useMemo(
     () => new Set(selectedTagKeys),
@@ -321,19 +328,80 @@ export function CampaignPlanStep1({
                       {resolutionBadge(row.resolution_source)}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={MAX_INTERVAL_MINUTES}
-                        step={1}
-                        disabled={disabled}
-                        className="h-8 w-24 font-mono text-xs"
-                        aria-label={`Khoảng cách giữa 2 bài (phút) - ${row.tag_key}`}
-                        value={intervalsByTagKey[row.tag_key] ?? '0'}
-                        onChange={(e) =>
-                          onIntervalChange(row.tag_key, e.target.value)
+                      {(() => {
+                        const draft = intervalsByTagKey[row.tag_key] ?? {
+                          value: '0',
+                          unit: 'minutes' as const,
                         }
-                      />
+                        const unitWarn = unitWarnings[row.tag_key]
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={maxInputForUnit(draft.unit)}
+                                step={1}
+                                disabled={disabled}
+                                className="h-8 w-20 font-mono text-xs"
+                                aria-label={`Khoảng cách giữa 2 bài - ${row.tag_key}`}
+                                value={draft.value}
+                                onChange={(e) => {
+                                  setUnitWarnings((prev) => {
+                                    if (!prev[row.tag_key]) return prev
+                                    const next = { ...prev }
+                                    delete next[row.tag_key]
+                                    return next
+                                  })
+                                  onIntervalChange(row.tag_key, {
+                                    ...draft,
+                                    value: e.target.value,
+                                  })
+                                }}
+                              />
+                              <Select
+                                disabled={disabled}
+                                className="h-8 w-20 text-xs"
+                                aria-label={`Đơn vị khoảng cách - ${row.tag_key}`}
+                                value={draft.unit}
+                                onChange={(e) => {
+                                  const nextUnit = e.target
+                                    .value as IntervalUnit
+                                  const res = switchIntervalUnit(
+                                    draft,
+                                    nextUnit,
+                                  )
+                                  setUnitWarnings((prev) => {
+                                    const next = { ...prev }
+                                    if (res.warning) {
+                                      next[row.tag_key] = res.warning
+                                    } else {
+                                      delete next[row.tag_key]
+                                    }
+                                    return next
+                                  })
+                                  onIntervalChange(row.tag_key, res.draft)
+                                }}
+                              >
+                                <option value="minutes">
+                                  {INTERVAL_UNIT_LABELS.minutes}
+                                </option>
+                                <option value="hours">
+                                  {INTERVAL_UNIT_LABELS.hours}
+                                </option>
+                                <option value="days">
+                                  {INTERVAL_UNIT_LABELS.days}
+                                </option>
+                              </Select>
+                            </div>
+                            {unitWarn ? (
+                              <p className="text-[11px] text-warning">
+                                {unitWarn}
+                              </p>
+                            ) : null}
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <Button

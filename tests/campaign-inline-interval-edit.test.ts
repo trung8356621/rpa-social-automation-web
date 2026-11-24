@@ -53,7 +53,7 @@ describe('Inline Editing of Action Tag Posting Interval', () => {
       resolve('src/features/campaigns/components/CampaignDetailScreen.tsx'),
       'utf8',
     )
-    assert.match(screenSrc, /setIntervalDraft\(\s*String\(tag\.interval_minutes \?\? 0\)/)
+    assert.match(screenSrc, /setIntervalDraft\(\s*decomposeIntervalMinutes\(tag\.interval_minutes\)/)
     assert.match(screenSrc, /setEditingTagKey\(null\)/)
   })
 
@@ -183,7 +183,7 @@ describe('Inline Editing of Action Tag Posting Interval', () => {
     const over = validateInlineIntervalInput('10081')
     assert.equal(over.ok, false)
     if (!over.ok) {
-      assert.equal(over.message, 'Khoảng cách tối đa là 7 ngày (10.080 phút).')
+      assert.equal(over.message, 'Khoảng cách tối đa là 7 ngày.')
     }
     assert.equal(validateInlineIntervalInput('525600').ok, false)
   })
