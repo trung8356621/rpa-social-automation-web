@@ -67,6 +67,16 @@ export type CampaignShortcodeMapping = {
 
 export type ContentSourceFormat = 'legacy_input' | 'shortcode'
 
+export type ActionTagVariantPreference = {
+  account_id: string | null
+  account_name: string | null
+  preferred_variant_id: string | number | null
+  preferred_language_label: string | null
+  preferred_release_id: number | null
+  preference_source_job_uuid: string | null
+  preference_updated_at: string | null
+}
+
 export type CampaignActionTagPlan = {
   plan_tag_uuid?: string | null
   action_tag_id: number | null
@@ -83,6 +93,7 @@ export type CampaignActionTagPlan = {
   interval_minutes?: number | null
   last_success_at?: string | null
   next_run_at?: string | null
+  variant_preferences?: ActionTagVariantPreference[]
 }
 
 export type CampaignContentAssignment = {
@@ -271,6 +282,8 @@ export type CampaignJobAttempt = {
   started_at: string | null
   ended_at: string | null
   error: string | null
+  executed_language_label?: string | null
+  executed_variant_id?: string | number | null
   artifacts: CampaignArtifact[]
 }
 

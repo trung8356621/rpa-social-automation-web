@@ -28,6 +28,11 @@ import {
   resolveEffectiveContentStatus,
 } from '../campaign-queue-status'
 import {
+  formatResourceRecheckLabel,
+  formatVariantPreferenceLabel,
+  resolveSuccessfulAttemptVariantLabel,
+} from '../campaign-rules-view'
+import {
   deriveArticleCounts,
   deriveCampaignStatusMessage,
   formatSchedulerTimestamp,
@@ -368,6 +373,27 @@ export function CampaignDetailScreen({
         </div>
       </section>
 
+      <section
+        aria-label="Campaign Rules"
+        className="grid gap-3 sm:grid-cols-2"
+      >
+        <div className="rounded-[var(--radius-card)] border border-border bg-surface px-4 py-3">
+          <div className="text-xs text-muted">Execution Mode</div>
+          <div className="mt-1 text-sm font-medium text-foreground">
+            {executionModeLabel(campaign.execution_mode)}
+          </div>
+        </div>
+
+        <div className="rounded-[var(--radius-card)] border border-border bg-surface px-4 py-3">
+          <div className="text-xs text-muted">Resource Recheck</div>
+          <div className="mt-1 text-sm font-medium text-foreground">
+            {formatResourceRecheckLabel(
+              campaign.schedule.resource_recheck_seconds,
+            )}
+          </div>
+        </div>
+      </section>
+
       {isV2 && campaign.action_tags && campaign.action_tags.length > 0 ? (
         <section
           aria-label="Action Tag Intervals"
@@ -493,6 +519,56 @@ export function CampaignDetailScreen({
                       {intervalError}
                     </div>
                   ) : null}
+                  {tag.variant_preferences &&
+                  tag.variant_preferences.length > 0 ? (
+                    <div className="mt-1 space-y-1 border-t border-border/60 pt-1.5">
+                      {tag.variant_preferences.map((pref, pIdx) => {
+                        const prefBadge = formatVariantPreferenceLabel(pref)
+                        const accName =
+                          pref.account_name?.trim() ||
+                          (pref.account_id
+                            ? `Account ${pref.account_id}`
+                            : 'Default Account')
+                        return (
+                          <div
+                            key={`${pref.account_id ?? pIdx}-${pref.preferred_variant_id ?? ''}`}
+                            className="flex flex-wrap items-center gap-1.5 text-[11px]"
+                          >
+                            <span className="font-medium text-foreground">
+                              {accName}:
+                            </span>
+                            <Badge variant={prefBadge.variant}>
+                              {prefBadge.label}
+                            </Badge>
+                            {pref.preferred_release_id != null ? (
+                              <span className="font-mono text-muted">
+                                Release #{pref.preferred_release_id}
+                              </span>
+                            ) : null}
+                            {pref.preference_source_job_uuid ? (
+                              <span className="font-mono text-muted">
+                                Job {pref.preference_source_job_uuid}
+                              </span>
+                            ) : null}
+                            {pref.preference_updated_at ? (
+                              <span className="text-muted">
+                                ·{' '}
+                                {formatSchedulerTimestamp(
+                                  pref.preference_updated_at,
+                                  '',
+                                )}
+                              </span>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-1 flex items-center gap-1.5 border-t border-border/60 pt-1.5 text-[11px]">
+                      <span className="text-muted">Preferred Variant:</span>
+                      <Badge variant="neutral">Not learned</Badge>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -819,6 +895,8 @@ export function CampaignDetailScreen({
                         <div className="space-y-2.5">
                           {contentAttempts.map((a, idx) => {
                             const ast = contentStatusBadge(a.status)
+                            const attemptVariantLabel =
+                              resolveSuccessfulAttemptVariantLabel(a)
                             const failure = resolveAttemptFailureDisplay(a)
                             const attemptNumber =
                               a.attempt > 0 ? a.attempt : idx + 1
@@ -840,6 +918,11 @@ export function CampaignDetailScreen({
                                     <Badge variant={ast.variant}>
                                       {ast.label}
                                     </Badge>
+                                    {attemptVariantLabel ? (
+                                      <Badge variant="neutral">
+                                        {attemptVariantLabel}
+                                      </Badge>
+                                    ) : null}
                                   </div>
                                   <div className="text-[11px] text-muted">
                                     {formatSchedulerTimestamp(

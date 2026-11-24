@@ -26,6 +26,16 @@ export type LiveCampaignSummary = {
   waiting?: number
 }
 
+export type LiveActionTagVariantPreferenceRow = {
+  account_id?: string | number | null
+  account_name?: string | null
+  preferred_variant_id?: string | number | null
+  preferred_language_label?: string | null
+  preferred_release_id?: number | null
+  preference_source_job_uuid?: string | null
+  preference_updated_at?: string | null
+}
+
 export type LiveCampaignActionTagRow = {
   id?: string | number
   plan_tag_uuid?: string | null
@@ -49,6 +59,7 @@ export type LiveCampaignActionTagRow = {
   interval_minutes?: number | null
   last_success_at?: string | null
   next_run_at?: string | null
+  variant_preferences?: LiveActionTagVariantPreferenceRow[] | null
 }
 
 export type LiveContentAssignmentRow = {
@@ -69,6 +80,7 @@ export type LiveContentAssignmentRow = {
   interval_minutes?: number | null
   last_success_at?: string | null
   next_run_at?: string | null
+  variant_preferences?: LiveActionTagVariantPreferenceRow[] | null
 }
 
 export type LiveEligibilityError = {
@@ -226,6 +238,17 @@ export type LiveJobAttemptRow = {
   started_at?: string | null
   ended_at?: string | null
   error?: string | null
+  executed_language_label?: string | null
+  variant_language_label?: string | null
+  language_label?: string | null
+  executed_variant_id?: string | number | null
+  script_variant_id?: string | number | null
+  variant_id?: string | number | null
+  result_metadata?: {
+    language_label?: string | null
+    variant_language_label?: string | null
+    variant_id?: string | number | null
+  } | null
   artifacts?: Array<{
     id?: string | number
     artifact_uuid?: string | null

@@ -284,6 +284,35 @@ function mapActionTagPlan(row: LiveCampaignActionTagRow): CampaignActionTagPlan 
         : 0,
     last_success_at: pickNonEmptyString(row.last_success_at),
     next_run_at: pickNonEmptyString(row.next_run_at),
+    ...(Array.isArray(row.variant_preferences)
+      ? {
+          variant_preferences: row.variant_preferences.map((p) => {
+            const relRaw = p?.preferred_release_id
+            const relId =
+              relRaw != null && Number.isFinite(Number(relRaw))
+                ? Number(relRaw)
+                : null
+            return {
+              account_id:
+                p?.account_id == null
+                  ? null
+                  : pickNonEmptyString(String(p.account_id)),
+              account_name: pickNonEmptyString(p?.account_name),
+              preferred_variant_id: p?.preferred_variant_id ?? null,
+              preferred_language_label: pickNonEmptyString(
+                p?.preferred_language_label,
+              ),
+              preferred_release_id: relId,
+              preference_source_job_uuid: pickNonEmptyString(
+                p?.preference_source_job_uuid,
+              ),
+              preference_updated_at: pickNonEmptyString(
+                p?.preference_updated_at,
+              ),
+            }
+          }),
+        }
+      : {}),
   }
 }
 
@@ -620,6 +649,19 @@ export function mapLiveJobAttempt(row: unknown): CampaignJobAttempt {
     started_at: r.started_at ?? null,
     ended_at: r.ended_at ?? null,
     error: r.error ?? errMsg ?? errCode ?? null,
+    executed_language_label: pickNonEmptyString(
+      r.executed_language_label ??
+        r.variant_language_label ??
+        r.language_label ??
+        r.result_metadata?.language_label ??
+        r.result_metadata?.variant_language_label,
+    ),
+    executed_variant_id:
+      r.executed_variant_id ??
+      r.script_variant_id ??
+      r.variant_id ??
+      r.result_metadata?.variant_id ??
+      null,
     artifacts: (r.artifacts ?? []).map((a, i) => {
       const rawKind = a.kind ?? a.type
       const mime = pickNonEmptyString(a.mime_type)
