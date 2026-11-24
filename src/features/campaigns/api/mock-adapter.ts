@@ -21,6 +21,7 @@ import type {
   ScriptInputSchema,
   UpdateCampaignInput,
   UpdateCampaignV2Input,
+  UpdatePausedCampaignV2Input,
 } from '../types.ts'
 import { parseScriptInputSchema } from '../script-compat.ts'
 import { serializeShortcodeSegments } from '../shortcode-source.ts'
@@ -424,6 +425,34 @@ export const mockCampaignAdapter = {
       action_tags: actionTags,
       contents: nextRows,
       updated_at: now,
+    }
+    store.campaigns = store.campaigns.map((x) => (x.id === c.id ? updated : x))
+    refreshSummaries(store)
+    return structuredClone(updated)
+  },
+
+  async updatePausedCampaignV2(
+    input: UpdatePausedCampaignV2Input,
+  ): Promise<Campaign> {
+    assertMockOnly()
+    const c = findCampaign(input.id)
+    if (c.plan_version !== 2) {
+      throw new ApiError('Campaign is not Plan V2.', {
+        kind: 'validation',
+        status: 422,
+      })
+    }
+    if (c.status !== 'paused') {
+      throw new ApiError('Only Paused V2 Campaigns can use paused update.', {
+        kind: 'validation',
+        status: 422,
+      })
+    }
+    const updated: Campaign = {
+      ...c,
+      execution_mode: input.execution_mode,
+      revision: (c.revision ?? 1) + 1,
+      updated_at: nowIso(),
     }
     store.campaigns = store.campaigns.map((x) => (x.id === c.id ? updated : x))
     refreshSummaries(store)

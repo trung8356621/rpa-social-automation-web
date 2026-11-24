@@ -12,6 +12,7 @@ import type {
   ScriptInputSchema,
   UpdateCampaignInput,
   UpdateCampaignV2Input,
+  UpdatePausedCampaignV2Input,
 } from '../types'
 import { assertValidIntervalMinutes } from '../campaign-interval-edit'
 import { buildLiveCampaignContentBody } from './build-content-payload'
@@ -19,6 +20,7 @@ import {
   buildLiveCampaignCreateBody,
   buildLiveCampaignV2CreateBody,
   buildLiveCampaignV2UpdateBody,
+  buildLivePausedCampaignV2UpdateBody,
 } from './build-create-payload'
 import { unavailableScriptInputSchema } from '../script-compat'
 import type {
@@ -136,6 +138,21 @@ export const liveCampaignAdapter = {
     )
     const row = res.data ?? res.campaign
     if (!row) throw new Error('Update Campaign V2 response missing data.')
+    return mapLiveCampaign(row)
+  },
+
+  async updatePausedCampaignV2(
+    input: UpdatePausedCampaignV2Input,
+  ): Promise<Campaign> {
+    const body = buildLivePausedCampaignV2UpdateBody(input)
+    const res = await staffApiRequest<LiveCampaignMutationResponse>(
+      CAMPAIGN_PATHS.detail(input.id),
+      { method: 'PUT', body },
+    )
+    const row = res.data ?? res.campaign
+    if (!row) {
+      throw new Error('Update Paused Campaign V2 response missing data.')
+    }
     return mapLiveCampaign(row)
   },
 

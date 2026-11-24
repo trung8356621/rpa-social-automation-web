@@ -32,6 +32,7 @@ import type {
   CreateCampaignV2Input,
   ScriptInputSchema,
   UpdateCampaignV2Input,
+  UpdatePausedCampaignV2Input,
 } from './types.ts'
 
 export type TagScriptResolutionSource =
@@ -431,6 +432,37 @@ export type Step2ValidationResult =
       validatedContents: ValidatedContentAssociation[]
     }
   | { ok: false; message: string }
+
+export type PausedStep2ValidationResult =
+  | { ok: true; execution_mode: CampaignExecutionMode }
+  | { ok: false; message: string }
+
+/**
+ * Paused Edit validation: validates only permitted operational fields (execution_mode).
+ * Never validates unchanged historical Content raw_source or shortcode mappings.
+ */
+export function validatePausedStep2Plan(params: {
+  executionMode: CampaignExecutionMode
+}): PausedStep2ValidationResult {
+  if (
+    params.executionMode !== 'one_account_one_job' &&
+    params.executionMode !== 'one_account_many_jobs'
+  ) {
+    return { ok: false, message: 'Select a valid Execution Mode.' }
+  }
+  return { ok: true, execution_mode: params.executionMode }
+}
+
+export function buildUpdatePausedCampaignV2Input(params: {
+  id: string
+  execution_mode: CampaignExecutionMode
+}): UpdatePausedCampaignV2Input {
+  return {
+    id: params.id,
+    plan_version: 2,
+    execution_mode: params.execution_mode,
+  }
+}
 
 export function generateMockContentForGroup(
   group: SchemaMappingGroup,

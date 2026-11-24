@@ -18,6 +18,7 @@ import {
   applyTagRemovalResolution,
   buildCreateCampaignV2Input,
   buildUpdateCampaignV2Input,
+  buildUpdatePausedCampaignV2Input,
   buildV2DraftPlanPayload,
   campaignToV2WizardState,
   countDependentContentsForTag,
@@ -27,6 +28,7 @@ import {
   inspectBackendPersistenceSupport,
   inspectV2UpdateSupport,
   resolveActionTagWithPin,
+  validatePausedStep2Plan,
   validateStep1Plan,
   validateStep2Plan,
   type FormattedCampaignV2Error,
@@ -376,6 +378,12 @@ export function CampaignV2Wizard({
   }
 
   const goNext = () => {
+    if (step1Locked) {
+      setError(null)
+      setApiErrorDetail(null)
+      setStep(2)
+      return
+    }
     if (pendingTagRemoval) {
       setError(
         `Resolve dependent Articles for "${pendingTagRemoval.tagKey}" before continuing.`,
@@ -433,6 +441,41 @@ export function CampaignV2Wizard({
 
   const submit = async () => {
     if (busy) return
+
+    if (isPausedEdit && initialCampaign) {
+      const pausedStep2 = validatePausedStep2Plan({ executionMode })
+      if (!pausedStep2.ok) {
+        setError(pausedStep2.message)
+        setApiErrorDetail(null)
+        return
+      }
+      if (!persistenceSupport.supported) {
+        setError(
+          persistenceSupport.blockers[0] ?? 'Cannot persist Campaign Plan.',
+        )
+        setApiErrorDetail(null)
+        return
+      }
+      setBusy(true)
+      setError(null)
+      setApiErrorDetail(null)
+      try {
+        const updated = await registry.updatePausedCampaignV2(
+          buildUpdatePausedCampaignV2Input({
+            id: initialCampaign.id,
+            execution_mode: pausedStep2.execution_mode,
+          }),
+        )
+        navigate(`/social-automation/campaigns/${updated.id}`)
+      } catch (err) {
+        const formatted = formatCampaignV2ApiError(err)
+        setError(formatted.message)
+        setApiErrorDetail(formatted)
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
 
     const step1 = validateStep1Plan({
       name,

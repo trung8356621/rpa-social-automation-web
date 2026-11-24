@@ -19,6 +19,7 @@ import type {
   ScriptInputSchema,
   UpdateCampaignInput,
   UpdateCampaignV2Input,
+  UpdatePausedCampaignV2Input,
 } from './types'
 
 type ToastState = { message: string; type: 'success' | 'error' } | null
@@ -180,6 +181,18 @@ export function useCampaigns() {
           ? 'Campaign changes saved'
           : 'Campaign V2 draft updated',
       )
+      return updated
+    },
+    [adapter, showToast],
+  )
+
+  const updatePausedCampaignV2 = useCallback(
+    async (input: UpdatePausedCampaignV2Input) => {
+      const updated = await adapter.updatePausedCampaignV2(input)
+      setCampaigns((prev) =>
+        prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)),
+      )
+      showToast('Campaign changes saved')
       return updated
     },
     [adapter, showToast],
@@ -523,6 +536,7 @@ export function useCampaigns() {
     createCampaignV2,
     updateCampaign,
     updateCampaignV2,
+    updatePausedCampaignV2,
     startCampaign,
     pauseCampaign,
     resumeCampaign,

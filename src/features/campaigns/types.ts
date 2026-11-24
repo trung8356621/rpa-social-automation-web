@@ -392,6 +392,12 @@ export type UpdateCampaignV2Input = CreateCampaignV2Input & {
   updated_at?: string | null
 }
 
+export type UpdatePausedCampaignV2Input = {
+  id: string
+  plan_version: 2
+  execution_mode: CampaignExecutionMode
+}
+
 export type UpdateCampaignInput = CreateCampaignInput & {
   id: string
 }

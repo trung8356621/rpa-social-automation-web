@@ -4,6 +4,7 @@ import type {
   CreateCampaignInput,
   CreateCampaignV2Input,
   UpdateCampaignV2Input,
+  UpdatePausedCampaignV2Input,
 } from '../types.ts'
 
 /**
@@ -285,5 +286,23 @@ export function buildLiveCampaignV2UpdateBody(
       : {}),
     action_tags,
     contents,
+  }
+}
+
+export type LivePausedCampaignV2UpdateBody = {
+  plan_version: 2
+  execution_mode: 'one_account_one_job' | 'one_account_many_jobs'
+}
+
+/**
+ * Minimal operational update payload for Paused Campaign V2.
+ * Omits unchanged action_tags and historical contents.
+ */
+export function buildLivePausedCampaignV2UpdateBody(
+  input: UpdatePausedCampaignV2Input,
+): LivePausedCampaignV2UpdateBody {
+  return {
+    plan_version: 2,
+    execution_mode: input.execution_mode,
   }
 }
