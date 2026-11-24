@@ -1,6 +1,10 @@
 import { ApiError } from '../../../lib/api/errors.ts'
 import { MAX_INTERVAL_MINUTES } from '../campaign-interval-edit.ts'
-import { canRetryContent } from '../campaign-queue-status.ts'
+import {
+  canBlockContent,
+  canRetryContent,
+  canUnblockContent,
+} from '../campaign-queue-status.ts'
 import { draftToScriptInput } from '../content-adapters.ts'
 import {
   createMockCampaignStore,
@@ -854,6 +858,40 @@ export const mockCampaignAdapter = {
     const row = store.contents.find((c) => c.id === id)
     if (!row) throw new Error(`Content not found: ${id}`)
     row.status = 'cancelled'
+    row.updated_at = nowIso()
+    refreshSummaries(store)
+    return structuredClone(row)
+  },
+
+  async blockContent(id: string): Promise<CampaignContent> {
+    assertMockOnly()
+    const row = store.contents.find((c) => c.id === id)
+    if (!row) throw new Error(`Content not found: ${id}`)
+    if (!canBlockContent(row)) {
+      throw new Error('Only eligible pending or waiting content can be blocked.')
+    }
+    row.status = 'user_blocked'
+    row.user_blocked = true
+    row.queue_state = null
+    row.can_block = false
+    row.can_unblock = true
+    row.updated_at = nowIso()
+    refreshSummaries(store)
+    return structuredClone(row)
+  },
+
+  async unblockContent(id: string): Promise<CampaignContent> {
+    assertMockOnly()
+    const row = store.contents.find((c) => c.id === id)
+    if (!row) throw new Error(`Content not found: ${id}`)
+    if (!canUnblockContent(row)) {
+      throw new Error('Only user-blocked content can be unblocked.')
+    }
+    row.status = 'pending'
+    row.user_blocked = false
+    row.queue_state = null
+    row.can_block = true
+    row.can_unblock = false
     row.updated_at = nowIso()
     refreshSummaries(store)
     return structuredClone(row)

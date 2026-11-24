@@ -416,6 +416,42 @@ export function useCampaigns() {
     [adapter, reload, showToast],
   )
 
+  const refreshCampaignDetailAfterContentAction = useCallback(
+    async (targetCampaignId: string) => {
+      if (!targetCampaignId) return
+      try {
+        const detail = await adapter.getCampaign(targetCampaignId)
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === detail.id
+              ? {
+                  ...c,
+                  ...detail,
+                  summary: detail.summary,
+                  contents: detail.contents ?? c.contents,
+                }
+              : c,
+          ),
+        )
+        if (Array.isArray(detail.contents)) {
+          setContents((prev) => {
+            const without = prev.filter((c) => c.campaign_id !== targetCampaignId)
+            return [...detail.contents!, ...without]
+          })
+        } else {
+          const rows = await adapter.listContents(targetCampaignId)
+          setContents((prev) => {
+            const without = prev.filter((c) => c.campaign_id !== targetCampaignId)
+            return [...rows, ...without]
+          })
+        }
+      } catch {
+        // Keep updated row state if background detail refresh fails transiently.
+      }
+    },
+    [adapter],
+  )
+
   const retryContent = useCallback(
     async (id: string, status: string) => {
       const key =
@@ -424,38 +460,7 @@ export function useCampaigns() {
           : `retry-${Date.now()}`
       const row = await adapter.retryContent(id, { idempotencyKey: key })
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
-      const targetCampaignId = row.campaign_id
-      if (targetCampaignId) {
-        try {
-          const detail = await adapter.getCampaign(targetCampaignId)
-          setCampaigns((prev) =>
-            prev.map((c) =>
-              c.id === detail.id
-                ? {
-                    ...c,
-                    ...detail,
-                    summary: detail.summary,
-                    contents: detail.contents ?? c.contents,
-                  }
-                : c,
-            ),
-          )
-          if (Array.isArray(detail.contents)) {
-            setContents((prev) => {
-              const without = prev.filter((c) => c.campaign_id !== targetCampaignId)
-              return [...detail.contents!, ...without]
-            })
-          } else {
-            const rows = await adapter.listContents(targetCampaignId)
-            setContents((prev) => {
-              const without = prev.filter((c) => c.campaign_id !== targetCampaignId)
-              return [...rows, ...without]
-            })
-          }
-        } catch {
-          // Keep updated row state if background detail refresh fails transiently.
-        }
-      }
+      await refreshCampaignDetailAfterContentAction(row.campaign_id)
       showToast(
         status === 'unknown'
           ? 'Retry requested (unknown result)'
@@ -463,7 +468,29 @@ export function useCampaigns() {
       )
       return row
     },
-    [adapter, showToast],
+    [adapter, refreshCampaignDetailAfterContentAction, showToast],
+  )
+
+  const blockContent = useCallback(
+    async (id: string) => {
+      const row = await adapter.blockContent(id)
+      setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
+      await refreshCampaignDetailAfterContentAction(row.campaign_id)
+      showToast('Content blocked')
+      return row
+    },
+    [adapter, refreshCampaignDetailAfterContentAction, showToast],
+  )
+
+  const unblockContent = useCallback(
+    async (id: string) => {
+      const row = await adapter.unblockContent(id)
+      setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
+      await refreshCampaignDetailAfterContentAction(row.campaign_id)
+      showToast('Content unblocked')
+      return row
+    },
+    [adapter, refreshCampaignDetailAfterContentAction, showToast],
   )
 
   const skipContent = useCallback(
@@ -579,6 +606,8 @@ export function useCampaigns() {
     updateManualContent,
     removeDraftContent,
     retryContent,
+    blockContent,
+    unblockContent,
     skipContent,
     cancelContent,
     listJobAttempts,

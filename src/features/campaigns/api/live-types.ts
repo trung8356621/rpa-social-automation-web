@@ -15,6 +15,7 @@ export type LiveCampaignSummary = {
   waiting_interval?: number
   waiting_resources?: number
   blocked_by_failure?: number
+  user_blocked?: number
   running?: number
   success?: number
   failed_locked?: number
@@ -208,6 +209,10 @@ export type LiveContentRow = {
   originating_error_message?: string | null
   next_run_at?: string | null
   can_retry?: boolean | null
+  can_block?: boolean | null
+  can_unblock?: boolean | null
+  user_blocked?: boolean | null
+  is_user_blocked?: boolean | null
   retry_eligible?: boolean | null
   is_retry_eligible?: boolean | null
   retry_allowed?: boolean | null

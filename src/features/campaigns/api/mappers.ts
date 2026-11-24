@@ -46,6 +46,7 @@ const CONTENT_STATUSES = new Set<CampaignContentStatus>([
   'waiting_interval',
   'waiting_resources',
   'blocked_by_failure',
+  'user_blocked',
   'running',
   'success',
   'completed',
@@ -64,7 +65,7 @@ function asCampaignStatus(raw: unknown): CampaignStatus {
 
 function asContentStatus(raw: unknown): CampaignContentStatus {
   const s = String(raw ?? 'pending')
-  if (s === 'blocked') return 'blocked_by_failure'
+  if (s === 'blocked') return 'user_blocked'
   if (CONTENT_STATUSES.has(s as CampaignContentStatus)) {
     return s as CampaignContentStatus
   }
@@ -130,6 +131,9 @@ export function mapSummary(raw: LiveCampaignRow['summary']): CampaignSummary {
     total: Number(raw.total ?? 0),
     pending: Number(raw.pending ?? 0),
     waiting_resources: Number(raw.waiting_resources ?? 0),
+    ...(raw.user_blocked != null
+      ? { user_blocked: Number(raw.user_blocked) }
+      : {}),
     running: Number(raw.running ?? 0),
     success: Number(raw.success ?? 0),
     failed_locked: Number(raw.failed_locked ?? 0),
@@ -602,6 +606,21 @@ export function mapLiveContent(
       : contentAllowedActions !== undefined
         ? contentAllowedActions.includes('retry')
         : undefined
+  const explicitCanBlock = pickOptionalBoolean(r.can_block)
+  const canBlock =
+    explicitCanBlock !== undefined
+      ? explicitCanBlock
+      : contentAllowedActions !== undefined
+        ? contentAllowedActions.includes('block')
+        : undefined
+  const explicitCanUnblock = pickOptionalBoolean(r.can_unblock)
+  const canUnblock =
+    explicitCanUnblock !== undefined
+      ? explicitCanUnblock
+      : contentAllowedActions !== undefined
+        ? contentAllowedActions.includes('unblock')
+        : undefined
+  const userBlocked = pickOptionalBoolean(r.user_blocked, r.is_user_blocked)
   const isQueueHead = pickOptionalBoolean(r.is_queue_head, r.queue_head)
   const recoveryJobInFlight = pickOptionalBoolean(
     r.recovery_job_in_flight,
@@ -639,6 +658,9 @@ export function mapLiveContent(
     ),
     next_run_at: pickNonEmptyString(r.next_run_at),
     ...(canRetry !== undefined ? { can_retry: canRetry } : {}),
+    ...(canBlock !== undefined ? { can_block: canBlock } : {}),
+    ...(canUnblock !== undefined ? { can_unblock: canUnblock } : {}),
+    ...(userBlocked !== undefined ? { user_blocked: userBlocked } : {}),
     ...(contentAllowedActions !== undefined
       ? { allowed_actions: contentAllowedActions }
       : {}),

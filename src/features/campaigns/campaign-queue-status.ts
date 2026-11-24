@@ -13,9 +13,16 @@ export type ContentQueueFeedback =
  * Never infers queue states from missing Job/Attempt records.
  */
 export function resolveEffectiveContentStatus(
-  content: Pick<CampaignContent, 'status' | 'queue_state'>,
+  content: Pick<CampaignContent, 'status' | 'queue_state' | 'user_blocked'>,
 ): CampaignContentStatus {
   const qs = content.queue_state?.trim().toLowerCase()
+  if (
+    content.status === 'user_blocked' ||
+    qs === 'user_blocked' ||
+    content.user_blocked === true
+  ) {
+    return 'user_blocked'
+  }
   if (
     content.status === 'blocked_by_failure' ||
     qs === 'blocked_by_failure' ||
@@ -44,6 +51,7 @@ export function resolveContentQueueFeedback(
     CampaignContent,
     | 'status'
     | 'queue_state'
+    | 'user_blocked'
     | 'wait_reason'
     | 'blocked_reason'
     | 'next_run_at'
@@ -56,6 +64,14 @@ export function resolveContentQueueFeedback(
 
   if (effectiveStatus === 'pending') {
     return { kind: 'none' }
+  }
+
+  if (effectiveStatus === 'user_blocked') {
+    return {
+      kind: 'info',
+      message: 'Tạm ngưng bài này. Các bài tiếp theo vẫn chạy.',
+      code: null,
+    }
   }
 
   if (effectiveStatus === 'waiting_interval') {
@@ -166,4 +182,81 @@ export function canRetryContent(
     return content.allowed_actions.includes('retry')
   }
   return false
+}
+
+/**
+ * Determines whether the Block action should be shown for a V2 Content row.
+ *
+ * Eligible Pending / Waiting Resources / Waiting Interval items can be blocked;
+ * Running, terminal, user-blocked, or failure-gated items cannot.
+ * Defers to Backend `can_block` when explicitly provided.
+ */
+export function canBlockContent(
+  content: Pick<
+    CampaignContent,
+    | 'status'
+    | 'queue_state'
+    | 'user_blocked'
+    | 'current_job_id'
+    | 'can_block'
+    | 'allowed_actions'
+    | 'recovery_job_in_flight'
+  >,
+): boolean {
+  const effectiveStatus = resolveEffectiveContentStatus(content)
+  if (
+    effectiveStatus !== 'pending' &&
+    effectiveStatus !== 'waiting_resources' &&
+    effectiveStatus !== 'waiting_interval'
+  ) {
+    return false
+  }
+  if (
+    content.current_job_id != null &&
+    String(content.current_job_id).trim() !== ''
+  ) {
+    return false
+  }
+  if (content.recovery_job_in_flight === true) {
+    return false
+  }
+
+  if (typeof content.can_block === 'boolean') {
+    return content.can_block
+  }
+  if (Array.isArray(content.allowed_actions)) {
+    return content.allowed_actions.includes('block')
+  }
+  return true
+}
+
+/**
+ * Determines whether the Unblock action should be shown for a V2 Content row.
+ *
+ * Only User-blocked Content can be unblocked. System Failure Gate
+ * (`blocked_by_failure`) must never expose Unblock.
+ * Defers to Backend `can_unblock` when explicitly provided.
+ */
+export function canUnblockContent(
+  content: Pick<
+    CampaignContent,
+    | 'status'
+    | 'queue_state'
+    | 'user_blocked'
+    | 'can_unblock'
+    | 'allowed_actions'
+  >,
+): boolean {
+  const effectiveStatus = resolveEffectiveContentStatus(content)
+  if (effectiveStatus !== 'user_blocked') {
+    return false
+  }
+
+  if (typeof content.can_unblock === 'boolean') {
+    return content.can_unblock
+  }
+  if (Array.isArray(content.allowed_actions)) {
+    return content.allowed_actions.includes('unblock')
+  }
+  return true
 }

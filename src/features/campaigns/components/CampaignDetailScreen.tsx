@@ -24,7 +24,9 @@ import {
   type IntervalUnit,
 } from '../campaign-interval-edit'
 import {
+  canBlockContent,
   canRetryContent,
+  canUnblockContent,
   resolveContentQueueFeedback,
   resolveEffectiveContentStatus,
 } from '../campaign-queue-status'
@@ -95,6 +97,8 @@ type Props = {
     intervalMinutes: number,
   ) => Promise<unknown>
   onRetry: (id: string, status: string) => Promise<unknown>
+  onBlock?: (id: string) => Promise<unknown>
+  onUnblock?: (id: string) => Promise<unknown>
   onSkip: (id: string) => Promise<unknown>
   onCancelContent: (id: string) => Promise<unknown>
   loadAttempts: (campaignId: string) => Promise<CampaignJobAttempt[]>
@@ -120,6 +124,8 @@ export function CampaignDetailScreen({
   onCancel,
   onUpdateActionTagInterval,
   onRetry,
+  onBlock,
+  onUnblock,
   onSkip,
   onCancelContent,
   loadAttempts,
@@ -146,6 +152,8 @@ export function CampaignDetailScreen({
   const [intervalError, setIntervalError] = useState<string | null>(null)
   const [savingInterval, setSavingInterval] = useState(false)
   const [retryingContentId, setRetryingContentId] = useState<string | null>(null)
+  const [blockingContentId, setBlockingContentId] = useState<string | null>(null)
+  const [unblockingContentId, setUnblockingContentId] = useState<string | null>(null)
   const savingIntervalRef = useRef(false)
   const runInFlightRef = useRef(false)
   const attemptsInFlightRef = useRef(false)
@@ -247,10 +255,24 @@ export function CampaignDetailScreen({
   ) => {
     if (runInFlightRef.current) return
     runInFlightRef.current = true
+    const savedScrollY =
+      typeof window !== 'undefined' ? window.scrollY : null
     setBusyAction(action)
     setActionError(null)
     try {
       await fn()
+      if (
+        savedScrollY !== null &&
+        typeof window !== 'undefined' &&
+        typeof window.requestAnimationFrame === 'function' &&
+        typeof window.scrollTo === 'function'
+      ) {
+        window.requestAnimationFrame(() => {
+          if (Math.abs(window.scrollY - savedScrollY) > 4) {
+            window.scrollTo({ top: savedScrollY })
+          }
+        })
+      }
     } catch (err: unknown) {
       setActionError(toSafeApiMessage(err))
     } finally {
@@ -815,6 +837,59 @@ export function CampaignDetailScreen({
                       <Badge variant={cs.variant}>{cs.label}</Badge>
                       {isAdmin ? (
                         <>
+                          {isV2 && onBlock && canBlockContent(c) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => {
+                                if (runInFlightRef.current) return
+                                if (
+                                  !window.confirm(
+                                    'Tạm ngưng bài này? Các bài tiếp theo vẫn chạy.',
+                                  )
+                                ) {
+                                  return
+                                }
+                                setBlockingContentId(c.id)
+                                void run(async () => {
+                                  try {
+                                    await onBlock(c.id)
+                                  } finally {
+                                    setBlockingContentId((prev) =>
+                                      prev === c.id ? null : prev,
+                                    )
+                                  }
+                                })
+                              }}
+                            >
+                              {blockingContentId === c.id ? 'Blocking…' : 'Block'}
+                            </Button>
+                          ) : null}
+                          {isV2 && onUnblock && canUnblockContent(c) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => {
+                                if (runInFlightRef.current) return
+                                setUnblockingContentId(c.id)
+                                void run(async () => {
+                                  try {
+                                    await onUnblock(c.id)
+                                  } finally {
+                                    setUnblockingContentId((prev) =>
+                                      prev === c.id ? null : prev,
+                                    )
+                                  }
+                                })
+                              }}
+                            >
+                              {unblockingContentId === c.id
+                                ? 'Unblocking…'
+                                : 'Unblock'}
+                            </Button>
+                          ) : null}
                           {canRetryContent(c) ? (
                             <Button
                               size="sm"
@@ -842,12 +917,13 @@ export function CampaignDetailScreen({
                               {retryingContentId === c.id ? 'Retrying…' : 'Retry'}
                             </Button>
                           ) : null}
-                          {c.status === 'failed_locked' ||
-                          c.status === 'unknown' ||
-                          effectiveStatus === 'pending' ||
-                          effectiveStatus === 'waiting_interval' ||
-                          effectiveStatus === 'waiting_resources' ||
-                          effectiveStatus === 'blocked_by_failure' ? (
+                          {!isV2 &&
+                          (c.status === 'failed_locked' ||
+                            c.status === 'unknown' ||
+                            effectiveStatus === 'pending' ||
+                            effectiveStatus === 'waiting_interval' ||
+                            effectiveStatus === 'waiting_resources' ||
+                            effectiveStatus === 'blocked_by_failure') ? (
                             <>
                               <Button
                                 size="sm"

@@ -177,6 +177,8 @@ export function CampaignDetailPage() {
         onCancel={registry.cancelCampaign}
         onUpdateActionTagInterval={registry.updateActionTagInterval}
         onRetry={registry.retryContent}
+        onBlock={registry.blockContent}
+        onUnblock={registry.unblockContent}
         onSkip={registry.skipContent}
         onCancelContent={registry.cancelContent}
         loadAttempts={registry.listJobAttempts}

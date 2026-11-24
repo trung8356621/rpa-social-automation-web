@@ -44,6 +44,7 @@ export type CampaignSummary = {
   waiting_interval?: number
   waiting_resources: number
   blocked_by_failure?: number
+  user_blocked?: number
   running: number
   success: number
   failed_locked: number
@@ -186,6 +187,7 @@ export type CampaignContentStatus =
   | 'waiting_interval'
   | 'waiting_resources'
   | 'blocked_by_failure'
+  | 'user_blocked'
   | 'running'
   | 'success'
   | 'completed'
@@ -241,6 +243,12 @@ export type CampaignContent = {
   next_run_at?: string | null
   /** Explicit Retry eligibility from Backend (omitted when not provided). */
   can_retry?: boolean | null
+  /** Explicit Block eligibility from Backend (omitted when not provided). */
+  can_block?: boolean | null
+  /** Explicit Unblock eligibility from Backend (omitted when not provided). */
+  can_unblock?: boolean | null
+  /** Whether Backend marks this Content as user-blocked. */
+  user_blocked?: boolean | null
   /** Optional Content-level allowed actions from Backend. */
   allowed_actions?: string[]
   /** Whether Backend marks this Content as queue head for its Action Tag. */

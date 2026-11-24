@@ -401,6 +401,26 @@ export const liveCampaignAdapter = {
     return mapLiveContent(row)
   },
 
+  async blockContent(id: string): Promise<CampaignContent> {
+    const res = await staffApiRequest<{ data?: unknown; content?: unknown }>(
+      CAMPAIGN_CONTENT_PATHS.block(id),
+      { method: 'POST', body: {} },
+    )
+    const row = res.data ?? res.content
+    if (!row) throw new Error('Block Content response missing data.')
+    return mapLiveContent(row)
+  },
+
+  async unblockContent(id: string): Promise<CampaignContent> {
+    const res = await staffApiRequest<{ data?: unknown; content?: unknown }>(
+      CAMPAIGN_CONTENT_PATHS.unblock(id),
+      { method: 'POST', body: {} },
+    )
+    const row = res.data ?? res.content
+    if (!row) throw new Error('Unblock Content response missing data.')
+    return mapLiveContent(row)
+  },
+
   async listJobAttempts(campaignId: string): Promise<CampaignJobAttempt[]> {
     // Prefer nested attempts when Backend supplies them; otherwise surface
     // content-level execution status only when an actual job/error exists.

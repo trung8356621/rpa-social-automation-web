@@ -37,6 +37,8 @@ export const CAMPAIGN_CONTENT_PATHS = {
   mockPreview: (campaignId: string) => CAMPAIGN_PATHS.mockPreview(campaignId),
   mockSave: (campaignId: string) => CAMPAIGN_PATHS.mockSave(campaignId),
   retry: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/retry`,
+  block: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/block`,
+  unblock: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/unblock`,
   skip: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/skip`,
   cancel: (id: string) => `${CONTENTS_BASE}/${encodeURIComponent(id)}/cancel`,
 } as const

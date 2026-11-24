@@ -141,6 +141,10 @@ export const CAMPAIGN_CONTENT_PATHS = {
     `${CAMPAIGNS_BASE}/${encodeURIComponent(campaignId)}/contents/${encodeURIComponent(contentId)}`,
   retry: (id: string) =>
     `${CAMPAIGN_CONTENTS_BASE}/${encodeURIComponent(id)}/retry`,
+  block: (id: string) =>
+    `${CAMPAIGN_CONTENTS_BASE}/${encodeURIComponent(id)}/block`,
+  unblock: (id: string) =>
+    `${CAMPAIGN_CONTENTS_BASE}/${encodeURIComponent(id)}/unblock`,
   skip: (id: string) =>
     `${CAMPAIGN_CONTENTS_BASE}/${encodeURIComponent(id)}/skip`,
   cancel: (id: string) =>
