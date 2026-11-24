@@ -24,6 +24,7 @@ import {
   type IntervalUnit,
 } from '../campaign-interval-edit'
 import {
+  canRetryContent,
   resolveContentQueueFeedback,
   resolveEffectiveContentStatus,
 } from '../campaign-queue-status'
@@ -144,7 +145,9 @@ export function CampaignDetailScreen({
   })
   const [intervalError, setIntervalError] = useState<string | null>(null)
   const [savingInterval, setSavingInterval] = useState(false)
+  const [retryingContentId, setRetryingContentId] = useState<string | null>(null)
   const savingIntervalRef = useRef(false)
+  const runInFlightRef = useRef(false)
   const attemptsInFlightRef = useRef(false)
   const busy = busyAction !== null
   const canEditInterval = canEditActionTagInterval(
@@ -242,6 +245,8 @@ export function CampaignDetailScreen({
     fn: () => Promise<unknown>,
     action: 'start' | 'pause' | 'resume' | 'cancel' | 'other' = 'other',
   ) => {
+    if (runInFlightRef.current) return
+    runInFlightRef.current = true
     setBusyAction(action)
     setActionError(null)
     try {
@@ -249,6 +254,7 @@ export function CampaignDetailScreen({
     } catch (err: unknown) {
       setActionError(toSafeApiMessage(err))
     } finally {
+      runInFlightRef.current = false
       setBusyAction(null)
     }
   }
@@ -809,22 +815,31 @@ export function CampaignDetailScreen({
                       <Badge variant={cs.variant}>{cs.label}</Badge>
                       {isAdmin ? (
                         <>
-                          {c.status === 'failed_locked' ||
-                          c.status === 'unknown' ? (
+                          {canRetryContent(c) ? (
                             <Button
                               size="sm"
                               variant="outline"
                               disabled={busy}
                               onClick={() => {
+                                if (runInFlightRef.current) return
                                 const msg =
                                   c.status === 'unknown'
                                     ? `${UNKNOWN_RETRY_WARNING}\n\n${RETRY_WARNING}`
                                     : RETRY_WARNING
                                 if (!window.confirm(msg)) return
-                                void run(() => onRetry(c.id, c.status))
+                                setRetryingContentId(c.id)
+                                void run(async () => {
+                                  try {
+                                    await onRetry(c.id, c.status)
+                                  } finally {
+                                    setRetryingContentId((prev) =>
+                                      prev === c.id ? null : prev,
+                                    )
+                                  }
+                                })
                               }}
                             >
-                              Retry
+                              {retryingContentId === c.id ? 'Retrying…' : 'Retry'}
                             </Button>
                           ) : null}
                           {c.status === 'failed_locked' ||

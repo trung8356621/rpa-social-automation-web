@@ -364,6 +364,13 @@ function pickFiniteNumber(...values: Array<unknown>): number | null {
   return null
 }
 
+function pickOptionalBoolean(...values: Array<unknown>): boolean | undefined {
+  for (const v of values) {
+    if (typeof v === 'boolean') return v
+  }
+  return undefined
+}
+
 function mapEligibilityError(
   raw: LiveEligibilityError,
   fallbackSiteKey: string,
@@ -577,6 +584,30 @@ export function mapLiveContent(
         ? r.execution_history
         : null
 
+  const contentAllowedActions = Array.isArray(r.allowed_actions)
+    ? r.allowed_actions
+        .map((a) => String(a ?? '').trim().toLowerCase())
+        .filter(Boolean)
+    : undefined
+  const explicitCanRetry = pickOptionalBoolean(
+    r.can_retry,
+    r.retry_eligible,
+    r.is_retry_eligible,
+    r.retry_allowed,
+    r.manual_retry_eligible,
+  )
+  const canRetry =
+    explicitCanRetry !== undefined
+      ? explicitCanRetry
+      : contentAllowedActions !== undefined
+        ? contentAllowedActions.includes('retry')
+        : undefined
+  const isQueueHead = pickOptionalBoolean(r.is_queue_head, r.queue_head)
+  const recoveryJobInFlight = pickOptionalBoolean(
+    r.recovery_job_in_flight,
+    r.has_active_job,
+  )
+
   return {
     id: String(r.id ?? ''),
     ...(pickNonEmptyString(r.content_uuid)
@@ -607,6 +638,14 @@ export function mapLiveContent(
       r.blocked_reason ?? r.blocking_error_message ?? r.originating_error_message,
     ),
     next_run_at: pickNonEmptyString(r.next_run_at),
+    ...(canRetry !== undefined ? { can_retry: canRetry } : {}),
+    ...(contentAllowedActions !== undefined
+      ? { allowed_actions: contentAllowedActions }
+      : {}),
+    ...(isQueueHead !== undefined ? { is_queue_head: isQueueHead } : {}),
+    ...(recoveryJobInFlight !== undefined
+      ? { recovery_job_in_flight: recoveryJobInFlight }
+      : {}),
     created_at: String(r.created_at ?? ''),
     updated_at: String(r.updated_at ?? ''),
     ...(Array.isArray(r.assignments)

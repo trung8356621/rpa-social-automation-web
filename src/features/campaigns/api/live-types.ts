@@ -207,6 +207,16 @@ export type LiveContentRow = {
   blocking_error_message?: string | null
   originating_error_message?: string | null
   next_run_at?: string | null
+  can_retry?: boolean | null
+  retry_eligible?: boolean | null
+  is_retry_eligible?: boolean | null
+  retry_allowed?: boolean | null
+  manual_retry_eligible?: boolean | null
+  allowed_actions?: string[] | null
+  is_queue_head?: boolean | null
+  queue_head?: boolean | null
+  recovery_job_in_flight?: boolean | null
+  has_active_job?: boolean | null
   assignments?: LiveContentAssignmentRow[]
   attempts?: LiveJobAttemptRow[]
   job_attempts?: LiveJobAttemptRow[]

@@ -424,6 +424,38 @@ export function useCampaigns() {
           : `retry-${Date.now()}`
       const row = await adapter.retryContent(id, { idempotencyKey: key })
       setContents((prev) => prev.map((c) => (c.id === row.id ? row : c)))
+      const targetCampaignId = row.campaign_id
+      if (targetCampaignId) {
+        try {
+          const detail = await adapter.getCampaign(targetCampaignId)
+          setCampaigns((prev) =>
+            prev.map((c) =>
+              c.id === detail.id
+                ? {
+                    ...c,
+                    ...detail,
+                    summary: detail.summary,
+                    contents: detail.contents ?? c.contents,
+                  }
+                : c,
+            ),
+          )
+          if (Array.isArray(detail.contents)) {
+            setContents((prev) => {
+              const without = prev.filter((c) => c.campaign_id !== targetCampaignId)
+              return [...detail.contents!, ...without]
+            })
+          } else {
+            const rows = await adapter.listContents(targetCampaignId)
+            setContents((prev) => {
+              const without = prev.filter((c) => c.campaign_id !== targetCampaignId)
+              return [...rows, ...without]
+            })
+          }
+        } catch {
+          // Keep updated row state if background detail refresh fails transiently.
+        }
+      }
       showToast(
         status === 'unknown'
           ? 'Retry requested (unknown result)'

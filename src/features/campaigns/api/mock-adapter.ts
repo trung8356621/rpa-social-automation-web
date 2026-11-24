@@ -1,5 +1,6 @@
 import { ApiError } from '../../../lib/api/errors.ts'
 import { MAX_INTERVAL_MINUTES } from '../campaign-interval-edit.ts'
+import { canRetryContent } from '../campaign-queue-status.ts'
 import { draftToScriptInput } from '../content-adapters.ts'
 import {
   createMockCampaignStore,
@@ -823,10 +824,15 @@ export const mockCampaignAdapter = {
     assertMockOnly()
     const row = store.contents.find((c) => c.id === id)
     if (!row) throw new Error(`Content not found: ${id}`)
-    if (row.status !== 'failed_locked' && row.status !== 'unknown') {
-      throw new Error('Retry only for failed_locked or unknown.')
+    if (!canRetryContent(row)) {
+      throw new Error(
+        'Retry only for failed_locked, unknown, or eligible blocked queue-head content.',
+      )
     }
     row.status = 'pending'
+    row.queue_state = null
+    row.blocked_reason = null
+    row.can_retry = false
     row.last_result = `retry requested (${row.status})`
     row.updated_at = nowIso()
     refreshSummaries(store)

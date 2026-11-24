@@ -239,6 +239,14 @@ export type CampaignContent = {
   wait_reason?: string | null
   blocked_reason?: string | null
   next_run_at?: string | null
+  /** Explicit Retry eligibility from Backend (omitted when not provided). */
+  can_retry?: boolean | null
+  /** Optional Content-level allowed actions from Backend. */
+  allowed_actions?: string[]
+  /** Whether Backend marks this Content as queue head for its Action Tag. */
+  is_queue_head?: boolean | null
+  /** Whether a recovery Job is currently in flight. */
+  recovery_job_in_flight?: boolean | null
   created_at: string
   updated_at: string
   /** Campaign V2 per-Tag assignments */

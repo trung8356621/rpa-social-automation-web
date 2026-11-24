@@ -116,3 +116,54 @@ export function resolveContentQueueFeedback(
 
   return { kind: 'none' }
 }
+
+/**
+ * Determines whether the Retry action should be visible for a Content row.
+ *
+ * Preserves existing Retry behavior for `failed_locked` and `unknown`.
+ * For `blocked_by_failure` (including persisted `pending` with an active
+ * failure gate), defers to Backend's explicit retry eligibility while ensuring
+ * no recovery Job is currently in flight.
+ */
+export function canRetryContent(
+  content: Pick<
+    CampaignContent,
+    | 'status'
+    | 'queue_state'
+    | 'current_job_id'
+    | 'can_retry'
+    | 'allowed_actions'
+    | 'is_queue_head'
+    | 'recovery_job_in_flight'
+  >,
+): boolean {
+  if (content.status === 'failed_locked' || content.status === 'unknown') {
+    return true
+  }
+
+  const effectiveStatus = resolveEffectiveContentStatus(content)
+  if (effectiveStatus !== 'blocked_by_failure') {
+    return false
+  }
+
+  if (
+    content.current_job_id != null &&
+    String(content.current_job_id).trim() !== ''
+  ) {
+    return false
+  }
+  if (content.recovery_job_in_flight === true || content.status === 'running') {
+    return false
+  }
+  if (content.is_queue_head === false) {
+    return false
+  }
+
+  if (typeof content.can_retry === 'boolean') {
+    return content.can_retry
+  }
+  if (Array.isArray(content.allowed_actions)) {
+    return content.allowed_actions.includes('retry')
+  }
+  return false
+}
