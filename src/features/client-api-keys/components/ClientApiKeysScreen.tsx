@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Plus, Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Copy, Plus, Search } from 'lucide-react'
 
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Badge } from '@/components/ui/badge'
@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 
 import type { RpaApiMode } from '@/lib/api/config'
+import { toSafeApiMessage } from '@/lib/api/errors'
 
-import type { ClientApiKeyItem } from '../types'
+import type { CreateClientApiKeyInput } from '../api/create-payload'
+import type { AssignableUser, ClientApiKeyItem } from '../types'
 import { maskKeyPrefix } from '../types'
 
 type ClientApiKeysScreenProps = {
@@ -17,9 +19,14 @@ type ClientApiKeysScreenProps = {
   oneTimeRawKey: string | null
   oneTimeKeyName: string | null
   onDismissOneTime: () => void
-  onCreate: (name: string) => Promise<void>
+  onCreate: (input: CreateClientApiKeyInput) => Promise<void>
   onRevoke: (id: number) => Promise<void>
-  mutationsEnabled?: boolean
+  createEnabled?: boolean
+  revokeEnabled?: boolean
+  canAssignToOthers?: boolean
+  currentUserId?: number | null
+  assignableUsers?: AssignableUser[]
+  assignableLoading?: boolean
   mode?: RpaApiMode
 }
 
@@ -32,6 +39,16 @@ function formatWhen(iso: string | null): string {
   }
 }
 
+function formatUserCell(
+  name: string | null,
+  id: number | null,
+): string {
+  if (name && id != null) return `${name} (#${id})`
+  if (name) return name
+  if (id != null) return `#${id}`
+  return '—'
+}
+
 export function ClientApiKeysScreen({
   keys,
   oneTimeRawKey,
@@ -39,16 +56,39 @@ export function ClientApiKeysScreen({
   onDismissOneTime,
   onCreate,
   onRevoke,
-  mutationsEnabled = true,
+  createEnabled = true,
+  revokeEnabled = true,
+  canAssignToOthers = false,
+  currentUserId = null,
+  assignableUsers = [],
+  assignableLoading = false,
   mode = 'mock',
 }: ClientApiKeysScreenProps) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [assignedTo, setAssignedTo] = useState<string>('')
   const [revokeId, setRevokeId] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
   const isLive = mode === 'live'
+
+  useEffect(() => {
+    if (!creating) return
+    if (!canAssignToOthers) {
+      setAssignedTo('')
+      return
+    }
+    if (currentUserId != null && Number.isFinite(currentUserId)) {
+      setAssignedTo(String(currentUserId))
+      return
+    }
+    if (assignableUsers.length > 0) {
+      setAssignedTo(String(assignableUsers[0].id))
+    }
+  }, [assignableUsers, canAssignToOthers, creating, currentUserId])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -58,12 +98,68 @@ export function ClientApiKeysScreen({
       if (filter === 'online' && k.mock_lease?.connection !== 'online') return false
       if (filter === 'stale' && !k.mock_lease?.heartbeat_stale) return false
       if (!q) return true
-      return [k.name, k.key_prefix, String(k.id), k.mock_lease?.device_hostname ?? '']
+      return [
+        k.name,
+        k.key_prefix,
+        String(k.id),
+        k.created_by_name ?? '',
+        k.issued_by_name ?? '',
+        k.mock_lease?.device_hostname ?? '',
+      ]
         .join(' ')
         .toLowerCase()
         .includes(q)
     })
   }, [keys, search, filter])
+
+  const closeCreateModal = () => {
+    if (busy) return
+    setCreating(false)
+    setNewName('')
+    setAssignedTo('')
+    setCreateError(null)
+  }
+
+  const submitCreate = () => {
+    if (busy) return
+    setBusy(true)
+    setCreateError(null)
+    const assignedId =
+      canAssignToOthers && assignedTo.trim() !== ''
+        ? Number(assignedTo)
+        : null
+    const input: CreateClientApiKeyInput = {
+      name: newName,
+      canAssignToOthers,
+      assigned_to_user_id:
+        canAssignToOthers &&
+        assignedId != null &&
+        Number.isFinite(assignedId)
+          ? assignedId
+          : null,
+    }
+    void onCreate(input)
+      .then(() => {
+        setNewName('')
+        setAssignedTo('')
+        setCreating(false)
+      })
+      .catch((err: unknown) => {
+        setCreateError(toSafeApiMessage(err))
+      })
+      .finally(() => setBusy(false))
+  }
+
+  const copyRawKey = async () => {
+    if (!oneTimeRawKey) return
+    try {
+      await navigator.clipboard.writeText(oneTimeRawKey)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 2500)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -71,19 +167,22 @@ export function ClientApiKeysScreen({
         title="Client API Keys"
         description={
           isLive
-            ? 'Logical Client = client_api_key_id. LIVE staff list — key_prefix only, no raw secret. Create/Revoke disabled.'
+            ? 'Logical Client = client_api_key_id. LIVE staff session — key_prefix only in inventory; raw secret shown once on create.'
             : 'Logical Client = client_api_key_id. Device hostname chỉ metadata. MOCK local — không lưu raw secret.'
         }
         actions={
           <Button
             size="sm"
-            onClick={() => setCreating((v) => !v)}
+            onClick={() => {
+              setCreateError(null)
+              setCreating(true)
+            }}
             aria-expanded={creating}
-            disabled={!mutationsEnabled}
+            disabled={!createEnabled}
             title={
-              mutationsEnabled
+              createEnabled
                 ? undefined
-                : 'LIVE read-only — Create Key disabled'
+                : 'Create Key disabled'
             }
           >
             <Plus className="size-3.5" />
@@ -99,54 +198,45 @@ export function ClientApiKeysScreen({
       </div>
 
       {oneTimeRawKey ? (
-        <div className="rounded-[var(--radius-card)] border border-warning/40 bg-warning/10 px-4 py-3">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="one-time-key-title"
+          className="rounded-[var(--radius-card)] border border-warning/40 bg-warning/10 px-4 py-3"
+        >
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold text-foreground">
+              <p
+                id="one-time-key-title"
+                className="text-sm font-semibold text-foreground"
+              >
                 One-time secret — {oneTimeKeyName}
               </p>
               <p className="mt-1 text-xs text-warning">
-                Sao chép ngay. Frontend không giữ raw key sau khi đóng banner.
+                Sao chép ngay. Raw key chỉ hiện một lần — đóng dialog sẽ xóa
+                khỏi bộ nhớ UI. Không lưu localStorage.
               </p>
             </div>
-            <Button variant="ghost" size="sm" onClick={onDismissOneTime}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setCopied(false)
+                onDismissOneTime()
+              }}
+            >
               Dismiss
             </Button>
           </div>
           <code className="mt-2 block break-all rounded-[var(--radius-control)] border border-border bg-surface px-2.5 py-2 font-mono text-xs">
             {oneTimeRawKey}
           </code>
-        </div>
-      ) : null}
-
-      {creating && mutationsEnabled ? (
-        <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-border bg-surface p-3 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1">
-            <label className="text-xs font-medium text-muted" htmlFor="new-key-name">
-              Client label
-            </label>
-            <Input
-              id="new-key-name"
-              className="mt-1"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. Office Desktop"
-            />
+          <div className="mt-2 flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => void copyRawKey()}>
+              <Copy className="size-3.5" />
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
           </div>
-          <Button
-            disabled={busy}
-            onClick={() => {
-              setBusy(true)
-              void onCreate(newName)
-                .then(() => {
-                  setNewName('')
-                  setCreating(false)
-                })
-                .finally(() => setBusy(false))
-            }}
-          >
-            {busy ? 'Creating…' : 'Create (MOCK)'}
-          </Button>
         </div>
       ) : null}
 
@@ -208,7 +298,8 @@ export function ClientApiKeysScreen({
               <tr>
                 <th className="px-3 py-2 font-medium">Key ID</th>
                 <th className="px-3 py-2 font-medium">Client Label</th>
-                <th className="px-3 py-2 font-medium">Creator</th>
+                <th className="px-3 py-2 font-medium">Owner</th>
+                <th className="px-3 py-2 font-medium">Issued by</th>
                 <th className="px-3 py-2 font-medium">Masked Key</th>
                 <th className="px-3 py-2 font-medium">Key</th>
                 <th className="px-3 py-2 font-medium">Lease (MOCK)</th>
@@ -232,18 +323,10 @@ export function ClientApiKeysScreen({
                       ) : null}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-muted">
-                      {k.created_by_name ? (
-                        <div>
-                          <div className="text-foreground">{k.created_by_name}</div>
-                          {k.created_by != null ? (
-                            <div className="font-mono">#{k.created_by}</div>
-                          ) : null}
-                        </div>
-                      ) : k.created_by != null ? (
-                        <span className="font-mono">#{k.created_by}</span>
-                      ) : (
-                        '—'
-                      )}
+                      {formatUserCell(k.created_by_name, k.created_by)}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-muted">
+                      {formatUserCell(k.issued_by_name, k.issued_by)}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-xs text-muted">
                       {maskKeyPrefix(k.key_prefix)}
@@ -284,7 +367,7 @@ export function ClientApiKeysScreen({
                       {formatWhen(lease?.heartbeat_at ?? k.last_used_at)}
                     </td>
                     <td className="px-3 py-2.5 text-right">
-                      {mutationsEnabled ? (
+                      {revokeEnabled ? (
                         <Button
                           variant="outline"
                           size="sm"
@@ -295,7 +378,7 @@ export function ClientApiKeysScreen({
                           Revoke
                         </Button>
                       ) : (
-                        <span className="text-xs text-muted">Read-only</span>
+                        <span className="text-xs text-muted">—</span>
                       )}
                     </td>
                   </tr>
@@ -306,7 +389,121 @@ export function ClientApiKeysScreen({
         </div>
       )}
 
-      {revokeId !== null && mutationsEnabled ? (
+      {creating && createEnabled ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-foreground/40"
+            aria-label="Close create overlay"
+            onClick={closeCreateModal}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-key-title"
+            className="relative z-10 w-full max-w-md rounded-[var(--radius-card)] border border-border bg-surface p-4"
+          >
+            <h2 id="create-key-title" className="text-base font-semibold">
+              Create Client API Key
+            </h2>
+            <p className="mt-1 text-xs text-muted">
+              Raw key hiện một lần sau khi tạo. Backend là authority cho
+              quyền gán User.
+            </p>
+
+            <div className="mt-3 space-y-3">
+              <div>
+                <label
+                  className="text-xs font-medium text-muted"
+                  htmlFor="new-key-name"
+                >
+                  Key name
+                </label>
+                <Input
+                  id="new-key-name"
+                  className="mt-1"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Office Desktop"
+                  disabled={busy}
+                  autoFocus
+                />
+              </div>
+
+              {canAssignToOthers ? (
+                <div>
+                  <label
+                    className="text-xs font-medium text-muted"
+                    htmlFor="assign-user"
+                  >
+                    Assign to User
+                  </label>
+                  <Select
+                    id="assign-user"
+                    className="mt-1 w-full"
+                    value={assignedTo}
+                    onChange={(e) => setAssignedTo(e.target.value)}
+                    disabled={busy || assignableLoading}
+                    aria-label="Assign to User"
+                  >
+                    {assignableLoading ? (
+                      <option value="">Loading users…</option>
+                    ) : assignableUsers.length === 0 ? (
+                      <option value="">No eligible users</option>
+                    ) : (
+                      assignableUsers.map((u) => (
+                        <option key={u.id} value={String(u.id)}>
+                          {u.name}
+                          {u.role ? ` · ${u.role}` : ''} (#{u.id})
+                        </option>
+                      ))
+                    )}
+                  </Select>
+                </div>
+              ) : (
+                <p className="text-xs text-muted">
+                  Key sẽ gán cho tài khoản đang đăng nhập. Chỉ Owner/Admin
+                  mới chọn User khác.
+                </p>
+              )}
+
+              {createError ? (
+                <p className="text-xs text-danger" role="alert">
+                  {createError}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={closeCreateModal}
+                disabled={busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={
+                  busy ||
+                  (canAssignToOthers &&
+                    (assignableLoading ||
+                      assignedTo === '' ||
+                      assignableUsers.length === 0))
+                }
+                onClick={submitCreate}
+              >
+                {busy
+                  ? 'Creating…'
+                  : isLive
+                    ? 'Create'
+                    : 'Create (MOCK)'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {revokeId !== null && revokeEnabled ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"

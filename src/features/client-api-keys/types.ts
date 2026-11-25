@@ -1,7 +1,7 @@
 /**
- * Index payload from RpaClientApiKeyManagementController.
+ * Index payload from RpaClientApiKeyManagementController (≥833e2a3).
  * Lease/connection fields below are MOCK presentation — staff list API
- * does not currently return lease/heartbeat (verified Oct 2026).
+ * does not currently return lease/heartbeat.
  */
 
 export type ClientApiKeyItem = {
@@ -9,8 +9,12 @@ export type ClientApiKeyItem = {
   name: string
   key_prefix: string
   installation_id: string
+  /** Designated owner (assignee). */
   created_by: number | null
   created_by_name: string | null
+  /** Minting actor (issuer). */
+  issued_by: number | null
+  issued_by_name: string | null
   last_used_at: string | null
   revoked_at: string | null
   is_active: boolean
@@ -26,6 +30,13 @@ export type ClientApiKeyItem = {
     heartbeat_stale: boolean
     device_hostname: string | null
   }
+}
+
+export type AssignableUser = {
+  id: number
+  name: string
+  email: string | null
+  role: string | null
 }
 
 export type ClientApiKeysData = {

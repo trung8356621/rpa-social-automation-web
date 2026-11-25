@@ -4,11 +4,21 @@ import { useSearchParams } from 'react-router-dom'
 import { getRpaApiMode, type RpaApiMode } from '@/lib/api/config'
 import { ApiError, toSafeApiMessage } from '@/lib/api/errors'
 
+import {
+  createLiveClientApiKey,
+  type CreateClientApiKeyInput,
+} from './api/create-client-api-key'
+import { fetchLiveAssignableUsers } from './api/fetch-assignable-users'
 import { fetchLiveClientApiKeys } from './api/fetch-client-api-keys'
-import type { ClientApiKeyItem, DemoScenario } from './types'
+import type { AssignableUser, ClientApiKeyItem, DemoScenario } from './types'
 import { useClientApiKeysMock } from './use-client-api-keys-mock'
 
-function useClientApiKeysLive(enabled: boolean) {
+function useClientApiKeysLive(options: {
+  enabled: boolean
+  canAssignToOthers: boolean
+  currentUserId: number | null
+}) {
+  const { enabled, canAssignToOthers, currentUserId } = options
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
 
@@ -21,6 +31,10 @@ function useClientApiKeysLive(enabled: boolean) {
     type: 'success' | 'error'
   } | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [oneTimeRawKey, setOneTimeRawKey] = useState<string | null>(null)
+  const [oneTimeKeyName, setOneTimeKeyName] = useState<string | null>(null)
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([])
+  const [assignableLoading, setAssignableLoading] = useState(false)
 
   const showToast = useCallback(
     (message: string, type: 'success' | 'error' = 'success') => {
@@ -90,32 +104,98 @@ function useClientApiKeysLive(enabled: boolean) {
     }
   }, [demo, enabled, reloadToken])
 
+  useEffect(() => {
+    if (!enabled || !canAssignToOthers) {
+      setAssignableUsers([])
+      setAssignableLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    let cancelled = false
+    setAssignableLoading(true)
+
+    void fetchLiveAssignableUsers({ signal: controller.signal })
+      .then((users) => {
+        if (cancelled) return
+        setAssignableUsers(users)
+        setAssignableLoading(false)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        if (err instanceof ApiError && err.kind === 'abort') return
+        // Owner gate is server-authoritative — hide selector on forbidden.
+        setAssignableUsers([])
+        setAssignableLoading(false)
+        if (err instanceof ApiError && err.kind === 'forbidden') {
+          return
+        }
+        if (!(err instanceof ApiError && err.isAuthRequired)) {
+          showToast(toSafeApiMessage(err), 'error')
+        }
+      })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [canAssignToOthers, enabled, reloadToken, showToast])
+
   const reload = useCallback(async () => {
     setReloadToken((n) => n + 1)
   }, [])
 
-  const createKey = useCallback(async (_name: string) => {
-    showToast(
-      'Create Key bị tắt trong LIVE — Client API Keys là read-only.',
-      'error',
-    )
-  }, [showToast])
+  const createKey = useCallback(
+    async (input: CreateClientApiKeyInput | string) => {
+      const normalized: CreateClientApiKeyInput =
+        typeof input === 'string'
+          ? { name: input, canAssignToOthers }
+          : { ...input, canAssignToOthers }
+
+      try {
+        const result = await createLiveClientApiKey(normalized)
+        // Ephemeral reveal only — never localStorage / never key list secret.
+        setOneTimeRawKey(result.rawKey)
+        setOneTimeKeyName(result.key.name)
+        setKeys((prev) => {
+          const without = prev.filter((k) => k.id !== result.key.id)
+          return [result.key, ...without]
+        })
+        showToast(result.message)
+        setReloadToken((n) => n + 1)
+      } catch (err: unknown) {
+        if (err instanceof ApiError && err.isAuthRequired) {
+          setAuthRequired(true)
+        }
+        showToast(toSafeApiMessage(err), 'error')
+        throw err
+      }
+    },
+    [canAssignToOthers, showToast],
+  )
 
   const revokeKey = useCallback(async (_id: number) => {
     showToast(
-      'Revoke Key bị tắt trong LIVE — Client API Keys là read-only.',
+      'Revoke Key bị tắt trong LIVE SPA — dùng Filament nếu cần revoke.',
       'error',
     )
   }, [showToast])
 
   const dismissOneTime = useCallback(() => {
-    /* LIVE never holds one-time raw secrets */
+    setOneTimeRawKey(null)
+    setOneTimeKeyName(null)
   }, [])
 
   return useMemo(
     () => ({
       mode: 'live' as const satisfies RpaApiMode,
-      mutationsEnabled: false,
+      createEnabled: true,
+      revokeEnabled: false,
+      mutationsEnabled: true,
+      canAssignToOthers,
+      currentUserId,
+      assignableUsers,
+      assignableLoading,
       authRequired,
       loading,
       error,
@@ -125,17 +205,23 @@ function useClientApiKeysLive(enabled: boolean) {
       reload,
       createKey,
       revokeKey,
-      oneTimeRawKey: null as string | null,
-      oneTimeKeyName: null as string | null,
+      oneTimeRawKey,
+      oneTimeKeyName,
       dismissOneTime,
     }),
     [
+      assignableLoading,
+      assignableUsers,
       authRequired,
+      canAssignToOthers,
       createKey,
+      currentUserId,
       dismissOneTime,
       error,
       keys,
       loading,
+      oneTimeKeyName,
+      oneTimeRawKey,
       reload,
       revokeKey,
       showToast,
@@ -144,21 +230,41 @@ function useClientApiKeysLive(enabled: boolean) {
   )
 }
 
+export type UseClientApiKeysOptions = {
+  canAssignToOthers?: boolean
+  currentUserId?: number | null
+}
+
 /**
- * Client API Keys — mock (default) or live Staff Session read-only list.
- * Live never falls back to mock rows and never stores raw secrets.
+ * Client API Keys — mock or LIVE Staff Session.
+ * LIVE create uses real Backend; mock credentials never used in LIVE.
  */
-export function useClientApiKeys() {
+export function useClientApiKeys(options: UseClientApiKeysOptions = {}) {
   const mode = getRpaApiMode()
   const isLive = mode === 'live'
-  const mock = useClientApiKeysMock({ enabled: !isLive })
-  const live = useClientApiKeysLive(isLive)
+  const canAssignToOthers = options.canAssignToOthers === true
+  const currentUserId = options.currentUserId ?? null
+
+  const mock = useClientApiKeysMock({
+    enabled: !isLive,
+    canAssignToOthers,
+    currentUserId,
+  })
+  const live = useClientApiKeysLive({
+    enabled: isLive,
+    canAssignToOthers,
+    currentUserId,
+  })
 
   if (isLive) return live
 
   return {
     mode: 'mock' as const satisfies RpaApiMode,
+    createEnabled: true,
+    revokeEnabled: true,
     mutationsEnabled: true,
+    currentUserId,
+    assignableLoading: false,
     authRequired: false,
     ...mock,
   }

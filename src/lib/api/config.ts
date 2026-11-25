@@ -77,9 +77,14 @@ export const ACCOUNTS_PATHS = {
 
 const CLIENT_API_KEYS_BASE = '/social-automation/api/client-keys'
 
-/** Staff Session Client API Keys (CP14 LIVE is read-only list). */
+/**
+ * Staff Session Client API Keys (backend ≥833e2a3).
+ * POST create returns raw_key once; Owner/Admin may assign via assigned_to_user_id.
+ */
 export const CLIENT_API_KEYS_PATHS = {
   list: CLIENT_API_KEYS_BASE,
+  create: CLIENT_API_KEYS_BASE,
+  assignableUsers: `${CLIENT_API_KEYS_BASE}/assignable-users`,
   revoke: (id: number) => `${CLIENT_API_KEYS_BASE}/${id}/revoke`,
 } as const
 

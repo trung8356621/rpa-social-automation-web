@@ -7,8 +7,13 @@ import { OwnerClientConnectionsSection } from '@/features/staff-client-connectio
 import { useOwnerClientConnections } from '@/features/staff-client-connection/use-owner-client-connections'
 
 export function ClientApiKeysPage() {
-  const registry = useClientApiKeys()
   const identity = useSessionIdentity()
+  const canAssignToOthers =
+    identity.roleResolved && identity.isOwnerOrAdmin
+  const registry = useClientApiKeys({
+    canAssignToOthers,
+    currentUserId: identity.user?.id ?? null,
+  })
   const showOwnerInventory =
     identity.roleResolved && identity.isOwnerOrAdmin
   const ownerConnections = useOwnerClientConnections({
@@ -69,9 +74,9 @@ export function ClientApiKeysPage() {
     <>
       {isLive ? (
         <p className="mb-3 rounded-[var(--radius-control)] border border-border bg-surface-muted px-3 py-2 text-xs text-muted">
-          LIVE — Staff session Client API Keys (read-only). Prefix only — no
-          raw secret. Create/Revoke disabled. Lease/connection columns stay
-          MOCK presentation (API không trả lease).
+          LIVE — Staff session Client API Keys. Create uses Backend POST
+          (CSRF). Owner/Admin may assign to eligible Users. Raw key shown once
+          only — never stored. Lease/connection columns stay MOCK presentation.
         </p>
       ) : null}
       <ClientApiKeysScreen
@@ -81,7 +86,12 @@ export function ClientApiKeysPage() {
         onDismissOneTime={registry.dismissOneTime}
         onCreate={registry.createKey}
         onRevoke={registry.revokeKey}
-        mutationsEnabled={registry.mutationsEnabled}
+        createEnabled={registry.createEnabled}
+        revokeEnabled={registry.revokeEnabled}
+        canAssignToOthers={registry.canAssignToOthers}
+        currentUserId={registry.currentUserId}
+        assignableUsers={registry.assignableUsers}
+        assignableLoading={registry.assignableLoading}
         mode={registry.mode}
       />
       {showOwnerInventory ? (

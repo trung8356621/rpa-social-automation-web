@@ -1,4 +1,4 @@
-import type { ClientApiKeyItem, ClientApiKeysData } from './types'
+import type { AssignableUser, ClientApiKeyItem, ClientApiKeysData } from './types'
 
 export const MOCK_CLIENT_API_KEYS: ClientApiKeyItem[] = [
   {
@@ -8,6 +8,8 @@ export const MOCK_CLIENT_API_KEYS: ClientApiKeyItem[] = [
     installation_id: 'inst_demo',
     created_by: 1,
     created_by_name: 'rpa.creator',
+    issued_by: 1,
+    issued_by_name: 'rpa.creator',
     last_used_at: '2026-10-28T09:50:00Z',
     revoked_at: null,
     is_active: true,
@@ -27,6 +29,8 @@ export const MOCK_CLIENT_API_KEYS: ClientApiKeyItem[] = [
     installation_id: 'inst_demo',
     created_by: 2,
     created_by_name: 'tech.lead',
+    issued_by: 1,
+    issued_by_name: 'rpa.creator',
     last_used_at: '2026-10-28T07:00:00Z',
     revoked_at: null,
     is_active: true,
@@ -46,6 +50,8 @@ export const MOCK_CLIENT_API_KEYS: ClientApiKeyItem[] = [
     installation_id: 'inst_demo',
     created_by: 1,
     created_by_name: 'rpa.creator',
+    issued_by: 1,
+    issued_by_name: 'rpa.creator',
     last_used_at: null,
     revoked_at: null,
     is_active: true,
@@ -65,6 +71,8 @@ export const MOCK_CLIENT_API_KEYS: ClientApiKeyItem[] = [
     installation_id: 'inst_demo',
     created_by: 1,
     created_by_name: 'rpa.creator',
+    issued_by: 1,
+    issued_by_name: 'rpa.creator',
     last_used_at: '2026-10-10T00:00:00Z',
     revoked_at: '2026-10-12T00:00:00Z',
     is_active: false,
@@ -76,6 +84,28 @@ export const MOCK_CLIENT_API_KEYS: ClientApiKeyItem[] = [
       heartbeat_stale: true,
       device_hostname: 'FIELD-PC-09',
     },
+  },
+]
+
+/** MOCK assignable users for Owner/Admin create modal only. */
+export const MOCK_ASSIGNABLE_USERS: AssignableUser[] = [
+  {
+    id: 1,
+    name: 'Mock Owner',
+    email: 'owner@mock.test',
+    role: 'owner',
+  },
+  {
+    id: 7,
+    name: 'Mock Staff',
+    email: 'staff@mock.test',
+    role: 'staff',
+  },
+  {
+    id: 42,
+    name: 'QA Staff',
+    email: 'qa@mock.test',
+    role: 'staff',
   },
 ]
 

@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import type { CreateClientApiKeyInput } from './api/create-payload'
 import {
   EMPTY_CLIENT_API_KEYS_DATA,
+  MOCK_ASSIGNABLE_USERS,
   MOCK_CLIENT_API_KEYS_DATA,
 } from './mock-data'
-import type { ClientApiKeysData, DemoScenario } from './types'
+import type {
+  AssignableUser,
+  ClientApiKeysData,
+  DemoScenario,
+} from './types'
 
 function delay(ms: number) {
   return new Promise((r) => window.setTimeout(r, ms))
@@ -16,8 +22,14 @@ function cloneSeed(demo: DemoScenario): ClientApiKeysData {
   return structuredClone(MOCK_CLIENT_API_KEYS_DATA)
 }
 
-export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
+export function useClientApiKeysMock(options: {
+  enabled?: boolean
+  canAssignToOthers?: boolean
+  currentUserId?: number | null
+} = {}) {
   const enabled = options.enabled !== false
+  const canAssignToOthers = options.canAssignToOthers === true
+  const currentUserId = options.currentUserId ?? null
   const [searchParams] = useSearchParams()
   const demo = (searchParams.get('demo') as DemoScenario | null) ?? 'default'
   const [loading, setLoading] = useState(enabled)
@@ -30,11 +42,15 @@ export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
   /** One-time reveal after mock create — cleared on dismiss; never persisted. */
   const [oneTimeRawKey, setOneTimeRawKey] = useState<string | null>(null)
   const [oneTimeKeyName, setOneTimeKeyName] = useState<string | null>(null)
+  const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([])
 
-  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type })
-    window.setTimeout(() => setToast(null), 3500)
-  }, [])
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type })
+      window.setTimeout(() => setToast(null), 3500)
+    },
+    [],
+  )
 
   const reload = useCallback(async () => {
     if (!enabled) return
@@ -54,6 +70,7 @@ export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
     if (!enabled) {
       setLoading(false)
       setError(null)
+      setAssignableUsers([])
       return
     }
     let cancelled = false
@@ -74,23 +91,71 @@ export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
     }
   }, [demo, enabled])
 
+  useEffect(() => {
+    if (!enabled || !canAssignToOthers) {
+      setAssignableUsers([])
+      return
+    }
+    setAssignableUsers(structuredClone(MOCK_ASSIGNABLE_USERS))
+  }, [canAssignToOthers, enabled])
+
   const createKey = useCallback(
-    async (name: string) => {
+    async (input: CreateClientApiKeyInput | string) => {
       await delay(200)
-      const id =
-        data.keys.reduce((max, k) => Math.max(max, k.id), 0) + 1
+      const normalized: CreateClientApiKeyInput =
+        typeof input === 'string'
+          ? { name: input, canAssignToOthers }
+          : { ...input, canAssignToOthers }
+
+      if (
+        normalized.assigned_to_user_id != null &&
+        !canAssignToOthers
+      ) {
+        const message =
+          'Only Owner/Admin may assign a Client API Key to another user.'
+        showToast(message, 'error')
+        throw new Error(message)
+      }
+
+      if (
+        canAssignToOthers &&
+        normalized.assigned_to_user_id != null &&
+        !MOCK_ASSIGNABLE_USERS.some(
+          (u) => u.id === normalized.assigned_to_user_id,
+        )
+      ) {
+        const message =
+          'Assigned user is not an eligible Staff/Owner in this account scope.'
+        showToast(message, 'error')
+        throw new Error(message)
+      }
+
+      const id = data.keys.reduce((max, k) => Math.max(max, k.id), 0) + 1
       const prefix = `rpa_sk_m${String(id).padStart(3, '0')}`
       // MOCK one-time secret — not a real key material for production.
       const raw = `${prefix}_MOCK_ONLY_${crypto.randomUUID().slice(0, 8)}`
+      const label = normalized.name.trim() || `Client ${id}`
+      const ownerId =
+        canAssignToOthers && normalized.assigned_to_user_id != null
+          ? normalized.assigned_to_user_id
+          : (currentUserId ?? 1)
+      const ownerMeta =
+        MOCK_ASSIGNABLE_USERS.find((u) => u.id === ownerId) ?? null
+      const issuerId = currentUserId ?? 1
+      const issuerMeta =
+        MOCK_ASSIGNABLE_USERS.find((u) => u.id === issuerId) ?? null
+
       setData((prev) => ({
         keys: [
           {
             id,
-            name: name.trim() || `Client ${id}`,
+            name: label,
             key_prefix: prefix,
             installation_id: 'inst_demo',
-            created_by: 1,
-            created_by_name: 'mock.user',
+            created_by: ownerId,
+            created_by_name: ownerMeta?.name ?? `User #${ownerId}`,
+            issued_by: issuerId,
+            issued_by_name: issuerMeta?.name ?? `User #${issuerId}`,
             last_used_at: null,
             revoked_at: null,
             is_active: true,
@@ -107,10 +172,12 @@ export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
         ],
       }))
       setOneTimeRawKey(raw)
-      setOneTimeKeyName(name.trim() || `Client ${id}`)
-      showToast('Đã tạo Key (MOCK). Sao chép raw key ngay — không lưu lâu dài.')
+      setOneTimeKeyName(label)
+      showToast(
+        'Đã tạo Key (MOCK). Sao chép raw key ngay — không lưu lâu dài.',
+      )
     },
-    [data.keys, showToast],
+    [canAssignToOthers, currentUserId, data.keys, showToast],
   )
 
   const revokeKey = useCallback(
@@ -157,5 +224,7 @@ export function useClientApiKeysMock(options: { enabled?: boolean } = {}) {
     oneTimeRawKey,
     oneTimeKeyName,
     dismissOneTime,
+    assignableUsers,
+    canAssignToOthers,
   }
 }
