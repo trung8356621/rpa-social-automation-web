@@ -1,0 +1,6 @@
+﻿SOURCE_REVISION=c8e7039f11a06d55f1b65ab93e4996d3dec0f5f8
+REQUIRED_COMMIT=c8e7039f11a06d55f1b65ab93e4996d3dec0f5f8
+BUILD_ENV=VITE_RPA_API_MODE=live VITE_RPA_ASSET_BASE=/build-rpa-web/
+BUILT_AT=20261125-143345
+TARGET=/www/wwwroot/seo-ops-client/public/build-rpa-web/
+BACKEND=https://seo-ops.duckdns.org (833e2a3 already deployed)
