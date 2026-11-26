@@ -494,3 +494,67 @@ test('Bulk Mock generates 5 independent Articles, saves without Campaign, and ha
   assert.equal(screenSrc.includes('BulkMockArticleModal'), true)
 })
 
+test('Bulk Mock generates valid local image paths for file/files while preserving text/number/boolean/title', () => {
+  const schemaWithFiles: ScriptInputSchema = {
+    schema_available: true,
+    test_mode_compatible: true,
+    title_required: true,
+    body_required: false,
+    title_supported: true,
+    body_supported: false,
+    fields: [
+      { key: 'title', label: 'Title', type: 'string', required: true },
+      { key: 'text', label: 'Text', type: 'string', required: true },
+      { key: 'file', label: 'File', type: 'string', required: false },
+      { key: 'files', label: 'Files', type: 'string', required: true },
+      { key: 'count', label: 'Count', type: 'number', required: false },
+      { key: 'pin', label: 'Pin', type: 'boolean', required: false },
+    ],
+  }
+
+  const res = buildBulkMockArticleDrafts({
+    tag: {
+      tag_id: 2,
+      tag_key: 'qa_sandbox_facebook.qa_sandbox_facebook_publish',
+      tag_name: 'QA Sandbox Publish',
+      tag_enabled: true,
+      site_key: 'qa_sandbox_facebook',
+      site_name: 'QA_SANDBOX_Facebook',
+      cms_type: 'custom',
+      path_key: 'qa_sandbox_facebook_publish',
+      path_name: 'Publish',
+      effective_script: {
+        package_key: 'ea7822b3-ed2b-48e9-ab55-7ec7fe5349a1',
+        script_id: 'ea7822b3-ed2b-48e9-ab55-7ec7fe5349a1',
+        name: 'Sandbox QA Facebook browser probe',
+        version: '3',
+        release_id: 22,
+      },
+      resolution_source: 'site_specific',
+      is_system_auth: false,
+      is_runnable: true,
+      status_reason: null,
+    },
+    schema: schemaWithFiles,
+    count: 2,
+  })
+
+  assert.equal(res.ok, true)
+  if (!res.ok) return
+  assert.equal(res.items.length, 2)
+
+  const first = res.items[0]!.payload.input!
+  assert.match(String(first.title), /^TEST Mock Title #1/)
+  assert.match(String(first.text), /^TEST Mock text #1/)
+  assert.equal(first.count, 1)
+  assert.equal(first.pin, true)
+  assert.equal(first.file, 'C:\\Users\\trung\\Desktop\\icon-rpa.png')
+  assert.deepEqual(first.files, ['C:\\Users\\trung\\Desktop\\icon-rpa.png'])
+
+  const second = res.items[1]!.payload.input!
+  assert.equal(second.file, 'C:\\Users\\trung\\Desktop\\logo-rpa.png')
+  assert.deepEqual(second.files, ['C:\\Users\\trung\\Desktop\\logo-rpa.png'])
+  assert.equal(second.count, 2)
+  assert.equal(second.pin, false)
+})
+

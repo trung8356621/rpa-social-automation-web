@@ -36,6 +36,18 @@ function parseGeneratedTagBlocks(
       out[v.key] = Number.isFinite(n) ? n : 1
     } else if (fieldType === 'boolean') {
       out[v.key] = rawVal === 'true'
+    } else if (v.key === 'files') {
+      let parsed: unknown = null
+      try {
+        parsed = JSON.parse(rawVal)
+      } catch {
+        parsed = null
+      }
+      if (Array.isArray(parsed)) {
+        out[v.key] = parsed.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      } else {
+        out[v.key] = rawVal.trim() ? [rawVal.trim()] : []
+      }
     } else {
       out[v.key] = rawVal
     }

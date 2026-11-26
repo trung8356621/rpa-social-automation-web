@@ -645,6 +645,11 @@ export function resolveValidSiteFilter(
   return options.some((o) => o.key === currentFilter) ? currentFilter : 'all'
 }
 
+const MOCK_LOCAL_IMAGE_PATHS = [
+  'C:\\Users\\trung\\Desktop\\icon-rpa.png',
+  'C:\\Users\\trung\\Desktop\\logo-rpa.png',
+] as const
+
 /**
  * Generate N distinct mock Content items for ONE selected target Action Tag.
  * Each generated Content item has exactly ONE target_tag_keys entry.
@@ -707,6 +712,13 @@ export function generateBulkMockContentsForTag(params: {
         sample = seq % 2 === 0 ? 'false' : 'true'
       } else if (v.key === 'title') {
         sample = `TEST Mock Title #${seq} (${params.tag.site_key} · ${ref})`
+      } else if (v.key === 'file' || (v.type as string) === 'file') {
+        sample =
+          MOCK_LOCAL_IMAGE_PATHS[(seq - 1) % MOCK_LOCAL_IMAGE_PATHS.length]!
+      } else if (v.key === 'files') {
+        sample = JSON.stringify([
+          MOCK_LOCAL_IMAGE_PATHS[(seq - 1) % MOCK_LOCAL_IMAGE_PATHS.length]!,
+        ])
       } else {
         sample = `TEST Mock ${v.key} #${seq} (${params.tag.site_key} · ${ref})`
       }
