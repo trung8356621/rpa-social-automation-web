@@ -33,7 +33,8 @@ async function makeThumbnail(url: string, signal: AbortSignal): Promise<Blob | n
   }
 }
 
-export function QuickAuditScreenshot({ artifact, failedAttempt, onPreview }: {
+export function QuickAuditScreenshot({ artifact, attemptUuid, failedAttempt, onPreview }: {
+  attemptUuid: string | null
   failedAttempt: boolean
   artifact?: CampaignArtifact
   onPreview: (preview: ScreenshotPreviewData) => void
@@ -91,6 +92,7 @@ export function QuickAuditScreenshot({ artifact, failedAttempt, onPreview }: {
         outcome: resolveScreenshotOutcome(artifact),
         variantLabel: resolveScreenshotVariant(artifact),
         artifactUuid: artifact.artifact_uuid ?? null,
+        attemptUuid,
         failedAttempt,
       })}
     >

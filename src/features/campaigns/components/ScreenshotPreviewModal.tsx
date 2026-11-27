@@ -14,6 +14,7 @@ export type ScreenshotPreviewData = (
   outcome: { label: string; variant: 'success' | 'danger' | 'neutral' } | null
   variantLabel: string | null
   artifactUuid: string | null
+  attemptUuid: string | null
   failedAttempt: boolean
 }
 
@@ -97,7 +98,7 @@ export function ScreenshotPreviewModal({
             ) : null}
           </div>
           <div className="flex gap-2">
-            {preview.failedAttempt && imageUrl && imageUrl === decodedUrl && !editing && (
+            {preview.failedAttempt && preview.attemptUuid && preview.artifactUuid && imageUrl && imageUrl === decodedUrl && !editing && (
               <Button size="sm" onClick={() => setEditing(true)}>Add Error Tag</Button>
             )}
             <Button size="sm" variant="outline" onClick={editing ? () => setEditing(false) : onClose}>
@@ -107,8 +108,8 @@ export function ScreenshotPreviewModal({
         </div>
 
         <div className="flex-1 overflow-auto bg-surface-muted/40 p-4">
-          {editing && imageUrl ? (
-            <ErrorTagEditor imageUrl={imageUrl} title={preview.title} />
+          {editing && imageUrl && preview.attemptUuid && preview.artifactUuid ? (
+            <ErrorTagEditor imageUrl={imageUrl} title={preview.title} attemptUuid={preview.attemptUuid} artifactUuid={preview.artifactUuid} />
           ) : imageUrl ? (
             <img
               src={imageUrl}

@@ -27,6 +27,12 @@ export const NAV_ITEMS: NavItem[] = [
     description: 'Site / Path / Action tag registry',
   },
   {
+    label: 'Error Tags',
+    to: '/social-automation/error-tags',
+    icon: Tags,
+    description: 'Recovery templates and Handler bindings',
+  },
+  {
     label: 'Script Registry',
     to: '/social-automation/scripts',
     icon: ScrollText,

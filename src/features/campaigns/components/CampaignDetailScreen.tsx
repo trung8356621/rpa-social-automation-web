@@ -783,7 +783,7 @@ export function CampaignDetailScreen({
                       <QuickAuditScreenshot
                         key={audit.screenshot?.artifact_uuid ?? audit.screenshot?.id}
                         artifact={audit.screenshot}
-                        failedAttempt={audit.attempt?.status === 'failed'}
+                        attemptUuid={audit.attempt?.attempt_uuid ?? null} failedAttempt={audit.attempt?.status === 'failed'}
                         onPreview={setScreenshotPreview}
                       />
                     </div>
@@ -1102,7 +1102,7 @@ export function CampaignDetailScreen({
                                         <AttemptScreenshot
                                           key={art.id}
                                           artifact={art}
-                                          failedAttempt={a.status === 'failed'}
+                                          attemptUuid={a.attempt_uuid ?? null} failedAttempt={a.status === 'failed'}
                                           onPreview={setScreenshotPreview}
                                         />
                                       ) : (

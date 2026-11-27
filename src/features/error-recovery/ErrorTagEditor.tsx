@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 
+import { RecoverySaveForm } from './RecoverySaveForm'
 import type { Box } from './modal-detection.mjs'
 import { fingerprint, recognizeImage, similarity } from './recognition'
 
@@ -35,14 +35,13 @@ function match(source: Recognition, roi: Box, target: Box, sample: Recognition, 
   return candidates.length === 1 ? candidates[0].box : null
 }
 
-export function ErrorTagEditor({ imageUrl, title }: { imageUrl: string; title: string }) {
+export function ErrorTagEditor({ imageUrl, title, attemptUuid, artifactUuid }: { imageUrl: string; title: string; attemptUuid: string; artifactUuid: string }) {
   const stage = useRef<HTMLDivElement>(null)
   const image = useRef<HTMLImageElement>(null)
   const drag = useRef<Drag | null>(null)
   const [source, setSource] = useState<Recognition | null>(null)
   const [roi, setRoi] = useState<Box | null>(null)
   const [target, setTarget] = useState<Box | null>(null)
-  const [name, setName] = useState('')
   const [threshold, setThreshold] = useState(0.95)
   const [sourceError, setSourceError] = useState<string | null>(null)
   const [sample, setSample] = useState<{ url: string; result?: Recognition; error?: string } | null>(null)
@@ -152,9 +151,6 @@ export function ErrorTagEditor({ imageUrl, title }: { imageUrl: string; title: s
           </p>
         </div>
         <div className="space-y-3">
-          <label className="block space-y-1 text-sm">Error Tag name
-            <Input value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
           {source && !roi && <Button size="sm" variant="outline" onClick={() => setRoi(fullFrame)}>Set modal ROI</Button>}
           {roi && !target && <Button size="sm" variant="outline" onClick={() => {
             const [x, y, w, h] = roi
@@ -162,7 +158,8 @@ export function ErrorTagEditor({ imageUrl, title }: { imageUrl: string; title: s
           }}>Set target manually</Button>}
           {target && <Button size="sm" variant="outline" onClick={() => setTarget(null)}>Clear target</Button>}
           {target && !selectedInside && <p className="text-xs text-danger">Place the target entirely inside the modal ROI.</p>}
-          <p className="text-xs text-muted">Template saving is unavailable until the Error Recovery API is connected.</p>
+          <RecoverySaveForm attemptUuid={attemptUuid} artifactUuid={artifactUuid}
+            modal={roi} target={target} threshold={threshold} valid={!target || Boolean(selectedInside)} />
         </div>
       </div>
 

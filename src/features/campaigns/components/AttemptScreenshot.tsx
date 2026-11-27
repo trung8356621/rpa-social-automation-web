@@ -13,6 +13,7 @@ import type { CampaignArtifact } from '../types'
 import type { ScreenshotPreviewData } from './ScreenshotPreviewModal'
 
 type AttemptScreenshotProps = {
+  attemptUuid: string | null
   failedAttempt: boolean
   artifact: CampaignArtifact
   onPreview: (preview: ScreenshotPreviewData) => void
@@ -20,6 +21,7 @@ type AttemptScreenshotProps = {
 
 export function AttemptScreenshot({
   artifact,
+  attemptUuid,
   failedAttempt,
   onPreview,
 }: AttemptScreenshotProps) {
@@ -140,6 +142,7 @@ export function AttemptScreenshot({
             outcome,
             variantLabel,
             artifactUuid: artifact.artifact_uuid ?? null,
+            attemptUuid,
             failedAttempt,
           })
         }

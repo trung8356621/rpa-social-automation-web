@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { RequireOwnerOrAdmin } from '@/features/session-identity/components/RequireOwnerOrAdmin'
+import { RecoveryLibrary } from '@/features/error-recovery/RecoveryLibrary'
 import { AccountsPage } from '@/pages/AccountsPage'
 import { ActionTagsPage } from '@/pages/ActionTagsPage'
 import { ArticlePromptsPage } from '@/pages/ArticlePromptsPage'
@@ -29,6 +30,10 @@ export const router = createBrowserRouter([
       {
         path: 'social-automation',
         element: <StaffClientConnectionPage />,
+      },
+      {
+        path: 'social-automation/error-tags',
+        element: <RequireOwnerOrAdmin><RecoveryLibrary /></RequireOwnerOrAdmin>,
       },
       {
         path: 'social-automation/action-tags',
