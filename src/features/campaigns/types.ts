@@ -189,6 +189,7 @@ export type CampaignContentStatus =
   | 'blocked_by_failure'
   | 'user_blocked'
   | 'running'
+  | 'retrying'
   | 'success'
   | 'completed'
   | 'failed'
@@ -270,6 +271,7 @@ export type CampaignArtifact = {
   label: string
   url: string | null
   download_url?: string | null
+  thumbnail_url?: string | null
   has_binary?: boolean | null
   role?: string | null
   outcome?: 'success' | 'failure' | string | null

@@ -44,6 +44,7 @@ import {
   resolveAttemptFailureDisplay,
   resolveContentTitle,
   resolveContentUuid,
+  resolveQuickAudit,
   resolveSiteForContent,
 } from '../campaign-detail-view'
 import {
@@ -69,6 +70,7 @@ import type {
   CampaignJobAttempt,
 } from '../types'
 import { AttemptScreenshot } from './AttemptScreenshot'
+import { QuickAuditScreenshot } from './QuickAuditScreenshot'
 import {
   ScreenshotPreviewModal,
   type ScreenshotPreviewData,
@@ -156,7 +158,6 @@ export function CampaignDetailScreen({
   const [unblockingContentId, setUnblockingContentId] = useState<string | null>(null)
   const savingIntervalRef = useRef(false)
   const runInFlightRef = useRef(false)
-  const attemptsInFlightRef = useRef(false)
   const busy = busyAction !== null
   const canEditInterval = canEditActionTagInterval(
     campaign,
@@ -223,9 +224,7 @@ export function CampaignDetailScreen({
   )
 
   useEffect(() => {
-    if (attemptsInFlightRef.current) return
     let cancelled = false
-    attemptsInFlightRef.current = true
     void loadAttempts(campaign.id)
       .then((rows) => {
         if (!cancelled) {
@@ -240,9 +239,6 @@ export function CampaignDetailScreen({
             err instanceof Error ? err.message : 'Failed to load attempts',
           )
         }
-      })
-      .finally(() => {
-        attemptsInFlightRef.current = false
       })
     return () => {
       cancelled = true
@@ -731,15 +727,17 @@ export function CampaignDetailScreen({
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold">Campaign Contents</h2>
-            <p className="text-xs text-muted">
-              Article status, identifiers, and per-content execution history.
-            </p>
           </div>
           <span className="font-mono text-xs text-muted">
             {contents.length} item(s)
           </span>
         </div>
 
+        {attemptsError ? (
+          <p role="status" className="border-b border-border px-4 py-2 text-xs text-warning">
+            Execution history could not refresh. {attemptsError}
+          </p>
+        ) : null}
         {contentsError ? (
           <div className="px-4 py-4 text-center text-xs text-danger">
             Failed to load Content list. {contentsError}
@@ -769,17 +767,22 @@ export function CampaignDetailScreen({
               const contentAttempts = attemptsByContent.get(c.id) ?? []
               const historyExpanded = expandedHistoryIds.has(c.id)
               const queueFeedback = resolveContentQueueFeedback(c)
+              const audit = resolveQuickAudit(c, effectiveStatus, contentAttempts, retryingContentId === c.id)
+              const result = audit.status
+                ? contentStatusBadge(audit.status)
+                : { label: 'No result recorded', variant: 'neutral' as const }
+              const agent = audit.attempt?.agent_uuid ?? audit.attempt?.agent_label
+              const error = audit.error ?? (queueFeedback.kind === 'error' && audit.status !== 'retrying'
+                ? queueFeedback.message ?? queueFeedback.code
+                : null)
 
               return (
-                <div key={c.id} className="px-4 py-3">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <div className="text-sm font-semibold text-foreground">
+                <article key={c.id} className="px-4 py-2.5">
+                  <div className="grid items-start gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-4 lg:grid-cols-[minmax(0,1fr)_auto_9rem]">
+                    <div className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
+                      <h3 className="text-sm font-semibold text-foreground">
                         {contentTitle}
-                      </div>
-                      <div className="font-mono text-[11px] text-muted">
-                        UUID: {contentUuid}
-                      </div>
+                      </h3>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                         <span>
                           Site:{' '}
@@ -810,12 +813,30 @@ export function CampaignDetailScreen({
                           </span>
                         ) : null}
                       </div>
-                      {queueFeedback.kind !== 'none' ? (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                        <span className="inline-flex items-center gap-1.5">
+                          Current <Badge variant={cs.variant}>{cs.label}</Badge>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          Execution <Badge variant={result.variant}>{result.label}</Badge>
+                        </span>
+                        <span>
+                          Last completed{' '}
+                          {audit.completed?.ended_at ? (
+                            <time dateTime={audit.completed.ended_at}>
+                              {formatSchedulerTimestamp(audit.completed.ended_at, '—')}
+                            </time>
+                          ) : '—'}
+                        </span>
+                        {agent ? <span title={agent}>Agent <span className="font-mono text-foreground">{agent}</span></span> : null}
+                      </div>
+                      {error ? (
+                        <p className="line-clamp-2 text-xs text-danger" title={error}>{error}</p>
+                      ) : null}
+                      {queueFeedback.kind !== 'none' && queueFeedback.kind !== 'error' ? (
                         <div
                           className={
-                            queueFeedback.kind === 'error'
-                              ? 'text-xs text-danger'
-                              : queueFeedback.kind === 'warning'
+                            queueFeedback.kind === 'warning'
                                 ? 'text-xs text-warning'
                                 : 'text-xs text-primary'
                           }
@@ -833,8 +854,13 @@ export function CampaignDetailScreen({
                       ) : null}
                     </div>
 
-                    <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                      <Badge variant={cs.variant}>{cs.label}</Badge>
+                    <div className="sm:row-span-2 lg:col-start-3 lg:row-start-1 lg:row-span-1">
+                      <QuickAuditScreenshot
+                        artifact={audit.screenshot}
+                        onPreview={setScreenshotPreview}
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 lg:col-start-2 lg:row-start-1 lg:max-w-52 lg:justify-end lg:self-center">
                       {isAdmin ? (
                         <>
                           {isV2 && onBlock && canBlockContent(c) ? (
@@ -973,11 +999,7 @@ export function CampaignDetailScreen({
                       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
                         Execution History
                       </div>
-                      {attemptsError ? (
-                        <p className="mb-2 text-xs text-danger">
-                          {attemptsError}
-                        </p>
-                      ) : null}
+                      <p className="mb-2 break-all font-mono text-[11px] text-muted">UUID: {contentUuid}</p>
                       {contentAttempts.length === 0 ? (
                         <p className="text-xs text-muted">
                           No execution attempts recorded yet.
@@ -1114,7 +1136,7 @@ export function CampaignDetailScreen({
                       )}
                     </div>
                   ) : null}
-                </div>
+                </article>
               )
             })}
           </div>
@@ -1305,10 +1327,13 @@ export function CampaignDetailScreen({
         </section>
       ) : null}
 
-      <ScreenshotPreviewModal
-        preview={screenshotPreview}
-        onClose={() => setScreenshotPreview(null)}
-      />
+      {screenshotPreview ? (
+        <ScreenshotPreviewModal
+          key={screenshotPreview.fetchUrl ?? screenshotPreview.artifactUuid ?? screenshotPreview.title}
+          preview={screenshotPreview}
+          onClose={() => setScreenshotPreview(null)}
+        />
+      ) : null}
     </div>
   )
 }

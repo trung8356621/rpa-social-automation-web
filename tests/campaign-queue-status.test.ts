@@ -61,7 +61,7 @@ describe('Campaign Queue Status Display & Recovery Feedback', () => {
       resolve('src/features/campaigns/components/CampaignDetailScreen.tsx'),
       'utf8',
     )
-    assert.match(screenSrc, /queueFeedback\.kind === 'error'\s*\?\s*'text-xs text-danger'/)
+    assert.match(screenSrc, /queueFeedback\.kind !== 'none' && queueFeedback\.kind !== 'error'/)
     assert.match(screenSrc, /queueFeedback\.kind === 'warning'\s*\?\s*'text-xs text-warning'/)
     assert.match(screenSrc, /:\s*'text-xs text-primary'/)
   })

@@ -17,6 +17,7 @@ import {
   resolveAttemptFailureDisplay,
   resolveContentTitle,
   resolveContentUuid,
+  resolveQuickAudit,
 } from '../src/features/campaigns/campaign-detail-view.ts'
 import type {
   Campaign,
@@ -27,6 +28,47 @@ import {
   contentStatusBadge,
   emptySummary,
 } from '../src/features/campaigns/status-labels.ts'
+
+test('quick audit isolates the current attempt and preserves history across retries', () => {
+  const content = makeContent('audit', 'site.create_post', null, null)
+  const screenshot = {
+    kind: 'screenshot',
+    artifact_uuid: 'evidence',
+    outcome: 'success',
+    thumbnail_url: '/social-automation/api/campaigns/artifacts/evidence/thumbnail',
+  }
+  const first = mapLiveJobAttempt({
+    id: '1', content_id: content.id, job_id: 'first-job', attempt_no: 1,
+    status: 'succeeded', ended_at: '2026-11-27T02:00:00Z', artifacts: [screenshot],
+  })
+  const second = mapLiveJobAttempt({
+    id: '2', content_id: content.id, job_id: 'retry-job', attempt_no: 2,
+    status: 'failed', ended_at: '2026-11-27T02:01:00Z', error_message: 'Timed out',
+  })
+  const third = mapLiveJobAttempt({
+    id: '3', attempt_uuid: 'running-3', content_id: content.id, job_id: 'retry-job',
+    attempt_no: 3, status: 'running', started_at: '2026-11-27T02:02:00Z', agent_uuid: 'worker-3',
+  })
+  const success = resolveQuickAudit(content, 'success', [first])
+  assert.equal(success.status, 'success')
+  assert.equal(success.screenshot?.thumbnail_url, screenshot.thumbnail_url)
+  assert.equal(resolveQuickAudit(content, 'success', [{ ...first, artifacts: [] }]).status, 'success')
+  assert.equal(resolveQuickAudit(content, 'failed_locked', [first, second]).error, 'Timed out')
+  assert.equal(resolveQuickAudit(content, 'failed_locked', [first, second]).screenshot, undefined)
+  assert.equal(resolveQuickAudit(content, 'failed_locked', [first]).screenshot, undefined)
+
+  const retry = { ...content, current_job_id: 'retry-job', attempts: [{ ...third, attempt_uuid: null }] }
+  const attempts = groupAttemptsByContent([retry], [third, first, second]).get(content.id)!
+  assert.deepEqual(attempts.map((attempt) => attempt.attempt), [1, 2, 3])
+  assert.equal(resolveQuickAudit(retry, 'pending', attempts).screenshot, undefined)
+  assert.equal(resolveQuickAudit(retry, 'running', [first]).screenshot, undefined)
+  const running = resolveQuickAudit(retry, 'running', attempts)
+  assert.equal(running.attempt?.agent_uuid, 'worker-3')
+  assert.equal(running.completed?.ended_at, second.ended_at)
+  assert.equal(running.screenshot, undefined)
+  assert.equal(resolveQuickAudit(retry, 'pending', attempts, true).status, 'retrying')
+  assert.equal(resolveQuickAudit({ ...retry, recovery_job_in_flight: true }, 'pending', attempts).status, 'retrying')
+})
 
 function makeBaseCampaign(overrides?: Partial<Campaign>): Campaign {
   return {

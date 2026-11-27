@@ -1,7 +1,13 @@
 import { parseShortcodeSegments } from './shortcode-source.ts'
+import {
+  isScreenshotArtifact,
+  resolveArtifactFetchUrl,
+  resolveScreenshotOutcome,
+} from './campaign-artifacts.ts'
 import type {
   Campaign,
   CampaignContent,
+  CampaignContentStatus,
   CampaignJobAttempt,
   CampaignSummary,
 } from './types.ts'
@@ -273,19 +279,37 @@ export function groupAttemptsByContent(
     if (c.content_uuid?.trim()) byContentUuid.set(c.content_uuid.trim(), c)
   }
 
-  const seenPerContent = new Map<string, Set<string>>()
+  const seenPerContent = new Map<string, Map<string, number>>()
   const append = (contentId: string, att: CampaignJobAttempt) => {
     const list = result.get(contentId)
     if (!list) return
     let seen = seenPerContent.get(contentId)
     if (!seen) {
-      seen = new Set<string>()
+      seen = new Map<string, number>()
       seenPerContent.set(contentId, seen)
     }
-    const dedupeKey = att.attempt_uuid?.trim() || att.id
-    if (dedupeKey && seen.has(dedupeKey)) return
-    if (dedupeKey) seen.add(dedupeKey)
-    list.push(att)
+    const uuid = att.attempt_uuid?.trim()
+    const keys = [uuid ? `uuid:${uuid}` : '', att.id ? `id:${att.id}` : ''].filter(Boolean)
+    const existingIndex = keys.map((key) => seen.get(key)).find((index) => index !== undefined)
+    const index = existingIndex ?? list.length
+    const existing = list[index]
+    if (existing) {
+      const preferred = existing.ended_at && !att.ended_at ? existing : att
+      const fallback = preferred === existing ? att : existing
+      list[index] = {
+        ...preferred,
+        attempt_uuid: preferred.attempt_uuid ?? fallback.attempt_uuid,
+        job_id: preferred.job_id ?? fallback.job_id,
+        job_uuid: preferred.job_uuid ?? fallback.job_uuid,
+        started_at: preferred.started_at ?? fallback.started_at,
+        agent_uuid: preferred.agent_uuid ?? fallback.agent_uuid,
+        agent_label: preferred.agent_label ?? fallback.agent_label,
+        artifacts: preferred.artifacts.length ? preferred.artifacts : fallback.artifacts,
+      }
+    } else {
+      list.push(att)
+    }
+    for (const key of keys) seen.set(key, index)
   }
 
   for (const c of contents) {
@@ -327,6 +351,53 @@ export function groupAttemptsByContent(
   }
 
   return result
+}
+
+function isFailure(status: CampaignContentStatus): boolean {
+  return status === 'failed' || status === 'failed_locked' || status === 'unknown'
+}
+
+export function resolveQuickAudit(
+  content: CampaignContent,
+  status: CampaignContentStatus,
+  attempts: CampaignJobAttempt[],
+  retryRequested = false,
+) {
+  const latest = attempts.at(-1)
+  const waiting = status === 'pending' || status === 'waiting_interval' || status === 'waiting_resources'
+  const retrying = retryRequested || status === 'retrying' || (waiting && content.recovery_job_in_flight === true)
+  const active = status === 'running' || retrying
+  const currentStatus = retrying ? 'retrying' : status
+  const matchesJob = !content.current_job_id ||
+    latest?.job_id === content.current_job_id ||
+    latest?.job_uuid === content.current_job_id
+  const activeAttempt = latest?.status === 'running' || latest?.status === 'retrying'
+  const success = status === 'success' || status === 'completed'
+  const latestSucceeded = latest?.status === 'success' || latest?.status === 'completed'
+  let attempt = matchesJob && !retryRequested ? latest : undefined
+  if (active && !activeAttempt) attempt = undefined
+  if (waiting && !retrying) attempt = undefined
+  if (success && !latestSucceeded) attempt = undefined
+  if (isFailure(status) && !active && (!latest || !isFailure(latest.status))) attempt = undefined
+  const resultStatus = waiting || active ? currentStatus : attempt?.status ?? null
+  const screenshots = attempt?.artifacts.filter((artifact) =>
+    isScreenshotArtifact(artifact) && resolveArtifactFetchUrl(artifact),
+  ) ?? []
+  const outcome = latestSucceeded ? 'success' : latest && isFailure(latest.status) ? 'danger' : null
+  const screenshot = screenshots.findLast((artifact) =>
+    resolveScreenshotOutcome(artifact)?.variant === outcome,
+  ) ?? screenshots.findLast((artifact) => {
+    const variant = resolveScreenshotOutcome(artifact)?.variant
+    return variant !== 'success' && variant !== 'danger'
+  })
+
+  return {
+    status: resultStatus,
+    attempt,
+    completed: attempts.findLast((row) => row.ended_at),
+    screenshot,
+    error: resultStatus && isFailure(resultStatus) && attempt ? resolveAttemptFailureDisplay(attempt).reason : null,
+  }
 }
 
 export function resolveAttemptFailureDisplay(attempt: CampaignJobAttempt): {

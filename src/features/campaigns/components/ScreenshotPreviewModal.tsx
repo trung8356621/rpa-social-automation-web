@@ -1,10 +1,14 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
-export type ScreenshotPreviewData = {
-  imageUrl: string
+import { fetchArtifactImageBlob } from '../api/artifact-client'
+
+export type ScreenshotPreviewData = (
+  | { imageUrl: string; fetchUrl?: never }
+  | { imageUrl?: never; fetchUrl: string }
+) & {
   title: string
   outcome: { label: string; variant: 'success' | 'danger' | 'neutral' } | null
   variantLabel: string | null
@@ -20,6 +24,28 @@ export function ScreenshotPreviewModal({
   preview,
   onClose,
 }: ScreenshotPreviewModalProps) {
+  const fetchUrl = preview?.fetchUrl
+  const [loaded, setLoaded] = useState<{ image?: string; error?: string } | null>(null)
+
+  useEffect(() => {
+    if (!fetchUrl) return
+    const controller = new AbortController()
+    let objectUrl: string | undefined
+    void fetchArtifactImageBlob(fetchUrl, controller.signal).then((blob) => {
+      if (controller.signal.aborted) return
+      objectUrl = URL.createObjectURL(blob)
+      setLoaded({ image: objectUrl })
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) {
+        setLoaded({ error: error instanceof Error ? error.message : 'Screenshot unavailable.' })
+      }
+    })
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [fetchUrl])
+
   useEffect(() => {
     if (!preview) return
     const onKey = (e: KeyboardEvent) => {
@@ -30,6 +56,7 @@ export function ScreenshotPreviewModal({
   }, [preview, onClose])
 
   if (!preview) return null
+  const imageUrl = preview.imageUrl ?? loaded?.image
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -68,11 +95,17 @@ export function ScreenshotPreviewModal({
         </div>
 
         <div className="flex-1 overflow-auto bg-surface-muted/40 p-4">
-          <img
-            src={preview.imageUrl}
-            alt={preview.title}
-            className="mx-auto max-h-[72vh] w-auto rounded-[var(--radius-control)] border border-border object-contain"
-          />
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={preview.title}
+              className="mx-auto max-h-[72vh] w-auto rounded-[var(--radius-control)] border border-border object-contain"
+            />
+          ) : (
+            <p role="status" className="text-center text-sm text-muted">
+              {loaded?.error ?? 'Loading screenshot…'}
+            </p>
+          )}
         </div>
 
         {preview.artifactUuid ? (

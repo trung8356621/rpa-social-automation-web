@@ -46,6 +46,8 @@ export function contentStatusBadge(
       return { label: 'Blocked', variant: 'neutral' }
     case 'running':
       return { label: 'Running', variant: 'primary' }
+    case 'retrying':
+      return { label: 'Retrying', variant: 'warning' }
     case 'success':
       return { label: 'Success', variant: 'success' }
     case 'completed':
@@ -113,7 +115,7 @@ export function summarizeContents(
       s.waiting += 1
     } else if (st === 'user_blocked') {
       s.user_blocked += 1
-    } else if (st === 'running') s.running += 1
+    } else if (st === 'running' || st === 'retrying') s.running += 1
     else if (st === 'success' || st === 'completed') {
       s.success += 1
       s.completed += 1

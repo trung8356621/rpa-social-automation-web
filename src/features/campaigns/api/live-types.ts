@@ -240,6 +240,7 @@ export type LiveJobAttemptRow = {
   campaign_id?: string | number
   attempt?: number
   attempt_number?: number
+  attempt_no?: number
   status?: string
   step?: string | number | null
   step_name?: string | null
@@ -274,6 +275,7 @@ export type LiveJobAttemptRow = {
     name?: string
     url?: string | null
     download_url?: string | null
+    thumbnail_url?: string | null
     has_binary?: boolean | null
     role?: string | null
     screenshot_role?: string | null
