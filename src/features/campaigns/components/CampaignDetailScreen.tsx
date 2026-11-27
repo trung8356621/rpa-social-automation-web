@@ -778,7 +778,14 @@ export function CampaignDetailScreen({
 
               return (
                 <article key={c.id} className="px-4 py-2.5">
-                  <div className="grid items-start gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-4 lg:grid-cols-[minmax(0,1fr)_auto_9rem]">
+                  <div className="grid items-start gap-2 sm:grid-cols-[9rem_minmax(0,1fr)] sm:gap-x-4 lg:grid-cols-[9rem_minmax(0,1fr)_auto]">
+                    <div className="sm:row-span-2 lg:row-span-1">
+                      <QuickAuditScreenshot
+                        key={audit.screenshot?.artifact_uuid ?? audit.screenshot?.id}
+                        artifact={audit.screenshot}
+                        onPreview={setScreenshotPreview}
+                      />
+                    </div>
                     <div className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
                       <h3 className="text-sm font-semibold text-foreground">
                         {contentTitle}
@@ -854,13 +861,7 @@ export function CampaignDetailScreen({
                       ) : null}
                     </div>
 
-                    <div className="sm:row-span-2 lg:col-start-3 lg:row-start-1 lg:row-span-1">
-                      <QuickAuditScreenshot
-                        artifact={audit.screenshot}
-                        onPreview={setScreenshotPreview}
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 lg:col-start-2 lg:row-start-1 lg:max-w-52 lg:justify-end lg:self-center">
+                    <div className="flex flex-wrap items-center gap-1.5 lg:max-w-52 lg:justify-end lg:self-center">
                       {isAdmin ? (
                         <>
                           {isV2 && onBlock && canBlockContent(c) ? (
