@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ErrorTagEditor } from '@/features/error-recovery/ErrorTagEditor'
 
 import { fetchArtifactImageBlob } from '../api/artifact-client'
 
@@ -13,6 +14,7 @@ export type ScreenshotPreviewData = (
   outcome: { label: string; variant: 'success' | 'danger' | 'neutral' } | null
   variantLabel: string | null
   artifactUuid: string | null
+  failedAttempt: boolean
 }
 
 type ScreenshotPreviewModalProps = {
@@ -25,6 +27,8 @@ export function ScreenshotPreviewModal({
   onClose,
 }: ScreenshotPreviewModalProps) {
   const fetchUrl = preview?.fetchUrl
+  const [decodedUrl, setDecodedUrl] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
   const [loaded, setLoaded] = useState<{ image?: string; error?: string } | null>(null)
 
   useEffect(() => {
@@ -49,11 +53,14 @@ export function ScreenshotPreviewModal({
   useEffect(() => {
     if (!preview) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        if (editing) setEditing(false)
+        else onClose()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [preview, onClose])
+  }, [preview, onClose, editing])
 
   if (!preview) return null
   const imageUrl = preview.imageUrl ?? loaded?.image
@@ -78,7 +85,7 @@ export function ScreenshotPreviewModal({
               id="screenshot-preview-title"
               className="text-sm font-semibold text-foreground"
             >
-              {preview.title}
+              {editing ? 'Add Error Tag' : preview.title}
             </h2>
             {preview.outcome ? (
               <Badge variant={preview.outcome.variant}>
@@ -89,16 +96,25 @@ export function ScreenshotPreviewModal({
               <Badge variant="neutral">{preview.variantLabel}</Badge>
             ) : null}
           </div>
-          <Button size="sm" variant="outline" onClick={onClose}>
-            Close
-          </Button>
+          <div className="flex gap-2">
+            {preview.failedAttempt && imageUrl && imageUrl === decodedUrl && !editing && (
+              <Button size="sm" onClick={() => setEditing(true)}>Add Error Tag</Button>
+            )}
+            <Button size="sm" variant="outline" onClick={editing ? () => setEditing(false) : onClose}>
+              {editing ? 'Back to screenshot' : 'Close'}
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-auto bg-surface-muted/40 p-4">
-          {imageUrl ? (
+          {editing && imageUrl ? (
+            <ErrorTagEditor imageUrl={imageUrl} title={preview.title} />
+          ) : imageUrl ? (
             <img
               src={imageUrl}
               alt={preview.title}
+              onLoad={() => setDecodedUrl(imageUrl)}
+              onError={() => setDecodedUrl(null)}
               className="mx-auto max-h-[72vh] w-auto rounded-[var(--radius-control)] border border-border object-contain"
             />
           ) : (

@@ -13,12 +13,14 @@ import type { CampaignArtifact } from '../types'
 import type { ScreenshotPreviewData } from './ScreenshotPreviewModal'
 
 type AttemptScreenshotProps = {
+  failedAttempt: boolean
   artifact: CampaignArtifact
   onPreview: (preview: ScreenshotPreviewData) => void
 }
 
 export function AttemptScreenshot({
   artifact,
+  failedAttempt,
   onPreview,
 }: AttemptScreenshotProps) {
   const fetchUrl = resolveArtifactFetchUrl(artifact)
@@ -138,6 +140,7 @@ export function AttemptScreenshot({
             outcome,
             variantLabel,
             artifactUuid: artifact.artifact_uuid ?? null,
+            failedAttempt,
           })
         }
       >
